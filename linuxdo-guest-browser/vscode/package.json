@@ -1,0 +1,125 @@
+{
+  "name": "linuxdo-guest-browser",
+  "displayName": "LINUX DO 游客阅读器",
+  "description": "在 VS Code 中以游客身份浏览 LINUX DO 的公开内容。",
+  "version": "0.6.0",
+  "publisher": "lexiao-studio",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "linux.do",
+    "linuxdo",
+    "discourse",
+    "reader"
+  ],
+  "activationEvents": [
+    "onView:linuxdoGuest.explorer",
+    "onCommand:linuxdoGuest.open",
+    "onCommand:linuxdoGuest.openLatest",
+    "onCommand:linuxdoGuest.openTop",
+    "onCommand:linuxdoGuest.openCategories",
+    "onCommand:linuxdoGuest.setCloudflareClearance",
+    "onCommand:linuxdoGuest.clearCloudflareClearance"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "linuxdoGuest.open",
+        "title": "LINUX DO: 打开游客阅读器",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "linuxdoGuest.openLatest",
+        "title": "LINUX DO: 最新主题",
+        "icon": "$(clock)"
+      },
+      {
+        "command": "linuxdoGuest.openTop",
+        "title": "LINUX DO: 热门主题",
+        "icon": "$(flame)"
+      },
+      {
+        "command": "linuxdoGuest.openCategories",
+        "title": "LINUX DO: 分类",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "linuxdoGuest.refresh",
+        "title": "刷新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "linuxdoGuest.setCloudflareClearance",
+        "title": "LINUX DO: 设置 Cloudflare 验证",
+        "icon": "$(verified)"
+      },
+      {
+        "command": "linuxdoGuest.clearCloudflareClearance",
+        "title": "LINUX DO: 清除 Cloudflare 验证",
+        "icon": "$(trash)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "linuxdoGuest",
+          "title": "LINUX DO",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "linuxdoGuest": [
+        {
+          "id": "linuxdoGuest.explorer",
+          "name": "游客阅读",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "linuxdoGuest.open",
+          "when": "view == linuxdoGuest.explorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "linuxdoGuest.refresh",
+          "when": "view == linuxdoGuest.explorer",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "LINUX DO 游客阅读器",
+      "properties": {
+        "linuxdoGuest.defaultView": {
+          "type": "string",
+          "enum": [
+            "latest",
+            "top",
+            "categories"
+          ],
+          "enumDescriptions": [
+            "最新主题",
+            "热门主题",
+            "分类列表"
+          ],
+          "default": "latest",
+          "description": "打开阅读器时默认显示的页面。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check": "node --check src/extension.js && node --check media/main.js",
+    "package": "npx --yes @vscode/vsce@3.6.0 package --no-dependencies"
+  }
+}

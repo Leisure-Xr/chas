@@ -1,0 +1,22 @@
+<idea-plugin>
+    <id>studio.lexiao.linuxdo.guestbrowser</id>
+    <name>LINUX DO Guest Browser</name>
+    <vendor email="support@lexiao.studio">LeXiao Studio</vendor>
+
+    <description><![CDATA[
+      Read LINUX DO inside PyCharm as a guest. The plugin does not ask for,
+      store, or submit account credentials. Authentication pages are blocked,
+      and linux.do cookies are cleared whenever a reader session starts or ends.
+    ]]></description>
+
+    <version>0.2.0</version>
+    <idea-version since-build="242" until-build="262.*"/>
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="LINUX DO"
+                    anchor="right"
+                    factoryClass="studio.lexiao.linuxdo.LinuxDoToolWindowFactory"
+                    canCloseContents="false"/>
+    </extensions>
+</idea-plugin>
