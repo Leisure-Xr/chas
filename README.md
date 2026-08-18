@@ -14,7 +14,7 @@
 
 - [插件源码与使用说明](linuxdo-guest-browser/)
 - [下载 VS Code 0.6.0](linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.6.0.vsix)
-- [下载 PyCharm 0.2.0](linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.2.0.zip)
+- [下载 PyCharm 0.3.0](linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.3.0.zip)
 
 ## 仓库结构
 

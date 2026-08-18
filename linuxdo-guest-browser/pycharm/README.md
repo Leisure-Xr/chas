@@ -3,6 +3,10 @@
 A small PyCharm tool-window plugin for reading [linux.do](https://linux.do/) without
 an account.
 
+The tool window follows the VS Code extension's compact reader layout. It includes
+back and forward navigation, latest/top/category shortcuts, public topic search,
+refresh, and a compact/original page density toggle.
+
 ## Privacy behavior
 
 - The browser starts by deleting cookies for `linux.do`.
@@ -32,7 +36,7 @@ PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 The installable ZIP is written to:
 
 ```text
-build/distributions/linuxdo-guest-browser-pycharm-0.2.0.zip
+build/distributions/linuxdo-guest-browser-pycharm-0.3.0.zip
 ```
 
 Install it through **Settings > Plugins > gear menu > Install Plugin from Disk**,

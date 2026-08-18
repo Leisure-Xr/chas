@@ -5,7 +5,7 @@
 ## 下载
 
 - [VS Code 0.6.0](dist/linuxdo-guest-browser-vscode-0.6.0.vsix)
-- [PyCharm 0.2.0](dist/linuxdo-guest-browser-pycharm-0.2.0.zip)
+- [PyCharm 0.3.0](dist/linuxdo-guest-browser-pycharm-0.3.0.zip)
 
 ### VS Code
 
@@ -17,7 +17,7 @@ VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续�
 
 打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。
 
-PyCharm 版使用内嵌 JCEF 浏览器，保留网页原生滚动和浏览历史。插件会拦截登录、注册、OAuth 和会话写入，并在游客会话开始和结束时清理 `linux.do` Cookie。
+PyCharm 版使用内嵌 JCEF 浏览器，保留网页原生滚动和浏览历史。工具栏与 VS Code 版统一，提供最新、热门、分类、搜索、紧凑模式和刷新。插件会拦截登录、注册、OAuth 和会话写入，并在游客会话开始和结束时清理 `linux.do` Cookie。
 
 ## 源码
 
@@ -54,4 +54,3 @@ cd pycharm
 - 不包含分析、遥测或广告代码。
 
 本项目与 LINUX DO 官方无隶属关系。使用时请遵守站点服务条款和访问频率限制。
-
