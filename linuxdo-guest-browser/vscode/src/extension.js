@@ -322,6 +322,13 @@ class GuestReaderPanel {
     this.panel.webview.onDidReceiveMessage((message) => this.handleMessage(message), null, context.subscriptions);
   }
 
+  updateBreakReminderSetting() {
+    this.post({
+      type: 'breakReminderState',
+      enabled: vscode.workspace.getConfiguration('linuxdoGuest').get('breakReminder.enabled', false)
+    });
+  }
+
   navigate(view) {
     const allowed = ['latest', 'top', 'categories'];
     const target = allowed.includes(view) ? view : 'latest';
@@ -336,6 +343,7 @@ class GuestReaderPanel {
     switch (message?.type) {
       case 'ready':
         this.ready = true;
+        this.updateBreakReminderSetting();
         await this.openAction({ type: 'view', view: this.initialView }, false);
         break;
       case 'navigate':
@@ -358,6 +366,14 @@ class GuestReaderPanel {
         break;
       case 'refresh':
         await this.refresh();
+        break;
+      case 'setBreakReminder':
+        await vscode.workspace.getConfiguration('linuxdoGuest').update(
+          'breakReminder.enabled',
+          Boolean(message.enabled),
+          vscode.ConfigurationTarget.Global
+        );
+        this.updateBreakReminderSetting();
         break;
       case 'external':
         await this.openExternal(message.url);
@@ -548,6 +564,8 @@ class GuestReaderPanel {
       <input id="search-input" type="search" maxlength="100" placeholder="搜索公开主题" aria-label="搜索公开主题">
       <button type="submit" class="icon-button" title="搜索" aria-label="搜索">⌕</button>
     </form>
+    <button id="break-reminder" type="button" class="icon-button" title="开启休息提醒" aria-label="开启休息提醒" aria-pressed="false">◷</button>
+    <button id="open-game" type="button" class="icon-button game-button" title="打开休息小游戏" aria-label="打开休息小游戏">▦</button>
     <button id="density" type="button" class="icon-button" title="切换显示密度" aria-label="切换显示密度">≡</button>
     <button id="refresh" type="button" class="icon-button" title="刷新" aria-label="刷新">↻</button>
   </header>
@@ -1015,6 +1033,11 @@ function activate(context) {
     }),
     vscode.commands.registerCommand('linuxdoGuest.setCloudflareClearance', () => configureCloudflare(context, () => GuestReaderPanel.current?.refresh())),
     vscode.commands.registerCommand('linuxdoGuest.clearCloudflareClearance', () => clearCloudflare(context)),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('linuxdoGuest.breakReminder.enabled')) {
+        GuestReaderPanel.current?.updateBreakReminderSetting();
+      }
+    }),
     provider.changeEmitter
   );
 }

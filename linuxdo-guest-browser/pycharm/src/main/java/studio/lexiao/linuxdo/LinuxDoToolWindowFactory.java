@@ -1,6 +1,7 @@
 package studio.lexiao.linuxdo;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
@@ -33,14 +34,18 @@ import javax.swing.JPanel;
 import javax.swing.JToggleButton;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import java.awt.BorderLayout;
 import java.awt.Font;
 import java.awt.FlowLayout;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAware {
@@ -67,6 +72,10 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private static final String DOMAIN_URL = "https://linux.do/";
         private static final String TOP_URL = "https://linux.do/top";
         private static final String CATEGORIES_URL = "https://linux.do/categories";
+        private static final String BREAK_REMINDER_PROPERTY = "linuxdo.guest.breakReminder.enabled";
+        private static final String BREAK_ACTION_PATH = "/__lexiao_break/";
+        private static final int SNOOZE_MINUTES = 10;
+        private static final String BREAK_OVERLAY_SCRIPT = loadBreakOverlayScript();
         private static final String BASE_PAGE_STYLE = """
                 .login-button,
                 .sign-up-button,
@@ -188,10 +197,18 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private final JButton forwardButton = iconButton(AllIcons.Actions.Forward, "前进");
         private final JButton refreshButton = iconButton(AllIcons.Actions.Refresh, "刷新");
         private final JButton resetButton = iconButton(AllIcons.Actions.Restart, "清理 Cookie 并开始新游客会话");
+        private final JButton gameButton = new JButton("小游戏");
         private final JToggleButton compactButton = new JToggleButton("≡", true);
+        private final JToggleButton breakReminderButton = new JToggleButton("休息提醒");
         private final JBTextField searchField = new JBTextField();
         private final JLabel status = new JLabel("正在启动游客会话...");
+        private final PropertiesComponent properties = PropertiesComponent.getInstance();
         private volatile boolean compactMode = true;
+        private volatile boolean breakOverlayVisible;
+        private volatile boolean breakOverlayReminderMode;
+        private volatile boolean breakReminderEnabled;
+        private volatile String recommendedGame = "2048";
+        private Timer breakReminderTimer;
         private volatile boolean disposed;
 
         private GuestBrowserPanel() {
@@ -202,6 +219,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             installGuestOnlyNavigationGuard();
             installHistoryStateHandler();
             startGuestSession();
+            setBreakReminderEnabled(properties.getBoolean(BREAK_REMINDER_PROPERTY, false), false);
         }
 
         private JPanel createToolbar() {
@@ -228,6 +246,12 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             compactButton.setToolTipText("切换紧凑/原始网页布局");
             compactButton.setFocusable(false);
             compactButton.setMargin(JBUI.insets(2, 8));
+            breakReminderButton.setFocusable(false);
+            breakReminderButton.setMargin(JBUI.insets(2, 8));
+            breakReminderButton.setToolTipText("随机 31-60 分钟后提醒休息");
+            gameButton.setFocusable(false);
+            gameButton.setMargin(JBUI.insets(2, 8));
+            gameButton.setToolTipText("随时打开休息小游戏");
             resetButton.setFocusable(false);
 
             backButton.setEnabled(false);
@@ -240,6 +264,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 compactMode = compactButton.isSelected();
                 applyPageStyle(browser.getCefBrowser());
             });
+            breakReminderButton.addActionListener(event ->
+                    setBreakReminderEnabled(breakReminderButton.isSelected(), true));
+            gameButton.addActionListener(event -> showBreakGames());
 
             historyAndBrand.add(backButton);
             historyAndBrand.add(forwardButton);
@@ -247,6 +274,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             historyAndBrand.add(brand);
             historyAndBrand.add(readOnly);
             tools.add(compactButton);
+            tools.add(breakReminderButton);
+            tools.add(gameButton);
             tools.add(refreshButton);
             tools.add(resetButton);
             firstRow.add(historyAndBrand, BorderLayout.WEST);
@@ -325,6 +354,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
                     if (frame != null && frame.isMain() && httpStatusCode < 400) {
                         applyPageStyle(cefBrowser);
+                        if (breakOverlayVisible) {
+                            showBreakOverlay(cefBrowser);
+                        }
                     }
                 }
             }, browser.getCefBrowser());
@@ -379,6 +411,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     }
 
                     String url = request.getURL();
+                    if (handleBreakAction(url)) {
+                        return true;
+                    }
                     if (isAllowedGuestUrl(url)) {
                         SwingUtilities.invokeLater(() -> status.setText("游客模式"));
                         return false;
@@ -401,6 +436,139 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     return isAuthenticationWrite(request) ? authenticationBlocker : null;
                 }
             }, browser.getCefBrowser());
+        }
+
+        private boolean handleBreakAction(String url) {
+            try {
+                URI uri = URI.create(url);
+                if (!"linux.do".equalsIgnoreCase(uri.getHost()) || uri.getPath() == null
+                        || !uri.getPath().startsWith(BREAK_ACTION_PATH)) {
+                    return false;
+                }
+
+                String action = uri.getPath().substring(BREAK_ACTION_PATH.length());
+                SwingUtilities.invokeLater(() -> {
+                    if ("snooze".equals(action)) {
+                        finishBreak(true);
+                    } else if ("continue".equals(action)) {
+                        finishBreak(false);
+                    }
+                });
+                return true;
+            } catch (IllegalArgumentException ignored) {
+                return false;
+            }
+        }
+
+        private void setBreakReminderEnabled(boolean enabled, boolean persist) {
+            breakReminderEnabled = enabled;
+            breakReminderButton.setSelected(enabled);
+            if (persist) {
+                properties.setValue(BREAK_REMINDER_PROPERTY, enabled, false);
+            }
+
+            stopBreakTimer();
+            if (enabled) {
+                scheduleBreakReminder(31, 60);
+                status.setText("休息提醒已开启");
+            } else {
+                breakOverlayVisible = false;
+                removeBreakOverlay();
+                status.setText("休息提醒已关闭");
+            }
+        }
+
+        private void scheduleBreakReminder(int minimumMinutes, int maximumMinutes) {
+            stopBreakTimer();
+            if (!breakReminderEnabled || disposed) {
+                return;
+            }
+
+            int minutes = ThreadLocalRandom.current().nextInt(minimumMinutes, maximumMinutes + 1);
+            breakReminderTimer = new Timer((int) TimeUnit.MINUTES.toMillis(minutes), event -> {
+                breakReminderTimer = null;
+                showBreakReminder();
+            });
+            breakReminderTimer.setRepeats(false);
+            breakReminderTimer.start();
+            breakReminderButton.setToolTipText("休息提醒已开启；下一次约 " + minutes + " 分钟后");
+        }
+
+        private void stopBreakTimer() {
+            if (breakReminderTimer != null) {
+                breakReminderTimer.stop();
+                breakReminderTimer = null;
+            }
+        }
+
+        private void showBreakReminder() {
+            if (!breakReminderEnabled || disposed) {
+                return;
+            }
+            String[] games = {"2048", "snake", "dodge", "runner", "mines"};
+            recommendedGame = games[ThreadLocalRandom.current().nextInt(games.length)];
+            breakOverlayVisible = true;
+            breakOverlayReminderMode = true;
+            status.setText("该休息一下了");
+            showBreakOverlay(browser.getCefBrowser());
+        }
+
+        private void showBreakGames() {
+            if (disposed) {
+                return;
+            }
+            String[] games = {"2048", "snake", "dodge", "runner", "mines"};
+            recommendedGame = games[ThreadLocalRandom.current().nextInt(games.length)];
+            breakOverlayVisible = true;
+            breakOverlayReminderMode = false;
+            showBreakOverlay(browser.getCefBrowser());
+        }
+
+        private void showBreakOverlay(CefBrowser cefBrowser) {
+            if (disposed || !breakOverlayVisible || cefBrowser == null) {
+                return;
+            }
+            String script = BREAK_OVERLAY_SCRIPT.replace(
+                    "__LEXIAO_RECOMMENDED_GAME__",
+                    "\"" + escapeJavaScript(recommendedGame) + "\""
+            ).replace("__LEXIAO_REMINDER_MODE__", Boolean.toString(breakOverlayReminderMode));
+            cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
+        }
+
+        private void finishBreak(boolean snooze) {
+            breakOverlayVisible = false;
+            removeBreakOverlay();
+            if (breakReminderEnabled) {
+                if (snooze) {
+                    scheduleBreakReminder(SNOOZE_MINUTES, SNOOZE_MINUTES);
+                    status.setText("将在 10 分钟后再提醒");
+                } else {
+                    scheduleBreakReminder(31, 60);
+                    status.setText("游客模式");
+                }
+            }
+        }
+
+        private void removeBreakOverlay() {
+            if (disposed) {
+                return;
+            }
+            CefBrowser cefBrowser = browser.getCefBrowser();
+            String script = "if(window.__lexiaoBreakCleanup){window.__lexiaoBreakCleanup();}"
+                    + "var overlay=document.getElementById('lexiao-break-overlay');"
+                    + "if(overlay){overlay.remove();}";
+            cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
+        }
+
+        private static String loadBreakOverlayScript() {
+            try (InputStream input = LinuxDoToolWindowFactory.class.getResourceAsStream("/break-overlay.js")) {
+                if (input == null) {
+                    throw new IllegalStateException("Missing break-overlay.js");
+                }
+                return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            } catch (IOException error) {
+                throw new IllegalStateException("Cannot load break reminder", error);
+            }
         }
 
         private static boolean isAuthenticationWrite(CefRequest request) {
@@ -495,6 +663,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
         @Override
         public void dispose() {
+            stopBreakTimer();
+            breakOverlayVisible = false;
+            removeBreakOverlay();
             disposed = true;
             try {
                 cookieManager.deleteCookies(DOMAIN_URL, null);

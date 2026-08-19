@@ -7,12 +7,19 @@ The tool window follows the VS Code extension's compact reader layout. It includ
 back and forward navigation, latest/top/category shortcuts, public topic search,
 refresh, and a compact/original page density toggle.
 
+An optional break reminder is available from the toolbar and is disabled by default.
+When enabled, it waits a random 31-60 minutes before showing a compact in-page break
+overlay. The overlay includes 2048, Snake, Lane Dodge, Pixel Jump, and Minesweeper;
+each game supports keyboard and on-screen controls. Reminders can be snoozed for ten
+minutes or closed to continue reading.
+
 ## Privacy behavior
 
 - The browser starts by deleting cookies for `linux.do`.
 - Login, signup, session, OAuth, and off-site main-frame navigation are blocked.
 - Closing the project disposes the browser and deletes `linux.do` cookies again.
-- The plugin has no settings, credential fields, analytics, or persistent storage.
+- The plugin has no credential fields or analytics. It only persists the break-reminder
+  on/off preference through PyCharm's standard properties service.
 
 The embedded browser uses PyCharm's shared JCEF cookie manager. This plugin therefore
 also clears any existing `linux.do` session in that PyCharm JCEF profile. It does not
@@ -36,7 +43,7 @@ PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 The installable ZIP is written to:
 
 ```text
-build/distributions/linuxdo-guest-browser-pycharm-0.3.0.zip
+build/distributions/linuxdo-guest-browser-pycharm-0.4.0.zip
 ```
 
 Install it through **Settings > Plugins > gear menu > Install Plugin from Disk**,

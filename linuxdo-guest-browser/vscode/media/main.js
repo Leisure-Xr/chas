@@ -6,6 +6,8 @@
   const searchForm = document.getElementById('search-form');
   const searchInput = document.getElementById('search-input');
   const backButton = document.getElementById('back');
+  const breakReminderButton = document.getElementById('break-reminder');
+  const openGameButton = document.getElementById('open-game');
   const densityButton = document.getElementById('density');
   const refreshButton = document.getElementById('refresh');
   let savedState = vscode.getState() || {};
@@ -15,7 +17,14 @@
   let topicListObserver;
   let currentEntryId;
   let currentPageCacheable = false;
+  let breakReminderEnabled = false;
+  let breakTimer;
+  let gameTimer;
+  let gameFrame;
+  let activeGame;
+  let gameKeyHandler;
   const pageCache = new Map();
+  const gameOverlay = createGameOverlay();
 
   document.body.classList.toggle('compact', savedState.compact !== false);
 
@@ -30,6 +39,11 @@
 
   refreshButton.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
   backButton.addEventListener('click', () => navigate({ type: 'back' }));
+  breakReminderButton.addEventListener('click', () => {
+    setBreakReminderEnabled(!breakReminderEnabled);
+    vscode.postMessage({ type: 'setBreakReminder', enabled: breakReminderEnabled });
+  });
+  openGameButton.addEventListener('click', () => showGameMenu(false));
   densityButton.addEventListener('click', () => {
     const compact = !document.body.classList.contains('compact');
     document.body.classList.toggle('compact', compact);
@@ -40,6 +54,10 @@
   densityButton.classList.toggle('active', document.body.classList.contains('compact'));
 
   window.addEventListener('keydown', (event) => {
+    if (!gameOverlay.hidden && gameKeyHandler?.(event)) {
+      event.preventDefault();
+      return;
+    }
     if (event.altKey && event.key === 'ArrowLeft' && !backButton.disabled) {
       event.preventDefault();
       navigate({ type: 'back' });
@@ -112,6 +130,9 @@
         backButton.disabled = !message.canGoBack;
         currentEntryId = Number(message.entryId);
         break;
+      case 'breakReminderState':
+        setBreakReminderEnabled(Boolean(message.enabled));
+        break;
       case 'restorePage':
         backButton.disabled = !message.canGoBack;
         currentEntryId = Number(message.entryId);
@@ -144,6 +165,538 @@
         break;
     }
   });
+
+  function setBreakReminderEnabled(enabled) {
+    breakReminderEnabled = enabled;
+    breakReminderButton.classList.toggle('active', enabled);
+    breakReminderButton.setAttribute('aria-pressed', String(enabled));
+    breakReminderButton.title = enabled ? '关闭休息提醒' : '开启休息提醒';
+    clearTimeout(breakTimer);
+    breakTimer = undefined;
+    if (enabled) scheduleBreak();
+  }
+
+  function scheduleBreak(delay) {
+    clearTimeout(breakTimer);
+    if (!breakReminderEnabled) return;
+    const randomDelay = (31 + Math.floor(Math.random() * 30)) * 60 * 1000;
+    breakTimer = setTimeout(() => showGameMenu(true), delay || randomDelay);
+  }
+
+  function createGameOverlay() {
+    const overlay = node('div', 'break-overlay');
+    overlay.hidden = true;
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', '休息小游戏');
+    overlay.append(node('section', 'break-panel'));
+    document.body.append(overlay);
+    return overlay;
+  }
+
+  function showGameMenu(fromReminder) {
+    stopGame();
+    clearTimeout(breakTimer);
+    const panel = gameOverlay.querySelector('.break-panel');
+    const games = ['2048', 'snake', 'racer', 'jumper', 'mines'];
+    const recommended = games[Math.floor(Math.random() * games.length)];
+    const heading = node('div', 'break-heading', [
+      node('div', '', [
+        node('h1', '', fromReminder ? '休息一下' : '小游戏'),
+        node('p', '', fromReminder ? '离开帖子几分钟，活动一下眼睛和手指。' : '选一个轻量小游戏，随时可以回到阅读。')
+      ]),
+      iconAction('×', '继续阅读', closeGameOverlay)
+    ]);
+    const choices = node('div', 'game-choices');
+    choices.append(
+      gameChoice('2048', '合并数字', '方向键移动方块', recommended === '2048'),
+      gameChoice('snake', '贪吃蛇', '吃到方块并避开自己', recommended === 'snake'),
+      gameChoice('racer', '车道闪避', '左右换道躲避障碍', recommended === 'racer'),
+      gameChoice('jumper', '像素跳跃', '奔跑并跳过障碍', recommended === 'jumper'),
+      gameChoice('mines', '扫雷', '找出安全方格', recommended === 'mines')
+    );
+    const actions = node('div', 'break-actions');
+    if (fromReminder) {
+      actions.append(actionButton('10 分钟后提醒', () => {
+        gameOverlay.hidden = true;
+        scheduleBreak(10 * 60 * 1000);
+      }));
+    }
+    actions.append(actionButton('继续阅读', closeGameOverlay));
+    panel.replaceChildren(heading, choices, actions);
+    gameOverlay.hidden = false;
+    panel.querySelector('.game-choice')?.focus();
+  }
+
+  function gameChoice(kind, title, description, recommended) {
+    const button = node('button', 'game-choice');
+    button.type = 'button';
+    button.append(
+      node('span', 'game-choice-icon', { '2048': '20', snake: 'S', racer: 'R', jumper: 'J', mines: 'M' }[kind]),
+      node('span', 'game-choice-copy', [
+        node('strong', '', title),
+        node('small', '', description)
+      ])
+    );
+    if (recommended) button.append(node('span', 'recommend-badge', '推荐'));
+    button.addEventListener('click', () => startGame(kind));
+    return button;
+  }
+
+  function startGame(kind) {
+    stopGame();
+    activeGame = kind;
+    if (kind === 'snake') startSnake();
+    else if (kind === 'racer') startRacer();
+    else if (kind === 'jumper') startJumper();
+    else if (kind === 'mines') startMines();
+    else start2048();
+  }
+
+  function gameShell(title, instructions) {
+    const panel = gameOverlay.querySelector('.break-panel');
+    const score = node('strong', 'game-score', '0');
+    score.id = 'mini-game-score';
+    const body = node('div', 'game-body');
+    body.id = 'mini-game-body';
+    const heading = node('div', 'game-toolbar', [
+      iconAction('←', '选择其他游戏', () => showGameMenu(false)),
+      node('div', 'game-title', [node('strong', '', title), node('small', '', instructions)]),
+      node('span', 'score-wrap', [node('small', '', '得分'), score]),
+      iconAction('↻', '重新开始', () => startGame(activeGame)),
+      iconAction('×', '结束休息', closeGameOverlay)
+    ]);
+    panel.replaceChildren(heading, body);
+    gameOverlay.hidden = false;
+    return { body, score };
+  }
+
+  function iconAction(label, title, handler) {
+    const button = node('button', 'mini-icon-button', label);
+    button.type = 'button';
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    button.addEventListener('click', handler);
+    return button;
+  }
+
+  function closeGameOverlay() {
+    stopGame();
+    gameOverlay.hidden = true;
+    if (breakReminderEnabled) scheduleBreak();
+    openGameButton.focus();
+  }
+
+  function stopGame() {
+    clearInterval(gameTimer);
+    cancelAnimationFrame(gameFrame);
+    gameTimer = undefined;
+    gameFrame = undefined;
+    activeGame = undefined;
+    gameKeyHandler = undefined;
+  }
+
+  function start2048() {
+    let board = Array(16).fill(0);
+    let scoreValue = 0;
+    const ui = gameShell('2048', '方向键或下方按钮移动');
+    const grid = node('div', 'game-grid game-2048');
+    const status = node('p', 'game-status', '合并相同数字，尽量得到 2048。');
+    ui.body.append(grid, directionPad((direction) => move(direction)), status);
+
+    function addTile() {
+      const empty = board.map((value, index) => value ? -1 : index).filter((index) => index >= 0);
+      if (!empty.length) return;
+      board[empty[Math.floor(Math.random() * empty.length)]] = Math.random() < 0.9 ? 2 : 4;
+    }
+
+    function move(direction) {
+      const previous = board.join(',');
+      const next = Array(16).fill(0);
+      let gained = 0;
+      for (let line = 0; line < 4; line += 1) {
+        const indexes = lineIndexes(direction, line);
+        const values = indexes.map((index) => board[index]).filter(Boolean);
+        const merged = [];
+        for (let i = 0; i < values.length; i += 1) {
+          if (values[i] === values[i + 1]) {
+            merged.push(values[i] * 2);
+            gained += values[i] * 2;
+            i += 1;
+          } else {
+            merged.push(values[i]);
+          }
+        }
+        indexes.forEach((index, offset) => { next[index] = merged[offset] || 0; });
+      }
+      board = next;
+      if (board.join(',') !== previous) {
+        scoreValue += gained;
+        addTile();
+        render();
+      }
+      if (!canMove2048(board)) status.textContent = '本局结束，点击刷新再来一局。';
+    }
+
+    function render() {
+      grid.replaceChildren(...board.map((value) => {
+        const tile = node('span', `tile tile-${Math.min(value, 2048)}`, value || '');
+        return tile;
+      }));
+      ui.score.textContent = String(scoreValue);
+    }
+
+    addTile();
+    addTile();
+    render();
+    gameKeyHandler = (event) => handleDirectionKey(event, move);
+  }
+
+  function lineIndexes(direction, line) {
+    const forward = direction === 'left' || direction === 'up';
+    const indexes = [];
+    for (let step = 0; step < 4; step += 1) {
+      const position = forward ? step : 3 - step;
+      indexes.push(direction === 'left' || direction === 'right' ? line * 4 + position : position * 4 + line);
+    }
+    return indexes;
+  }
+
+  function canMove2048(board) {
+    if (board.some((value) => !value)) return true;
+    return board.some((value, index) =>
+      (index % 4 < 3 && value === board[index + 1]) || (index < 12 && value === board[index + 4]));
+  }
+
+  function startSnake() {
+    const size = 16;
+    let snake = [{ x: 8, y: 8 }, { x: 7, y: 8 }, { x: 6, y: 8 }];
+    let direction = { x: 1, y: 0 };
+    let nextDirection = direction;
+    let food = randomFreeCell(size, snake);
+    let scoreValue = 0;
+    let ended = false;
+    const ui = gameShell('贪吃蛇', '方向键改变方向');
+    const grid = node('div', 'snake-grid');
+    const status = node('p', 'game-status', '吃到亮色方块，避免碰墙和自己。');
+    ui.body.append(grid, directionPad(setDirection), status);
+
+    function setDirection(value) {
+      const candidate = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[value];
+      if (candidate && (candidate.x !== -direction.x || candidate.y !== -direction.y)) nextDirection = candidate;
+    }
+
+    function tick() {
+      if (ended) return;
+      direction = nextDirection;
+      const head = { x: snake[0].x + direction.x, y: snake[0].y + direction.y };
+      const willEat = head.x === food.x && head.y === food.y;
+      const collisionBody = willEat ? snake : snake.slice(0, -1);
+      if (head.x < 0 || head.y < 0 || head.x >= size || head.y >= size || collisionBody.some((part) => part.x === head.x && part.y === head.y)) {
+        ended = true;
+        clearInterval(gameTimer);
+        status.textContent = '本局结束，点击刷新再来一局。';
+        return;
+      }
+      snake.unshift(head);
+      if (willEat) {
+        scoreValue += 10;
+        food = randomFreeCell(size, snake);
+      } else {
+        snake.pop();
+      }
+      render();
+    }
+
+    function render() {
+      const occupied = new Set(snake.map((part) => `${part.x}:${part.y}`));
+      const cells = [];
+      for (let y = 0; y < size; y += 1) {
+        for (let x = 0; x < size; x += 1) {
+          const key = `${x}:${y}`;
+          cells.push(node('span', key === `${food.x}:${food.y}` ? 'snake-cell food' : occupied.has(key) ? 'snake-cell snake' : 'snake-cell'));
+        }
+      }
+      grid.replaceChildren(...cells);
+      ui.score.textContent = String(scoreValue);
+    }
+
+    render();
+    gameTimer = setInterval(tick, 145);
+    gameKeyHandler = (event) => handleDirectionKey(event, setDirection);
+  }
+
+  function randomFreeCell(size, occupied) {
+    const used = new Set(occupied.map((part) => `${part.x}:${part.y}`));
+    const free = [];
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) if (!used.has(`${x}:${y}`)) free.push({ x, y });
+    }
+    return free[Math.floor(Math.random() * free.length)] || { x: 0, y: 0 };
+  }
+
+  function startRacer() {
+    const rows = 12;
+    let lane = 1;
+    let obstacles = [];
+    let scoreValue = 0;
+    let ended = false;
+    const ui = gameShell('车道闪避', '左右键换道');
+    const road = node('div', 'racer-grid');
+    const status = node('p', 'game-status', '左右换道，避开迎面而来的障碍。');
+    ui.body.append(road, directionPad(moveLane, true), status);
+
+    function moveLane(direction) {
+      if (ended) return;
+      if (direction === 'left') lane = Math.max(0, lane - 1);
+      if (direction === 'right') lane = Math.min(2, lane + 1);
+      render();
+    }
+
+    function tick() {
+      if (ended) return;
+      obstacles = obstacles.map((item) => ({ ...item, row: item.row + 1 })).filter((item) => item.row < rows);
+      if (Math.random() < 0.48 && !obstacles.some((item) => item.row < 2)) {
+        obstacles.push({ lane: Math.floor(Math.random() * 3), row: 0 });
+      }
+      if (obstacles.some((item) => item.lane === lane && item.row === rows - 2)) {
+        ended = true;
+        clearInterval(gameTimer);
+        status.textContent = '发生碰撞，点击刷新再来一局。';
+      } else {
+        scoreValue += 1;
+      }
+      render();
+    }
+
+    function render() {
+      const obstacleKeys = new Set(obstacles.map((item) => `${item.lane}:${item.row}`));
+      const cells = [];
+      for (let row = 0; row < rows; row += 1) {
+        for (let column = 0; column < 3; column += 1) {
+          const car = row === rows - 2 && column === lane;
+          cells.push(node('span', `road-cell${car ? ' car' : obstacleKeys.has(`${column}:${row}`) ? ' obstacle' : ''}`, car ? '▲' : obstacleKeys.has(`${column}:${row}`) ? '■' : ''));
+        }
+      }
+      road.replaceChildren(...cells);
+      ui.score.textContent = String(scoreValue);
+    }
+
+    render();
+    gameTimer = setInterval(tick, 260);
+    gameKeyHandler = (event) => handleDirectionKey(event, moveLane);
+  }
+
+  function startJumper() {
+    const ui = gameShell('像素跳跃', '空格或上方向键跳跃');
+    const canvas = document.createElement('canvas');
+    canvas.className = 'jumper-canvas';
+    canvas.width = 520;
+    canvas.height = 260;
+    const jumpButton = actionButton('跳跃', jump);
+    const status = node('p', 'game-status', '越过障碍，奔跑速度会逐渐提升。');
+    ui.body.append(canvas, node('div', 'jump-controls', jumpButton), status);
+    const context = canvas.getContext('2d');
+    const style = getComputedStyle(document.body);
+    const colors = {
+      background: style.getPropertyValue('--vscode-editor-background').trim() || '#1e1e1e',
+      line: style.getPropertyValue('--line').trim() || '#666666',
+      player: style.getPropertyValue('--accent').trim() || '#3977c3',
+      obstacle: style.getPropertyValue('--vscode-errorForeground').trim() || '#d35f5f',
+      text: style.getPropertyValue('--muted').trim() || '#999999'
+    };
+    const ground = 220;
+    const player = { x: 58, y: ground - 28, width: 23, height: 28, velocity: 0 };
+    let obstacles = [];
+    let spawnIn = 1.2;
+    let elapsed = 0;
+    let previousTime;
+    let ended = false;
+
+    function jump() {
+      if (!ended && player.y >= ground - player.height - 1) player.velocity = -430;
+    }
+
+    function frame(time) {
+      if (previousTime === undefined) previousTime = time;
+      const delta = Math.min((time - previousTime) / 1000, 0.04);
+      previousTime = time;
+      elapsed += delta;
+      player.velocity += 1050 * delta;
+      player.y = Math.min(ground - player.height, player.y + player.velocity * delta);
+      if (player.y >= ground - player.height) player.velocity = 0;
+      spawnIn -= delta;
+      const speed = 190 + Math.min(150, elapsed * 4);
+      if (spawnIn <= 0) {
+        const height = 24 + Math.floor(Math.random() * 28);
+        obstacles.push({ x: canvas.width + 10, y: ground - height, width: 20 + Math.floor(Math.random() * 14), height });
+        spawnIn = 1.15 + Math.random() * 1.15;
+      }
+      obstacles = obstacles.map((obstacle) => ({ ...obstacle, x: obstacle.x - speed * delta })).filter((obstacle) => obstacle.x + obstacle.width > 0);
+      if (obstacles.some((obstacle) => rectanglesOverlap(player, obstacle))) {
+        ended = true;
+        status.textContent = '碰到障碍，点击刷新再来一局。';
+      }
+      ui.score.textContent = String(Math.floor(elapsed * 10));
+      draw();
+      if (!ended) gameFrame = requestAnimationFrame(frame);
+    }
+
+    function draw() {
+      context.fillStyle = colors.background;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.strokeStyle = colors.line;
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(0, ground + 1);
+      context.lineTo(canvas.width, ground + 1);
+      context.stroke();
+      context.fillStyle = colors.player;
+      context.fillRect(player.x, player.y, player.width, player.height);
+      context.fillStyle = colors.background;
+      context.fillRect(player.x + 14, player.y + 6, 4, 4);
+      context.fillStyle = colors.obstacle;
+      obstacles.forEach((obstacle) => context.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height));
+      context.fillStyle = colors.text;
+      context.font = '12px sans-serif';
+      context.fillText('SPACE / ↑', 12, 20);
+    }
+
+    draw();
+    gameFrame = requestAnimationFrame(frame);
+    gameKeyHandler = (event) => {
+      if (event.key === ' ' || event.key === 'ArrowUp') {
+        jump();
+        return true;
+      }
+      if (event.key === 'Escape') {
+        closeGameOverlay();
+        return true;
+      }
+      return false;
+    };
+  }
+
+  function rectanglesOverlap(left, right) {
+    return left.x < right.x + right.width && left.x + left.width > right.x && left.y < right.y + right.height && left.y + left.height > right.y;
+  }
+
+  function startMines() {
+    const size = 9;
+    const mineCount = 10;
+    let cells = Array.from({ length: size * size }, () => ({ mine: false, open: false, flagged: false, nearby: 0 }));
+    let initialized = false;
+    let ended = false;
+    let flagMode = false;
+    const ui = gameShell('扫雷', '点击翻开，右键或标记模式插旗');
+    const grid = node('div', 'mines-grid');
+    const flagButton = actionButton('标记模式：关', () => {
+      flagMode = !flagMode;
+      flagButton.textContent = `标记模式：${flagMode ? '开' : '关'}`;
+      flagButton.classList.toggle('active', flagMode);
+    });
+    const status = node('p', 'game-status', `找出安全方格，共 ${mineCount} 个雷。`);
+    ui.body.append(grid, node('div', 'mine-controls', flagButton), status);
+
+    function initialize(safeIndex) {
+      const candidates = cells.map((_, index) => index).filter((index) => index !== safeIndex);
+      for (let placed = 0; placed < mineCount; placed += 1) {
+        const pick = Math.floor(Math.random() * candidates.length);
+        cells[candidates.splice(pick, 1)[0]].mine = true;
+      }
+      cells.forEach((cell, index) => {
+        cell.nearby = neighbors(index, size).filter((neighbor) => cells[neighbor].mine).length;
+      });
+      initialized = true;
+    }
+
+    function interact(index, mark) {
+      if (ended || cells[index].open) return;
+      if (mark || flagMode) {
+        cells[index].flagged = !cells[index].flagged;
+        render();
+        return;
+      }
+      if (!initialized) initialize(index);
+      if (cells[index].flagged) return;
+      if (cells[index].mine) {
+        ended = true;
+        cells.forEach((cell) => { if (cell.mine) cell.open = true; });
+        status.textContent = '踩到雷了，点击刷新再来一局。';
+      } else {
+        revealSafe(index);
+        const opened = cells.filter((cell) => cell.open).length;
+        ui.score.textContent = String(opened);
+        if (opened === size * size - mineCount) {
+          ended = true;
+          status.textContent = '完成，所有安全方格都找到了。';
+        }
+      }
+      render();
+    }
+
+    function revealSafe(start) {
+      const queue = [start];
+      const seen = new Set();
+      while (queue.length) {
+        const index = queue.shift();
+        if (seen.has(index) || cells[index].flagged || cells[index].mine) continue;
+        seen.add(index);
+        cells[index].open = true;
+        if (cells[index].nearby === 0) queue.push(...neighbors(index, size));
+      }
+    }
+
+    function render() {
+      grid.replaceChildren(...cells.map((cell, index) => {
+        const button = node('button', `mine-cell${cell.open ? ' open' : ''}${cell.mine && cell.open ? ' mine' : ''}`);
+        button.type = 'button';
+        button.textContent = cell.open ? (cell.mine ? '×' : cell.nearby || '') : cell.flagged ? '!' : '';
+        button.dataset.nearby = String(cell.nearby);
+        button.addEventListener('click', () => interact(index, false));
+        button.addEventListener('contextmenu', (event) => {
+          event.preventDefault();
+          interact(index, true);
+        });
+        return button;
+      }));
+    }
+
+    render();
+    gameKeyHandler = (event) => event.key === 'Escape' ? (closeGameOverlay(), true) : false;
+  }
+
+  function neighbors(index, size) {
+    const x = index % size;
+    const y = Math.floor(index / size);
+    const result = [];
+    for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+      for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+        const nextX = x + offsetX;
+        const nextY = y + offsetY;
+        if ((offsetX || offsetY) && nextX >= 0 && nextY >= 0 && nextX < size && nextY < size) result.push(nextY * size + nextX);
+      }
+    }
+    return result;
+  }
+
+  function directionPad(handler, horizontalOnly = false) {
+    const pad = node('div', `direction-pad${horizontalOnly ? ' horizontal' : ''}`);
+    const directions = horizontalOnly ? [['left', '←'], ['right', '→']] : [['up', '↑'], ['left', '←'], ['down', '↓'], ['right', '→']];
+    for (const [direction, label] of directions) {
+      const button = iconAction(label, direction, () => handler(direction));
+      button.dataset.direction = direction;
+      pad.append(button);
+    }
+    return pad;
+  }
+
+  function handleDirectionKey(event, handler) {
+    const direction = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[event.key];
+    if (!direction) return event.key === 'Escape' ? (closeGameOverlay(), true) : false;
+    handler(direction);
+    return true;
+  }
 
   function renderLoading() {
     setContent(node('div', 'loading', [node('span', 'spinner'), node('span', '', '正在加载公开内容…')]));

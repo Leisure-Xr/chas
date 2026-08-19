@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.3.0.zip}"
+PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.4.0.zip}"
 
 test -f "$PACKAGE"
 unzip -tq "$PACKAGE"
@@ -16,6 +16,7 @@ PLUGIN_JAR="$TEMP_DIR/LinuxDoGuestBrowser/lib/linuxdo-guest-browser.jar"
 unzip -tq "$PLUGIN_JAR"
 unzip -Z1 "$PLUGIN_JAR" > "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'META-INF/plugin.xml' "$TEMP_DIR/jar-list.txt"
+grep -Fxq 'break-overlay.js' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'studio/lexiao/linuxdo/LinuxDoToolWindowFactory.class' "$TEMP_DIR/jar-list.txt"
 
 echo "Package verification passed: $PACKAGE"

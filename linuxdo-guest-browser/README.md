@@ -4,8 +4,8 @@
 
 ## 下载
 
-- [VS Code 0.6.0](dist/linuxdo-guest-browser-vscode-0.6.0.vsix)
-- [PyCharm 0.3.0](dist/linuxdo-guest-browser-pycharm-0.3.0.zip)
+- [VS Code 0.7.0](dist/linuxdo-guest-browser-vscode-0.7.0.vsix)
+- [PyCharm 0.4.0](dist/linuxdo-guest-browser-pycharm-0.4.0.zip)
 
 ### VS Code
 
@@ -18,6 +18,10 @@ VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续�
 打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。
 
 PyCharm 版使用内嵌 JCEF 浏览器，保留网页原生滚动和浏览历史。工具栏与 VS Code 版统一，提供最新、热门、分类、搜索、紧凑模式和刷新。插件会拦截登录、注册、OAuth 和会话写入，并在游客会话开始和结束时清理 `linux.do` Cookie。
+
+### 休息提醒与小游戏
+
+两个版本都提供默认关闭的休息提醒开关。开启后会随机等待 31–60 分钟，再显示可跳过或延后 10 分钟的休息提示。小游戏也可以随时打开，包括 2048、贪吃蛇、车道闪避、像素跳跃和扫雷；关闭游戏不会丢失当前阅读页面和滚动状态。
 
 ## 源码
 
@@ -51,6 +55,7 @@ cd pycharm
 - 不要求或保存论坛账号、密码和登录令牌。
 - VS Code 仅保存游客验证白名单 Cookie，使用 SecretStorage 加密存储。
 - PyCharm 会清理其 JCEF 配置中的 `linux.do` Cookie，不影响系统浏览器。
+- 只持久化休息提醒开关，不记录游戏过程或使用时长。
 - 不包含分析、遥测或广告代码。
 
 本项目与 LINUX DO 官方无隶属关系。使用时请遵守站点服务条款和访问频率限制。

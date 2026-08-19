@@ -9,7 +9,7 @@ BUILD_DIR="$PROJECT_DIR/build/local"
 CLASSES_DIR="$BUILD_DIR/classes"
 PLUGIN_DIR="$BUILD_DIR/staging/LinuxDoGuestBrowser"
 PLUGIN_JAR="$PLUGIN_DIR/lib/linuxdo-guest-browser.jar"
-OUTPUT_ZIP="$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.3.0.zip"
+OUTPUT_ZIP="$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.4.0.zip"
 
 if [[ ! -x "$JAVAC" || ! -d "$IDE_CONTENTS/lib" ]]; then
   echo "PyCharm SDK not found at: $PYCHARM_HOME" >&2
@@ -27,7 +27,7 @@ find "$PROJECT_DIR/src/main/java" -name '*.java' -print0 \
       -cp "$IDE_CONTENTS/lib/*" \
       -d "$CLASSES_DIR"
 
-cp "$PROJECT_DIR/src/main/resources/META-INF/plugin.xml" "$CLASSES_DIR/META-INF/plugin.xml"
+cp -R "$PROJECT_DIR/src/main/resources/." "$CLASSES_DIR/"
 
 (
   cd "$CLASSES_DIR"
