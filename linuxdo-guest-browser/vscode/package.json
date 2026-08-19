@@ -2,7 +2,7 @@
   "name": "linuxdo-guest-browser",
   "displayName": "LINUX DO 游客阅读器",
   "description": "在 VS Code 中以游客身份浏览 LINUX DO 的公开内容。",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "lexiao-studio",
   "repository": {
     "type": "git",
@@ -129,7 +129,8 @@
     }
   },
   "scripts": {
-    "check": "node --check src/extension.js && node --check media/main.js",
+    "check": "node --check src/extension.js && node --check src/chromium-session.js && node --check media/main.js && npm test",
+    "test": "node --test test/*.test.js",
     "package": "npx --yes @vscode/vsce@3.6.0 package --no-dependencies"
   }
 }

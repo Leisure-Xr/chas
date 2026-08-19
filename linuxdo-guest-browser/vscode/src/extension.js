@@ -1,44 +1,27 @@
 'use strict';
 
 const vscode = require('vscode');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { spawn } = require('child_process');
+const {
+  ChromiumGuestSession,
+  CloudflareError,
+  CdpClient,
+  CLEARANCE_SECRET,
+  GUEST_COOKIE_NAMES,
+  GUEST_COOKIE_SECRET,
+  MAX_RESPONSE_BYTES,
+  REQUEST_TIMEOUT_MS,
+  SITE_ORIGIN,
+  USER_AGENT_SECRET,
+  findChromiumExecutable,
+  isLinuxDoUrl,
+  isOwnedTemporaryProfile
+} = require('./chromium-session');
 
-const SITE_ORIGIN = 'https://linux.do';
-const REQUEST_TIMEOUT_MS = 15_000;
-const MAX_RESPONSE_BYTES = 12 * 1024 * 1024;
-const CLEARANCE_SECRET = 'linuxdoGuest.cloudflare.clearance';
-const GUEST_COOKIE_SECRET = 'linuxdoGuest.cloudflare.guestCookies';
-const USER_AGENT_SECRET = 'linuxdoGuest.cloudflare.userAgent';
-const VERIFICATION_TIMEOUT_MS = 5 * 60 * 1000;
-const MANUAL_GUEST_COOKIE_NAMES = new Set([
-  'cf_clearance',
-  '__cf_bm',
-  '__cfuvid',
-  '_cfuvid',
-  '_bypass_cache',
-  '_forum_session'
-]);
-const AUTOMATIC_GUEST_COOKIE_NAMES = new Set([
-  ...MANUAL_GUEST_COOKIE_NAMES,
-  '_forum_session'
-]);
-
-class CloudflareError extends Error {
-  constructor(hasClearance) {
-    super(hasClearance
-      ? 'Cloudflare 验证未通过，验证可能已过期，或 User-Agent 与获取验证时不一致。'
-      : 'Cloudflare 要求人机验证。');
-    this.name = 'CloudflareError';
-    this.hasClearance = hasClearance;
-  }
-}
+const MANUAL_GUEST_COOKIE_NAMES = GUEST_COOKIE_NAMES;
 
 class LinuxDoApi {
-  constructor(secrets) {
-    this.secrets = secrets;
+  constructor(browserSession) {
+    this.browserSession = browserSession;
   }
 
   async request(path) {
@@ -47,21 +30,17 @@ class LinuxDoApi {
       throw new Error('拒绝访问非 LINUX DO 接口。');
     }
 
+    if (this.browserSession.isRunning || await this.browserSession.hasStoredVerification()) {
+      return this.browserSession.request(url);
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const guestCookies = await this.secrets.get(GUEST_COOKIE_SECRET);
-      const legacyClearance = await this.secrets.get(CLEARANCE_SECRET);
-      const savedUserAgent = await this.secrets.get(USER_AGENT_SECRET);
       const headers = {
         Accept: 'application/json',
-        'User-Agent': savedUserAgent || defaultUserAgent()
+        'User-Agent': defaultUserAgent()
       };
-      if (guestCookies) {
-        headers.Cookie = guestCookies;
-      } else if (legacyClearance) {
-        headers.Cookie = `cf_clearance=${legacyClearance}`;
-      }
 
       const response = await fetch(url, {
         method: 'GET',
@@ -73,7 +52,7 @@ class LinuxDoApi {
 
       if (!response.ok) {
         if (response.status === 403) {
-          throw new CloudflareError(Boolean(guestCookies || legacyClearance));
+          throw new CloudflareError(false);
         }
         if (response.status === 429) {
           throw new Error('站点请求过于频繁（HTTP 429），请稍后再试。');
@@ -282,7 +261,7 @@ function normalizeColor(value) {
 class GuestReaderPanel {
   static current;
 
-  static createOrShow(context, initialView = 'latest') {
+  static createOrShow(context, browserSession, initialView = 'latest') {
     if (GuestReaderPanel.current) {
       GuestReaderPanel.current.panel.reveal(vscode.ViewColumn.One);
       GuestReaderPanel.current.navigate(initialView);
@@ -299,14 +278,15 @@ class GuestReaderPanel {
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       }
     );
-    GuestReaderPanel.current = new GuestReaderPanel(panel, context, initialView);
+    GuestReaderPanel.current = new GuestReaderPanel(panel, context, browserSession, initialView);
     return GuestReaderPanel.current;
   }
 
-  constructor(panel, context, initialView) {
+  constructor(panel, context, browserSession, initialView) {
     this.panel = panel;
     this.context = context;
-    this.api = new LinuxDoApi(context.secrets);
+    this.browserSession = browserSession;
+    this.api = new LinuxDoApi(browserSession);
     this.initialView = initialView;
     this.ready = false;
     this.sequence = 0;
@@ -318,6 +298,7 @@ class GuestReaderPanel {
     this.panel.webview.html = this.getHtml();
     this.panel.onDidDispose(() => {
       GuestReaderPanel.current = undefined;
+      void this.browserSession.stop();
     }, null, context.subscriptions);
     this.panel.webview.onDidReceiveMessage((message) => this.handleMessage(message), null, context.subscriptions);
   }
@@ -379,7 +360,7 @@ class GuestReaderPanel {
         await this.openExternal(message.url);
         break;
       case 'cloudflareSetup':
-        await configureCloudflare(this.context, () => this.refresh());
+        await configureCloudflare(this.context, this.browserSession, () => this.refresh());
         break;
       case 'loadMorePosts':
         await this.loadMorePosts(message.topicId, message.postIds);
@@ -626,7 +607,7 @@ function friendlyError(error) {
   return message;
 }
 
-async function configureCloudflare(context, onSaved) {
+async function configureCloudflare(context, browserSession, onSaved) {
   const choice = await vscode.window.showInformationMessage(
     '扩展可以打开独立的临时浏览器并自动获取 Cloudflare 验证，不会读取日常浏览器数据。',
     '自动验证',
@@ -636,21 +617,28 @@ async function configureCloudflare(context, onSaved) {
 
   if (choice === '自动验证') {
     try {
-      const result = await acquireCloudflareClearance();
-      if (!result) return;
-      await context.secrets.store(GUEST_COOKIE_SECRET, result.cookieHeader);
-      await context.secrets.delete(CLEARANCE_SECRET);
-      await context.secrets.store(USER_AGENT_SECRET, result.userAgent);
-      vscode.window.showInformationMessage('Cloudflare 验证已自动获取，正在重新加载。');
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: '请在独立游客浏览器中完成 LINUX DO 验证',
+        cancellable: true
+      }, (progress, cancellationToken) => {
+        progress.report({ message: '正在启动独立游客会话…' });
+        return browserSession.verifyInteractively({
+          cancellationToken,
+          report: (message) => progress.report({ message })
+        });
+      });
+      vscode.window.showInformationMessage('Cloudflare 验证成功；游客浏览器将在阅读期间保持运行。');
       await onSaved?.();
     } catch (error) {
+      await browserSession.stop();
       const message = error instanceof Error ? error.message : String(error);
       vscode.window.showErrorMessage(`自动验证失败：${message}`);
     }
     return;
   }
   if (choice === '清除验证') {
-    await clearCloudflare(context);
+    await clearCloudflare(context, browserSession);
     return;
   }
   if (choice !== '手动粘贴') {
@@ -683,271 +671,19 @@ async function configureCloudflare(context, onSaved) {
   await context.secrets.store(GUEST_COOKIE_SECRET, cookieHeader);
   await context.secrets.delete(CLEARANCE_SECRET);
   await context.secrets.store(USER_AGENT_SECRET, userAgent.trim());
-  vscode.window.showInformationMessage('Cloudflare 游客验证已安全保存；登录和无关 Cookie 已丢弃。正在重新加载。');
-  await onSaved?.();
-}
-
-async function acquireCloudflareClearance() {
-  const executable = findChromiumExecutable();
-  if (!executable) {
-    throw new Error('未找到 Google Chrome、Chromium、Microsoft Edge 或 Brave，请使用手动粘贴。');
-  }
-  if (typeof WebSocket !== 'function') {
-    throw new Error('当前 VS Code 版本不支持自动读取验证结果，请升级 VS Code 或使用手动粘贴。');
-  }
-
-  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'linuxdo-guest-cf-'));
-  const browser = spawn(executable, [
-    `--user-data-dir=${profileDir}`,
-    '--remote-debugging-address=127.0.0.1',
-    '--remote-debugging-port=0',
-    '--remote-allow-origins=*',
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-sync',
-    '--new-window',
-    `${SITE_ORIGIN}/latest`
-  ], {
-    detached: false,
-    stdio: 'ignore'
-  });
-  const activePortFile = path.join(profileDir, 'DevToolsActivePort');
-  let browserWebSocketUrl;
-
   try {
-    return await vscode.window.withProgress({
+    await vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
-      title: '请在临时浏览器中完成 LINUX DO 验证',
-      cancellable: true
-    }, async (progress, cancellationToken) => {
-      progress.report({ message: '正在启动独立游客会话…' });
-      const activePort = await waitForDevTools(activePortFile, browser, cancellationToken);
-      browserWebSocketUrl = `ws://127.0.0.1:${activePort.port}${activePort.browserPath}`;
-      progress.report({ message: '等待 Cloudflare 验证完成…' });
-
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < VERIFICATION_TIMEOUT_MS) {
-        if (cancellationToken.isCancellationRequested) {
-          return undefined;
-        }
-        const result = await readClearanceFromBrowser(activePort.port).catch(() => undefined);
-        if (result) {
-          progress.report({ message: '已取得验证，正在清理临时会话…' });
-          return result;
-        }
-        await delay(900);
-      }
-      throw new Error('等待验证超时，请重试。');
-    });
-  } finally {
-    await closeTemporaryBrowser(browser, browserWebSocketUrl, profileDir);
+      title: '正在验证手动填写的游客参数',
+      cancellable: false
+    }, () => browserSession.validateStoredVerification());
+    vscode.window.showInformationMessage('Cloudflare 游客验证已保存，并已通过浏览器内请求校验。');
+    await onSaved?.();
+  } catch (error) {
+    await browserSession.stop();
+    const message = error instanceof Error ? error.message : String(error);
+    vscode.window.showErrorMessage(`手动验证失败：${message}`);
   }
-}
-
-function findChromiumExecutable() {
-  const candidates = process.platform === 'darwin'
-    ? [
-        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-        '/Applications/Chromium.app/Contents/MacOS/Chromium',
-        '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-        '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
-        path.join(os.homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
-      ]
-    : process.platform === 'win32'
-      ? [
-          path.join(process.env.PROGRAMFILES || '', 'Google/Chrome/Application/chrome.exe'),
-          path.join(process.env['PROGRAMFILES(X86)'] || '', 'Microsoft/Edge/Application/msedge.exe'),
-          path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe'),
-          path.join(process.env.LOCALAPPDATA || '', 'Chromium/Application/chrome.exe'),
-          path.join(process.env.LOCALAPPDATA || '', 'BraveSoftware/Brave-Browser/Application/brave.exe')
-        ]
-      : [
-          '/usr/bin/google-chrome',
-          '/usr/bin/google-chrome-stable',
-          '/usr/bin/chromium',
-          '/usr/bin/chromium-browser',
-          '/usr/bin/microsoft-edge',
-          '/usr/bin/brave-browser'
-        ];
-  return candidates.find((candidate) => candidate && fs.existsSync(candidate));
-}
-
-async function waitForDevTools(activePortFile, browser, cancellationToken) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 30_000) {
-    if (cancellationToken.isCancellationRequested) {
-      throw new Error('已取消验证。');
-    }
-    if (browser.exitCode !== null) {
-      throw new Error(`浏览器提前退出（代码 ${browser.exitCode}）。`);
-    }
-    try {
-      const [portLine, browserPath] = fs.readFileSync(activePortFile, 'utf8').trim().split(/\r?\n/);
-      const port = Number(portLine);
-      if (Number.isInteger(port) && port > 0 && browserPath?.startsWith('/devtools/browser/')) {
-        return { port, browserPath };
-      }
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-    }
-    await delay(200);
-  }
-  throw new Error('无法连接临时浏览器。');
-}
-
-async function readClearanceFromBrowser(port) {
-  const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2_000) });
-  if (!response.ok) return undefined;
-  const targets = await response.json();
-  const target = targets.find((item) => item.type === 'page' && isLinuxDoUrl(item.url));
-  if (!target?.webSocketDebuggerUrl) return undefined;
-
-  const client = await CdpClient.connect(target.webSocketDebuggerUrl);
-  try {
-    await client.send('Network.enable');
-    const [cookieResult, userAgentResult] = await Promise.all([
-      client.send('Network.getCookies', { urls: [`${SITE_ORIGIN}/`] }),
-      client.send('Runtime.evaluate', { expression: 'navigator.userAgent', returnByValue: true })
-    ]);
-    const cookies = (cookieResult.cookies || []).filter((cookie) =>
-      AUTOMATIC_GUEST_COOKIE_NAMES.has(cookie.name) &&
-      (cookie.domain === 'linux.do' || cookie.domain === '.linux.do')
-    );
-    const clearance = cookies.find((cookie) =>
-      cookie.name === 'cf_clearance' && (cookie.domain === 'linux.do' || cookie.domain === '.linux.do')
-    );
-    const userAgent = userAgentResult.result?.value;
-    if (!clearance?.value || validateUserAgent(userAgent)) return undefined;
-    const cookieHeader = cookies
-      .sort((left, right) => left.name.localeCompare(right.name))
-      .map((cookie) => `${cookie.name}=${cookie.value}`)
-      .join('; ');
-    return { cookieHeader, userAgent: userAgent.trim() };
-  } finally {
-    client.close();
-  }
-}
-
-function isLinuxDoUrl(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' && (url.hostname === 'linux.do' || url.hostname.endsWith('.linux.do'));
-  } catch {
-    return false;
-  }
-}
-
-class CdpClient {
-  static async connect(url) {
-    const client = new CdpClient(url);
-    await client.open();
-    return client;
-  }
-
-  constructor(url) {
-    this.socket = new WebSocket(url);
-    this.nextId = 1;
-    this.pending = new Map();
-  }
-
-  open() {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('连接浏览器调试端口超时。')), 3_000);
-      this.socket.addEventListener('open', () => {
-        clearTimeout(timer);
-        resolve();
-      }, { once: true });
-      this.socket.addEventListener('error', () => {
-        clearTimeout(timer);
-        reject(new Error('无法读取浏览器验证结果。'));
-      }, { once: true });
-      this.socket.addEventListener('message', (event) => this.handleMessage(event.data));
-      this.socket.addEventListener('close', () => this.rejectPending());
-    });
-  }
-
-  send(method, params = {}) {
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`浏览器命令超时：${method}`));
-      }, 3_000);
-      this.pending.set(id, { resolve, reject, timer });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-
-  handleMessage(rawData) {
-    let message;
-    try {
-      message = JSON.parse(typeof rawData === 'string' ? rawData : Buffer.from(rawData).toString('utf8'));
-    } catch {
-      return;
-    }
-    if (!message.id) return;
-    const pending = this.pending.get(message.id);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    this.pending.delete(message.id);
-    if (message.error) pending.reject(new Error(message.error.message || '浏览器命令失败。'));
-    else pending.resolve(message.result || {});
-  }
-
-  rejectPending() {
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error('浏览器调试连接已关闭。'));
-    }
-    this.pending.clear();
-  }
-
-  close() {
-    this.socket.close();
-  }
-}
-
-async function closeTemporaryBrowser(browser, browserWebSocketUrl, profileDir) {
-  if (browserWebSocketUrl) {
-    try {
-      const client = await CdpClient.connect(browserWebSocketUrl);
-      await client.send('Browser.close');
-      client.close();
-    } catch {
-      // The user may already have closed the temporary browser.
-    }
-  }
-  if (browser.exitCode === null) {
-    browser.kill('SIGTERM');
-  }
-  await waitForProcessExit(browser, 3_000);
-  if (isOwnedTemporaryProfile(profileDir)) {
-    try {
-      fs.rmSync(profileDir, { recursive: true, force: true });
-    } catch {
-      // Chrome can briefly retain files after exit; stale OS temp files are harmless.
-    }
-  }
-}
-
-function waitForProcessExit(child, timeoutMs) {
-  if (child.exitCode !== null) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, timeoutMs);
-    child.once('exit', () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
-}
-
-function isOwnedTemporaryProfile(profileDir) {
-  const relative = path.relative(os.tmpdir(), profileDir);
-  return relative.startsWith('linuxdo-guest-cf-') && !relative.includes(`..${path.sep}`) && !path.isAbsolute(relative);
-}
-
-function delay(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function validateClearanceInput(value) {
@@ -1000,7 +736,8 @@ function validateUserAgent(value) {
   return undefined;
 }
 
-async function clearCloudflare(context) {
+async function clearCloudflare(context, browserSession) {
+  await browserSession.stop();
   await context.secrets.delete(CLEARANCE_SECRET);
   await context.secrets.delete(GUEST_COOKIE_SECRET);
   await context.secrets.delete(USER_AGENT_SECRET);
@@ -1018,31 +755,38 @@ function randomNonce() {
 
 function activate(context) {
   const provider = new GuestTreeProvider();
+  const browserSession = new ChromiumGuestSession(context.secrets);
+  activeBrowserSession = browserSession;
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('linuxdoGuest.explorer', provider),
     vscode.commands.registerCommand('linuxdoGuest.open', () => {
       const defaultView = vscode.workspace.getConfiguration('linuxdoGuest').get('defaultView', 'latest');
-      GuestReaderPanel.createOrShow(context, defaultView);
+      GuestReaderPanel.createOrShow(context, browserSession, defaultView);
     }),
-    vscode.commands.registerCommand('linuxdoGuest.openLatest', () => GuestReaderPanel.createOrShow(context, 'latest')),
-    vscode.commands.registerCommand('linuxdoGuest.openTop', () => GuestReaderPanel.createOrShow(context, 'top')),
-    vscode.commands.registerCommand('linuxdoGuest.openCategories', () => GuestReaderPanel.createOrShow(context, 'categories')),
+    vscode.commands.registerCommand('linuxdoGuest.openLatest', () => GuestReaderPanel.createOrShow(context, browserSession, 'latest')),
+    vscode.commands.registerCommand('linuxdoGuest.openTop', () => GuestReaderPanel.createOrShow(context, browserSession, 'top')),
+    vscode.commands.registerCommand('linuxdoGuest.openCategories', () => GuestReaderPanel.createOrShow(context, browserSession, 'categories')),
     vscode.commands.registerCommand('linuxdoGuest.refresh', () => {
       provider.refresh();
       GuestReaderPanel.current?.refresh();
     }),
-    vscode.commands.registerCommand('linuxdoGuest.setCloudflareClearance', () => configureCloudflare(context, () => GuestReaderPanel.current?.refresh())),
-    vscode.commands.registerCommand('linuxdoGuest.clearCloudflareClearance', () => clearCloudflare(context)),
+    vscode.commands.registerCommand('linuxdoGuest.setCloudflareClearance', () => configureCloudflare(context, browserSession, () => GuestReaderPanel.current?.refresh())),
+    vscode.commands.registerCommand('linuxdoGuest.clearCloudflareClearance', () => clearCloudflare(context, browserSession)),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('linuxdoGuest.breakReminder.enabled')) {
         GuestReaderPanel.current?.updateBreakReminderSetting();
       }
     }),
-    provider.changeEmitter
+    provider.changeEmitter,
+    { dispose: () => void browserSession.stop() }
   );
 }
 
-function deactivate() {}
+let activeBrowserSession;
+
+function deactivate() {
+  return activeBrowserSession?.stop();
+}
 
 module.exports = {
   activate,

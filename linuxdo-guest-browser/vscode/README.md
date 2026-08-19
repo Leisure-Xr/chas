@@ -15,16 +15,18 @@
 - 长主题滚动到底自动续载，每批最多加载 20 条帖子
 - 默认使用紧凑信息流，可从工具栏切换显示密度
 - 在系统浏览器中打开原文或外部链接
-- 不读取、不发送、不保存 Cookie、账号、令牌和密码
+- 不读取日常浏览器数据，仅加密保存游客验证白名单 Cookie；不保存账号、密码或登录令牌
 
 ## 遇到 Cloudflare 403
 
 1. 在命令面板执行 `LINUX DO: 设置 Cloudflare 验证`。
 2. 选择“自动验证”。
 3. 扩展会打开一个独立的临时 Chrome 窗口；在窗口中完成人机验证即可。
-4. 扩展检测到验证结果后会自动回填、关闭临时窗口并重新加载内容。
+4. 扩展会在该浏览器内确认 `/latest.json` 可正常读取，然后最小化窗口并重新加载内容。
 
-临时窗口使用全新的浏览器配置，不继承日常浏览器的登录状态。自动模式只读取 Cloudflare 字段、`_bypass_cache` 和临时窗口刚刚生成的匿名 `_forum_session`；不会读取 `_t` 等登录凭据。验证结果保存在 VS Code 的 SecretStorage 中，临时浏览数据会被删除。需要清除验证时执行 `LINUX DO: 清除 Cloudflare 验证`。
+临时窗口使用全新的浏览器配置，不继承日常浏览器的登录状态。验证通过后，该浏览器会在阅读器使用期间保持最小化运行，最新、热门、分类、搜索、主题和续页请求都会在同一个已验证浏览器会话中执行。关闭阅读器、退出 VS Code 或执行 `LINUX DO: 清除 Cloudflare 验证` 时，扩展会结束浏览器进程并删除临时配置目录。
+
+自动模式只保存 Cloudflare 字段、`_bypass_cache` 和临时窗口生成的匿名 `_forum_session`；不会保存 `_t`、`auth_token`、`remember_user_token` 等登录凭据。验证结果保存在 VS Code 的 SecretStorage 中。如果浏览器被手动关闭或 Cloudflare 再次要求验证，阅读器会显示“更新验证”，点击后即可重新连接。
 
 自动验证目前支持 Google Chrome、Chromium、Microsoft Edge 和 Brave。无法启动兼容浏览器时仍可选择“手动粘贴”。
 
@@ -37,7 +39,9 @@
 5. 在“标头/Headers”→“请求标头/Request Headers”中复制 `user-agent` 的完整值。
 6. 回到 VS Code，执行 `LINUX DO: 设置 Cloudflare 验证`，选择“手动粘贴”，依次填入 Cookie 或 `cf_clearance` 值，以及 User-Agent。
 
-也可以在浏览器“控制台/Console”输入 `navigator.userAgent` 获取 User-Agent。即使粘贴整段 Cookie，手动模式也只保留 `cf_clearance`、`__cf_bm`、`__cfuvid`、`_cfuvid`、`_bypass_cache`，以及未检测到登录标记时的匿名 `_forum_session`。Stripe 字段始终丢弃；如果检测到 `_t`、`remember_user_token` 或 `auth_token`，论坛会话也会被丢弃。
+也可以在浏览器“控制台/Console”输入 `navigator.userAgent` 获取 User-Agent。Cookie 和 User-Agent 必须来自同一个浏览器，并与插件实际启动的浏览器一致；例如电脑同时安装 Chrome 和 Edge 时，插件会优先启动 Chrome。若校验提示 User-Agent 不一致，请改用“自动验证”。
+
+即使粘贴整段 Cookie，手动模式也只保留 `cf_clearance`、`__cf_bm`、`__cfuvid`、`_cfuvid`、`_bypass_cache`，以及未检测到登录标记时的匿名 `_forum_session`。Stripe 字段始终丢弃；如果检测到 `_t`、`remember_user_token` 或 `auth_token`，论坛会话也会被丢弃。
 
 ## 使用
 
