@@ -7,6 +7,7 @@
   const searchInput = document.getElementById('search-input');
   const backButton = document.getElementById('back');
   const breakReminderButton = document.getElementById('break-reminder');
+  const shareTopicButton = document.getElementById('share-topic');
   const openGameButton = document.getElementById('open-game');
   const densityButton = document.getElementById('density');
   const refreshButton = document.getElementById('refresh');
@@ -21,10 +22,22 @@
   let breakTimer;
   let gameTimer;
   let gameFrame;
+  let gameCountdownCancel;
+  let gamePauseButton;
   let activeGame;
   let gameKeyHandler;
   const pageCache = new Map();
   const gameOverlay = createGameOverlay();
+  const gameRuntime = LinuxDoGameCore.createRuntime({
+    bestScores: savedState.gameBestScores || {},
+    onBestScore: () => {
+      savedState = { ...savedState, gameBestScores: gameRuntime.bestScores() };
+      vscode.setState(savedState);
+    },
+    onPause: (paused) => {
+      if (gamePauseButton) gamePauseButton.textContent = paused ? '继续' : '暂停';
+    }
+  });
 
   document.body.classList.toggle('compact', savedState.compact !== false);
 
@@ -44,6 +57,7 @@
     vscode.postMessage({ type: 'setBreakReminder', enabled: breakReminderEnabled });
   });
   openGameButton.addEventListener('click', () => showGameMenu(false));
+  shareTopicButton.addEventListener('click', () => vscode.postMessage({ type: 'shareCurrent' }));
   densityButton.addEventListener('click', () => {
     const compact = !document.body.classList.contains('compact');
     document.body.classList.toggle('compact', compact);
@@ -62,6 +76,9 @@
       event.preventDefault();
       navigate({ type: 'back' });
     }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && !gameOverlay.hidden && activeGame) gameRuntime.setPaused(true);
   });
 
   content.addEventListener('click', (event) => {
@@ -246,11 +263,19 @@
   function startGame(kind) {
     stopGame();
     activeGame = kind;
-    if (kind === 'snake') startSnake();
-    else if (kind === 'racer') startRacer();
-    else if (kind === 'jumper') startJumper();
-    else if (kind === 'mines') startMines();
-    else start2048();
+    gameRuntime.start(kind);
+    const launch = () => {
+      if (kind === 'snake') startSnake();
+      else if (kind === 'racer') startRacer();
+      else if (kind === 'jumper') startJumper();
+      else if (kind === 'mines') startMines();
+      else start2048();
+    };
+    const panel = gameOverlay.querySelector('.break-panel');
+    const countdownValue = node('strong', 'countdown-value', '3');
+    panel.replaceChildren(node('div', 'countdown-panel', [node('span', '', '准备'), countdownValue]));
+    gameOverlay.hidden = false;
+    gameCountdownCancel = LinuxDoGameCore.countdown((value) => { countdownValue.textContent = String(value); }, launch);
   }
 
   function gameShell(title, instructions) {
@@ -259,16 +284,19 @@
     score.id = 'mini-game-score';
     const body = node('div', 'game-body');
     body.id = 'mini-game-body';
+    const best = node('span', 'game-best', `最高 ${gameRuntime.state().best}`);
+    gamePauseButton = iconAction('Ⅱ', '暂停或继续', () => gameRuntime.togglePause());
     const heading = node('div', 'game-toolbar', [
       iconAction('←', '选择其他游戏', () => showGameMenu(false)),
       node('div', 'game-title', [node('strong', '', title), node('small', '', instructions)]),
-      node('span', 'score-wrap', [node('small', '', '得分'), score]),
+      node('span', 'score-wrap', [node('small', '', '得分'), score, best]),
+      gamePauseButton,
       iconAction('↻', '重新开始', () => startGame(activeGame)),
       iconAction('×', '结束休息', closeGameOverlay)
     ]);
     panel.replaceChildren(heading, body);
     gameOverlay.hidden = false;
-    return { body, score };
+    return { body, score, best };
   }
 
   function iconAction(label, title, handler) {
@@ -292,17 +320,34 @@
     cancelAnimationFrame(gameFrame);
     gameTimer = undefined;
     gameFrame = undefined;
+    gameCountdownCancel?.();
+    gameCountdownCancel = undefined;
+    gamePauseButton = undefined;
     activeGame = undefined;
     gameKeyHandler = undefined;
+  }
+
+  function setGameScore(ui, value) {
+    const state = gameRuntime.setScore(value);
+    ui.score.textContent = String(state.score);
+    if (ui.best) ui.best.textContent = `最高 ${state.best}`;
+  }
+
+  function finishGame(status, message) {
+    gameRuntime.finish();
+    status.replaceChildren(node('strong', '', message), actionButton('再来一局', () => startGame(activeGame)));
   }
 
   function start2048() {
     let board = Array(16).fill(0);
     let scoreValue = 0;
+    let undoState;
     const ui = gameShell('2048', '方向键或下方按钮移动');
     const grid = node('div', 'game-grid game-2048');
     const status = node('p', 'game-status', '合并相同数字，尽量得到 2048。');
-    ui.body.append(grid, directionPad((direction) => move(direction)), status);
+    const undoButton = actionButton('撤销一次', undo);
+    undoButton.disabled = true;
+    ui.body.append(grid, directionPad((direction) => move(direction)), node('div', 'game-inline-actions', undoButton), status);
 
     function addTile() {
       const empty = board.map((value, index) => value ? -1 : index).filter((index) => index >= 0);
@@ -311,31 +356,26 @@
     }
 
     function move(direction) {
-      const previous = board.join(',');
-      const next = Array(16).fill(0);
-      let gained = 0;
-      for (let line = 0; line < 4; line += 1) {
-        const indexes = lineIndexes(direction, line);
-        const values = indexes.map((index) => board[index]).filter(Boolean);
-        const merged = [];
-        for (let i = 0; i < values.length; i += 1) {
-          if (values[i] === values[i + 1]) {
-            merged.push(values[i] * 2);
-            gained += values[i] * 2;
-            i += 1;
-          } else {
-            merged.push(values[i]);
-          }
-        }
-        indexes.forEach((index, offset) => { next[index] = merged[offset] || 0; });
-      }
-      board = next;
-      if (board.join(',') !== previous) {
-        scoreValue += gained;
+      if (gameRuntime.state().paused) return;
+      const result = LinuxDoGameCore.move2048(board, direction);
+      if (result.moved) {
+        undoState = { board: board.slice(), score: scoreValue };
+        undoButton.disabled = false;
+        board = result.board;
+        scoreValue += result.gained;
         addTile();
         render();
       }
-      if (!canMove2048(board)) status.textContent = '本局结束，点击刷新再来一局。';
+      if (!canMove2048(board)) finishGame(status, '本局结束');
+    }
+
+    function undo() {
+      if (!undoState || gameRuntime.state().paused) return;
+      board = undoState.board;
+      scoreValue = undoState.score;
+      undoState = undefined;
+      undoButton.disabled = true;
+      render();
     }
 
     function render() {
@@ -343,7 +383,7 @@
         const tile = node('span', `tile tile-${Math.min(value, 2048)}`, value || '');
         return tile;
       }));
-      ui.score.textContent = String(scoreValue);
+      setGameScore(ui, scoreValue);
     }
 
     addTile();
@@ -387,7 +427,7 @@
     }
 
     function tick() {
-      if (ended) return;
+      if (ended || gameRuntime.state().paused) return;
       direction = nextDirection;
       const head = { x: snake[0].x + direction.x, y: snake[0].y + direction.y };
       const willEat = head.x === food.x && head.y === food.y;
@@ -395,7 +435,7 @@
       if (head.x < 0 || head.y < 0 || head.x >= size || head.y >= size || collisionBody.some((part) => part.x === head.x && part.y === head.y)) {
         ended = true;
         clearInterval(gameTimer);
-        status.textContent = '本局结束，点击刷新再来一局。';
+        finishGame(status, '本局结束');
         return;
       }
       snake.unshift(head);
@@ -418,11 +458,18 @@
         }
       }
       grid.replaceChildren(...cells);
-      ui.score.textContent = String(scoreValue);
+      setGameScore(ui, scoreValue);
     }
 
     render();
-    gameTimer = setInterval(tick, 145);
+    function scheduleTick() {
+      clearTimeout(gameTimer);
+      gameTimer = setTimeout(() => {
+        tick();
+        if (!ended) scheduleTick();
+      }, Math.max(72, 145 - scoreValue * 1.2));
+    }
+    scheduleTick();
     gameKeyHandler = (event) => handleDirectionKey(event, setDirection);
   }
 
@@ -447,14 +494,14 @@
     ui.body.append(road, directionPad(moveLane, true), status);
 
     function moveLane(direction) {
-      if (ended) return;
+      if (ended || gameRuntime.state().paused) return;
       if (direction === 'left') lane = Math.max(0, lane - 1);
       if (direction === 'right') lane = Math.min(2, lane + 1);
       render();
     }
 
     function tick() {
-      if (ended) return;
+      if (ended || gameRuntime.state().paused) return;
       obstacles = obstacles.map((item) => ({ ...item, row: item.row + 1 })).filter((item) => item.row < rows);
       if (Math.random() < 0.48 && !obstacles.some((item) => item.row < 2)) {
         obstacles.push({ lane: Math.floor(Math.random() * 3), row: 0 });
@@ -462,7 +509,7 @@
       if (obstacles.some((item) => item.lane === lane && item.row === rows - 2)) {
         ended = true;
         clearInterval(gameTimer);
-        status.textContent = '发生碰撞，点击刷新再来一局。';
+        finishGame(status, '发生碰撞');
       } else {
         scoreValue += 1;
       }
@@ -479,7 +526,7 @@
         }
       }
       road.replaceChildren(...cells);
-      ui.score.textContent = String(scoreValue);
+      setGameScore(ui, scoreValue);
     }
 
     render();
@@ -514,13 +561,18 @@
     let ended = false;
 
     function jump() {
-      if (!ended && player.y >= ground - player.height - 1) player.velocity = -430;
+      if (!ended && !gameRuntime.state().paused && player.y >= ground - player.height - 1) player.velocity = -430;
     }
 
     function frame(time) {
       if (previousTime === undefined) previousTime = time;
       const delta = Math.min((time - previousTime) / 1000, 0.04);
       previousTime = time;
+      if (gameRuntime.state().paused) {
+        draw();
+        gameFrame = requestAnimationFrame(frame);
+        return;
+      }
       elapsed += delta;
       player.velocity += 1050 * delta;
       player.y = Math.min(ground - player.height, player.y + player.velocity * delta);
@@ -535,9 +587,9 @@
       obstacles = obstacles.map((obstacle) => ({ ...obstacle, x: obstacle.x - speed * delta })).filter((obstacle) => obstacle.x + obstacle.width > 0);
       if (obstacles.some((obstacle) => rectanglesOverlap(player, obstacle))) {
         ended = true;
-        status.textContent = '碰到障碍，点击刷新再来一局。';
+        finishGame(status, '碰到障碍');
       }
-      ui.score.textContent = String(Math.floor(elapsed * 10));
+      setGameScore(ui, Math.floor(elapsed * 10));
       draw();
       if (!ended) gameFrame = requestAnimationFrame(frame);
     }
@@ -588,6 +640,7 @@
     let initialized = false;
     let ended = false;
     let flagMode = false;
+    let elapsedSeconds = 0;
     const ui = gameShell('扫雷', '点击翻开，右键或标记模式插旗');
     const grid = node('div', 'mines-grid');
     const flagButton = actionButton('标记模式：关', () => {
@@ -599,19 +652,21 @@
     ui.body.append(grid, node('div', 'mine-controls', flagButton), status);
 
     function initialize(safeIndex) {
-      const candidates = cells.map((_, index) => index).filter((index) => index !== safeIndex);
-      for (let placed = 0; placed < mineCount; placed += 1) {
-        const pick = Math.floor(Math.random() * candidates.length);
-        cells[candidates.splice(pick, 1)[0]].mine = true;
-      }
+      LinuxDoGameCore.mineIndexes(size, mineCount, safeIndex).forEach((index) => { cells[index].mine = true; });
       cells.forEach((cell, index) => {
         cell.nearby = neighbors(index, size).filter((neighbor) => cells[neighbor].mine).length;
       });
       initialized = true;
+      gameTimer = setInterval(() => {
+        if (!ended && !gameRuntime.state().paused) {
+          elapsedSeconds += 1;
+          updateMineStatus();
+        }
+      }, 1000);
     }
 
     function interact(index, mark) {
-      if (ended || cells[index].open) return;
+      if (ended || gameRuntime.state().paused || cells[index].open) return;
       if (mark || flagMode) {
         cells[index].flagged = !cells[index].flagged;
         render();
@@ -621,18 +676,26 @@
       if (cells[index].flagged) return;
       if (cells[index].mine) {
         ended = true;
+        clearInterval(gameTimer);
         cells.forEach((cell) => { if (cell.mine) cell.open = true; });
-        status.textContent = '踩到雷了，点击刷新再来一局。';
+        finishGame(status, '踩到雷了');
       } else {
         revealSafe(index);
         const opened = cells.filter((cell) => cell.open).length;
-        ui.score.textContent = String(opened);
+        setGameScore(ui, opened);
         if (opened === size * size - mineCount) {
           ended = true;
-          status.textContent = '完成，所有安全方格都找到了。';
+          clearInterval(gameTimer);
+          finishGame(status, '完成，所有安全方格都找到了');
         }
       }
       render();
+    }
+
+    function updateMineStatus() {
+      if (ended) return;
+      const flags = cells.filter((cell) => cell.flagged).length;
+      status.textContent = `剩余旗帜 ${Math.max(0, mineCount - flags)} · ${elapsedSeconds} 秒`;
     }
 
     function revealSafe(start) {
@@ -658,8 +721,18 @@
           event.preventDefault();
           interact(index, true);
         });
+        button.addEventListener('dblclick', () => chord(index));
         return button;
       }));
+      updateMineStatus();
+    }
+
+    function chord(index) {
+      const cell = cells[index];
+      if (!cell.open || !cell.nearby || ended) return;
+      const nearby = neighbors(index, size);
+      if (nearby.filter((neighbor) => cells[neighbor].flagged).length !== cell.nearby) return;
+      nearby.forEach((neighbor) => { if (!cells[neighbor].flagged) interact(neighbor, false); });
     }
 
     render();

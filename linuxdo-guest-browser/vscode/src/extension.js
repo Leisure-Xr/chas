@@ -14,10 +14,19 @@ const {
   USER_AGENT_SECRET,
   findChromiumExecutable,
   isLinuxDoUrl,
-  isOwnedTemporaryProfile
+  isOwnedTemporaryProfile,
+  normalizeBrowserKind
 } = require('./chromium-session');
+const { createShareCode, parseShareCode } = require('./share-code');
+const { VerificationPanel } = require('./verification-panel');
 
 const MANUAL_GUEST_COOKIE_NAMES = GUEST_COOKIE_NAMES;
+const SHARE_DURATIONS = [
+  { label: '1 小时', description: '默认', milliseconds: 60 * 60 * 1000 },
+  { label: '10 分钟', milliseconds: 10 * 60 * 1000 },
+  { label: '24 小时', milliseconds: 24 * 60 * 60 * 1000 },
+  { label: '7 天', milliseconds: 7 * 24 * 60 * 60 * 1000 }
+];
 
 class LinuxDoApi {
   constructor(browserSession) {
@@ -288,6 +297,7 @@ class GuestReaderPanel {
     this.browserSession = browserSession;
     this.api = new LinuxDoApi(browserSession);
     this.initialView = initialView;
+    this.initialAction = undefined;
     this.ready = false;
     this.sequence = 0;
     this.moreSequence = 0;
@@ -325,7 +335,8 @@ class GuestReaderPanel {
       case 'ready':
         this.ready = true;
         this.updateBreakReminderSetting();
-        await this.openAction({ type: 'view', view: this.initialView }, false);
+        await this.openAction(this.initialAction || { type: 'view', view: this.initialView }, false);
+        this.initialAction = undefined;
         break;
       case 'navigate':
         this.navigate(message.view);
@@ -362,6 +373,9 @@ class GuestReaderPanel {
       case 'cloudflareSetup':
         await configureCloudflare(this.context, this.browserSession, () => this.refresh());
         break;
+      case 'shareCurrent':
+        await this.shareCurrentTopic();
+        break;
       case 'loadMorePosts':
         await this.loadMorePosts(message.topicId, message.postIds);
         break;
@@ -387,6 +401,32 @@ class GuestReaderPanel {
     this.listMoreSequence += 1;
     this.post({ type: 'navigationState', canGoBack: this.history.length > 0, entryId: nextAction.entryId });
     return this.loadAction(nextAction, true);
+  }
+
+  openSharedTopic(topic) {
+    const action = { type: 'topic', id: Number(topic.id), slug: String(topic.slug), title: String(topic.title) };
+    if (!this.ready) {
+      this.initialAction = action;
+      return;
+    }
+    return this.openAction(action);
+  }
+
+  async shareCurrentTopic() {
+    const action = this.currentAction;
+    if (action?.type !== 'topic' || !action.title) {
+      vscode.window.showInformationMessage('请先打开一个主题，再生成临时分享码。');
+      return;
+    }
+    const duration = await vscode.window.showQuickPick(SHARE_DURATIONS, {
+      title: '选择分享码有效期',
+      placeHolder: '默认 1 小时'
+    });
+    if (!duration) return;
+    const code = createShareCode(action, duration.milliseconds);
+    await vscode.env.clipboard.writeText(code);
+    const expiresAt = new Date(Date.now() + duration.milliseconds).toLocaleString('zh-CN', { hour12: false });
+    vscode.window.showInformationMessage(`临时分享码已复制，将于 ${expiresAt} 失效。`);
   }
 
   async loadAction(action, resetListCursor) {
@@ -487,7 +527,18 @@ class GuestReaderPanel {
   }
 
   loadTopic(id, slug) {
-    return this.runLoad(() => this.api.topic(id, slug), 'topic');
+    const action = this.currentAction;
+    return this.runLoad(
+      () => this.api.topic(id, slug),
+      'topic',
+      {},
+      (data) => {
+        if (this.currentAction?.entryId === action?.entryId) {
+          action.slug = data.slug;
+          action.title = data.title;
+        }
+      }
+    );
   }
 
   loadSearch(query) {
@@ -517,6 +568,7 @@ class GuestReaderPanel {
   getHtml() {
     const webview = this.panel.webview;
     const nonce = randomNonce();
+    const gameCoreUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'game-core.js'));
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'main.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'styles.css'));
     return `<!doctype html>
@@ -546,6 +598,7 @@ class GuestReaderPanel {
       <button type="submit" class="icon-button" title="搜索" aria-label="搜索">⌕</button>
     </form>
     <button id="break-reminder" type="button" class="icon-button" title="开启休息提醒" aria-label="开启休息提醒" aria-pressed="false">◷</button>
+    <button id="share-topic" type="button" class="icon-button" title="分享当前主题" aria-label="分享当前主题">↗</button>
     <button id="open-game" type="button" class="icon-button game-button" title="打开休息小游戏" aria-label="打开休息小游戏">▦</button>
     <button id="density" type="button" class="icon-button" title="切换显示密度" aria-label="切换显示密度">≡</button>
     <button id="refresh" type="button" class="icon-button" title="刷新" aria-label="刷新">↻</button>
@@ -553,6 +606,7 @@ class GuestReaderPanel {
   <main id="content" tabindex="-1">
     <div class="loading"><span class="spinner"></span><span>正在连接 LINUX DO…</span></div>
   </main>
+  <script nonce="${nonce}" src="${gameCoreUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
@@ -608,82 +662,73 @@ function friendlyError(error) {
 }
 
 async function configureCloudflare(context, browserSession, onSaved) {
-  const choice = await vscode.window.showInformationMessage(
-    '扩展可以打开独立的临时浏览器并自动获取 Cloudflare 验证，不会读取日常浏览器数据。',
-    '自动验证',
-    '手动粘贴',
-    '清除验证'
-  );
+  VerificationPanel.createOrShow(context, createVerificationHandlers(context, browserSession, onSaved));
+}
 
-  if (choice === '自动验证') {
-    try {
+function createVerificationHandlers(context, browserSession, onSaved) {
+  const configuration = () => vscode.workspace.getConfiguration('linuxdoGuest');
+  const currentCookie = async () => {
+    const saved = await context.secrets.get(GUEST_COOKIE_SECRET);
+    if (saved) return saved;
+    const legacy = await context.secrets.get(CLEARANCE_SECRET);
+    return legacy ? `cf_clearance=${legacy}` : '';
+  };
+  const setBrowserKind = async (value) => {
+    const browserKind = normalizeBrowserKind(value);
+    await configuration().update('chromiumBrowser', browserKind, vscode.ConfigurationTarget.Global);
+    await browserSession.setBrowserKind(browserKind);
+    return browserKind;
+  };
+  return {
+    getState: async () => ({
+      hasCookie: Boolean(await currentCookie()),
+      hasUserAgent: Boolean(await context.secrets.get(USER_AGENT_SECRET)),
+      browserKind: normalizeBrowserKind(configuration().get('chromiumBrowser', 'auto'))
+    }),
+    save: async ({ cookie, userAgent, browserKind }) => {
+      const cookieHeader = cookie.trim()
+        ? filterGuestCookieHeader(cookie, MANUAL_GUEST_COOKIE_NAMES)
+        : await currentCookie();
+      const expectedUserAgent = userAgent.trim() || await context.secrets.get(USER_AGENT_SECRET) || '';
+      const cookieError = validateGuestCookieInput(cookieHeader);
+      if (cookieError) throw new Error(cookieError);
+      const userAgentError = validateUserAgent(expectedUserAgent);
+      if (userAgentError) throw new Error(userAgentError);
+      const selectedBrowser = await setBrowserKind(browserKind);
+      await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: '正在浏览器内校验手动游客参数',
+        cancellable: false
+      }, () => browserSession.validateManualVerification({
+        cookieHeader,
+        userAgent: expectedUserAgent,
+        browserKind: selectedBrowser
+      }));
+      await onSaved?.();
+    },
+    auto: async (browserKind) => {
+      const selectedBrowser = await setBrowserKind(browserKind);
       await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
         title: '请在独立游客浏览器中完成 LINUX DO 验证',
         cancellable: true
-      }, (progress, cancellationToken) => {
-        progress.report({ message: '正在启动独立游客会话…' });
-        return browserSession.verifyInteractively({
-          cancellationToken,
-          report: (message) => progress.report({ message })
-        });
-      });
-      vscode.window.showInformationMessage('Cloudflare 验证成功；游客浏览器将在阅读期间保持运行。');
+      }, (progress, cancellationToken) => browserSession.verifyInteractively({
+        browserKind: selectedBrowser,
+        cancellationToken,
+        report: (message) => progress.report({ message })
+      }));
       await onSaved?.();
-    } catch (error) {
+    },
+    clear: async (target) => {
       await browserSession.stop();
-      const message = error instanceof Error ? error.message : String(error);
-      vscode.window.showErrorMessage(`自动验证失败：${message}`);
+      if (target === 'cookie' || target === 'all') {
+        await context.secrets.delete(CLEARANCE_SECRET);
+        await context.secrets.delete(GUEST_COOKIE_SECRET);
+      }
+      if (target === 'userAgent' || target === 'all') await context.secrets.delete(USER_AGENT_SECRET);
+      await onSaved?.();
     }
-    return;
-  }
-  if (choice === '清除验证') {
-    await clearCloudflare(context, browserSession);
-    return;
-  }
-  if (choice !== '手动粘贴') {
-    return;
-  }
-
-  const rawCookies = await vscode.window.showInputBox({
-    title: '粘贴 Cloudflare 验证',
-    prompt: '粘贴 cf_clearance 的值或完整 Cookie。扩展只保留游客白名单字段；检测到登录字段时会丢弃论坛会话。',
-    password: true,
-    ignoreFocusOut: true,
-    validateInput: validateGuestCookieInput
-  });
-  if (rawCookies === undefined) {
-    return;
-  }
-  const cookieHeader = filterGuestCookieHeader(rawCookies, MANUAL_GUEST_COOKIE_NAMES);
-
-  const userAgent = await vscode.window.showInputBox({
-    title: '粘贴浏览器 User-Agent',
-    prompt: 'F12 → Network/网络 → linux.do 文档请求 → Request Headers，复制 user-agent；也可在控制台执行 navigator.userAgent。',
-    value: await context.secrets.get(USER_AGENT_SECRET) || defaultUserAgent(),
-    ignoreFocusOut: true,
-    validateInput: validateUserAgent
-  });
-  if (userAgent === undefined) {
-    return;
-  }
-
-  await context.secrets.store(GUEST_COOKIE_SECRET, cookieHeader);
-  await context.secrets.delete(CLEARANCE_SECRET);
-  await context.secrets.store(USER_AGENT_SECRET, userAgent.trim());
-  try {
-    await vscode.window.withProgress({
-      location: vscode.ProgressLocation.Notification,
-      title: '正在验证手动填写的游客参数',
-      cancellable: false
-    }, () => browserSession.validateStoredVerification());
-    vscode.window.showInformationMessage('Cloudflare 游客验证已保存，并已通过浏览器内请求校验。');
-    await onSaved?.();
-  } catch (error) {
-    await browserSession.stop();
-    const message = error instanceof Error ? error.message : String(error);
-    vscode.window.showErrorMessage(`手动验证失败：${message}`);
-  }
+  };
 }
 
 function validateClearanceInput(value) {
@@ -744,6 +789,24 @@ async function clearCloudflare(context, browserSession) {
   vscode.window.showInformationMessage('Cloudflare 验证已清除。');
 }
 
+async function openShareCode(context, browserSession) {
+  const clipboard = await vscode.env.clipboard.readText();
+  const code = await vscode.window.showInputBox({
+    title: '打开 LINUX DO 临时分享码',
+    prompt: '粘贴 LDGS1 分享码；分享码只包含公开主题信息。',
+    value: clipboard.trim().startsWith('LDGS1.') ? clipboard.trim() : '',
+    ignoreFocusOut: true
+  });
+  if (code === undefined) return;
+  try {
+    const topic = parseShareCode(code);
+    const panel = GuestReaderPanel.createOrShow(context, browserSession, 'latest');
+    panel.openSharedTopic(topic);
+  } catch (error) {
+    vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+  }
+}
+
 function randomNonce() {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let value = '';
@@ -755,7 +818,8 @@ function randomNonce() {
 
 function activate(context) {
   const provider = new GuestTreeProvider();
-  const browserSession = new ChromiumGuestSession(context.secrets);
+  const initialBrowserKind = vscode.workspace.getConfiguration('linuxdoGuest').get('chromiumBrowser', 'auto');
+  const browserSession = new ChromiumGuestSession(context.secrets, initialBrowserKind);
   activeBrowserSession = browserSession;
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('linuxdoGuest.explorer', provider),
@@ -772,9 +836,15 @@ function activate(context) {
     }),
     vscode.commands.registerCommand('linuxdoGuest.setCloudflareClearance', () => configureCloudflare(context, browserSession, () => GuestReaderPanel.current?.refresh())),
     vscode.commands.registerCommand('linuxdoGuest.clearCloudflareClearance', () => clearCloudflare(context, browserSession)),
+    vscode.commands.registerCommand('linuxdoGuest.shareCurrentTopic', () => GuestReaderPanel.current?.shareCurrentTopic() || vscode.window.showInformationMessage('请先打开一个主题。')),
+    vscode.commands.registerCommand('linuxdoGuest.openShareCode', () => openShareCode(context, browserSession)),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('linuxdoGuest.breakReminder.enabled')) {
         GuestReaderPanel.current?.updateBreakReminderSetting();
+      }
+      if (event.affectsConfiguration('linuxdoGuest.chromiumBrowser')) {
+        const browserKind = vscode.workspace.getConfiguration('linuxdoGuest').get('chromiumBrowser', 'auto');
+        void browserSession.setBrowserKind(browserKind);
       }
     }),
     provider.changeEmitter,
@@ -798,6 +868,7 @@ module.exports = {
   findChromiumExecutable,
   isLinuxDoUrl,
   isOwnedTemporaryProfile,
+  openShareCode,
   validateClearanceInput,
   validateGuestCookieInput,
   validateUserAgent

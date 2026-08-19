@@ -2,7 +2,7 @@
   "name": "linuxdo-guest-browser",
   "displayName": "LINUX DO 游客阅读器",
   "description": "在 VS Code 中以游客身份浏览 LINUX DO 的公开内容。",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "publisher": "lexiao-studio",
   "repository": {
     "type": "git",
@@ -29,7 +29,9 @@
     "onCommand:linuxdoGuest.openTop",
     "onCommand:linuxdoGuest.openCategories",
     "onCommand:linuxdoGuest.setCloudflareClearance",
-    "onCommand:linuxdoGuest.clearCloudflareClearance"
+    "onCommand:linuxdoGuest.clearCloudflareClearance",
+    "onCommand:linuxdoGuest.shareCurrentTopic",
+    "onCommand:linuxdoGuest.openShareCode"
   ],
   "main": "./src/extension.js",
   "contributes": {
@@ -68,6 +70,16 @@
         "command": "linuxdoGuest.clearCloudflareClearance",
         "title": "LINUX DO: 清除 Cloudflare 验证",
         "icon": "$(trash)"
+      },
+      {
+        "command": "linuxdoGuest.shareCurrentTopic",
+        "title": "LINUX DO: 分享当前主题",
+        "icon": "$(share)"
+      },
+      {
+        "command": "linuxdoGuest.openShareCode",
+        "title": "LINUX DO: 打开临时分享码",
+        "icon": "$(link-external)"
       }
     ],
     "viewsContainers": {
@@ -124,12 +136,19 @@
           "type": "boolean",
           "default": false,
           "description": "开启后，在阅读器运行期间每隔随机 31–60 分钟提醒休息，并可进入五个内置小游戏。"
+        },
+        "linuxdoGuest.chromiumBrowser": {
+          "type": "string",
+          "enum": ["auto", "chrome", "edge", "brave", "chromium"],
+          "enumDescriptions": ["自动选择已安装浏览器", "Google Chrome", "Microsoft Edge", "Brave", "Chromium"],
+          "default": "auto",
+          "description": "Cloudflare 手动参数来源及独立游客会话使用的浏览器。"
         }
       }
     }
   },
   "scripts": {
-    "check": "node --check src/extension.js && node --check src/chromium-session.js && node --check media/main.js && npm test",
+    "check": "bash ../shared/check-game-core.sh && node --check src/extension.js && node --check src/chromium-session.js && node --check src/share-code.js && node --check src/verification-panel.js && node --check media/game-core.js && node --check media/main.js && npm test",
     "test": "node --test test/*.test.js",
     "package": "npx --yes @vscode/vsce@3.6.0 package --no-dependencies"
   }

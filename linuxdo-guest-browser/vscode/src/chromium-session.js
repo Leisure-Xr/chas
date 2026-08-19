@@ -107,7 +107,7 @@ class CdpClient {
 }
 
 class ChromiumGuestSession {
-  constructor(secrets) {
+  constructor(secrets, browserKind = 'auto') {
     this.secrets = secrets;
     this.browser = undefined;
     this.browserClient = undefined;
@@ -119,6 +119,8 @@ class ChromiumGuestSession {
     this.startPromise = undefined;
     this.stopPromise = undefined;
     this.lifecycleGeneration = 0;
+    this.browserKind = normalizeBrowserKind(browserKind);
+    this.activeBrowserKind = undefined;
   }
 
   get isRunning() {
@@ -126,7 +128,21 @@ class ChromiumGuestSession {
   }
 
   async hasStoredVerification() {
-    return Boolean(await this.secrets.get(GUEST_COOKIE_SECRET) || await this.secrets.get(CLEARANCE_SECRET));
+    const [cookies, legacy, userAgent] = await Promise.all([
+      this.secrets.get(GUEST_COOKIE_SECRET),
+      this.secrets.get(CLEARANCE_SECRET),
+      this.secrets.get(USER_AGENT_SECRET)
+    ]);
+    return Boolean((cookies || legacy) && userAgent);
+  }
+
+  async setBrowserKind(value) {
+    const browserKind = normalizeBrowserKind(value);
+    if (browserKind !== this.browserKind) {
+      await this.stop();
+      this.browserKind = browserKind;
+    }
+    return browserKind;
   }
 
   async request(rawPath) {
@@ -147,7 +163,8 @@ class ChromiumGuestSession {
     }
   }
 
-  async verifyInteractively({ cancellationToken, report } = {}) {
+  async verifyInteractively({ cancellationToken, report, browserKind } = {}) {
+    await this.setBrowserKind(browserKind || this.browserKind);
     await this.start({
       useStoredVerification: true,
       visible: true,
@@ -187,6 +204,33 @@ class ChromiumGuestSession {
     return result;
   }
 
+  async validateManualVerification({ cookieHeader, userAgent, browserKind } = {}) {
+    const filteredCookies = parseCookieHeader(cookieHeader)
+      .map(({ name, value }) => `${name}=${value}`)
+      .join('; ');
+    if (!/(?:^|;\s*)cf_clearance=/i.test(filteredCookies)) throw new Error('没有找到有效的 cf_clearance。');
+    const expectedUserAgent = String(userAgent || '').trim();
+    if (expectedUserAgent.length < 20 || expectedUserAgent.length > 1024 || /[\r\n]/.test(expectedUserAgent)) {
+      throw new Error('User-Agent 格式不正确。');
+    }
+
+    await this.setBrowserKind(browserKind || this.browserKind);
+    await this.stop();
+    await this.start({
+      visible: true,
+      cookieHeader: filteredCookies,
+      expectedUserAgent
+    });
+    const result = await this.readVerifiedState();
+    if (!result) {
+      await this.showVerificationPage().catch(() => undefined);
+      throw new CloudflareError(true, '手动参数未通过浏览器内请求校验，请确认 Cookie、User-Agent 和来源浏览器一致。');
+    }
+    await this.saveVerifiedState(result);
+    await this.minimizeWindow().catch(() => undefined);
+    return result;
+  }
+
   async start(options = {}) {
     if (this.stopPromise) await this.stopPromise;
     if (this.isRunning) {
@@ -207,16 +251,22 @@ class ChromiumGuestSession {
     useStoredVerification = false,
     visible = false,
     allowUserAgentMismatch = false,
-    cancellationToken
+    cancellationToken,
+    cookieHeader,
+    expectedUserAgent
   } = {}, generation) {
     if (typeof WebSocket !== 'function') {
       throw new Error('当前 VS Code 版本不支持浏览器会话，请升级 VS Code。');
     }
-    const executable = findChromiumExecutable();
+    const executable = findChromiumExecutable(this.browserKind);
     if (!executable) {
-      throw new Error('未找到 Google Chrome、Chromium、Microsoft Edge 或 Brave。');
+      throw new Error(this.browserKind === 'auto'
+        ? '未找到 Google Chrome、Chromium、Microsoft Edge 或 Brave。'
+        : `未找到所选浏览器：${browserKindLabel(this.browserKind)}。`);
     }
-    const storedCookies = useStoredVerification ? await getStoredCookieHeader(this.secrets) : '';
+    const storedCookies = cookieHeader !== undefined
+      ? String(cookieHeader)
+      : useStoredVerification ? await getStoredCookieHeader(this.secrets) : '';
     if (cancellationToken?.isCancellationRequested) throw new Error('已取消验证。');
     this.assertLifecycleGeneration(generation);
     this.profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'linuxdo-guest-cf-'));
@@ -235,6 +285,7 @@ class ChromiumGuestSession {
     if (!visible && storedCookies) args.splice(args.length - 2, 0, '--start-minimized');
     const browser = spawn(executable, args, { detached: false, stdio: 'ignore' });
     this.browser = browser;
+    this.activeBrowserKind = this.browserKind;
     browser.once('exit', () => {
       if (this.browser !== browser) return;
       this.pageClient?.close();
@@ -260,11 +311,13 @@ class ChromiumGuestSession {
       await this.pageClient.send('Network.enable');
 
       const actualUserAgent = await this.readUserAgent();
-      const savedUserAgent = useStoredVerification ? await this.secrets.get(USER_AGENT_SECRET) : undefined;
+      const savedUserAgent = expectedUserAgent !== undefined
+        ? expectedUserAgent
+        : useStoredVerification ? await this.secrets.get(USER_AGENT_SECRET) : undefined;
       if (storedCookies && savedUserAgent && savedUserAgent.trim() !== actualUserAgent && !allowUserAgentMismatch) {
-        throw new CloudflareError(true, '保存的 User-Agent 与当前浏览器不一致，请改用“自动验证”。');
+        throw new CloudflareError(true, '填写的 User-Agent 与所选浏览器不一致，请重新复制参数或选择正确的浏览器。');
       }
-      if (storedCookies && (!savedUserAgent || savedUserAgent.trim() === actualUserAgent)) {
+      if (storedCookies && savedUserAgent?.trim() === actualUserAgent) {
         await this.injectCookies(storedCookies);
       }
       await this.pageClient.send('Page.navigate', { url: `${SITE_ORIGIN}/latest` });
@@ -399,6 +452,7 @@ class ChromiumGuestSession {
     this.port = undefined;
     this.browserWebSocketUrl = undefined;
     this.targetId = undefined;
+    this.activeBrowserKind = undefined;
     try {
       if (browserClient) {
         await browserClient.send('Browser.close', {}, 3_000).catch(() => undefined);
@@ -482,34 +536,49 @@ async function getStoredCookieHeader(secrets) {
   return legacy ? `cf_clearance=${legacy}` : '';
 }
 
-function findChromiumExecutable() {
-  const candidates = process.platform === 'darwin'
+function chromiumCandidates() {
+  return process.platform === 'darwin'
     ? [
-        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-        '/Applications/Chromium.app/Contents/MacOS/Chromium',
-        '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-        '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
-        path.join(os.homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+        ['chrome', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'],
+        ['chrome', path.join(os.homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome')],
+        ['edge', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'],
+        ['brave', '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'],
+        ['chromium', '/Applications/Chromium.app/Contents/MacOS/Chromium']
       ]
     : process.platform === 'win32'
       ? [
-          path.join(process.env.PROGRAMFILES || '', 'Google/Chrome/Application/chrome.exe'),
-          path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google/Chrome/Application/chrome.exe'),
-          path.join(process.env.PROGRAMFILES || '', 'Microsoft/Edge/Application/msedge.exe'),
-          path.join(process.env['PROGRAMFILES(X86)'] || '', 'Microsoft/Edge/Application/msedge.exe'),
-          path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe'),
-          path.join(process.env.LOCALAPPDATA || '', 'Chromium/Application/chrome.exe'),
-          path.join(process.env.LOCALAPPDATA || '', 'BraveSoftware/Brave-Browser/Application/brave.exe')
+          ['chrome', path.join(process.env.PROGRAMFILES || '', 'Google/Chrome/Application/chrome.exe')],
+          ['chrome', path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google/Chrome/Application/chrome.exe')],
+          ['chrome', path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe')],
+          ['edge', path.join(process.env.PROGRAMFILES || '', 'Microsoft/Edge/Application/msedge.exe')],
+          ['edge', path.join(process.env['PROGRAMFILES(X86)'] || '', 'Microsoft/Edge/Application/msedge.exe')],
+          ['brave', path.join(process.env.LOCALAPPDATA || '', 'BraveSoftware/Brave-Browser/Application/brave.exe')],
+          ['chromium', path.join(process.env.LOCALAPPDATA || '', 'Chromium/Application/chrome.exe')]
         ]
       : [
-          '/usr/bin/google-chrome',
-          '/usr/bin/google-chrome-stable',
-          '/usr/bin/chromium',
-          '/usr/bin/chromium-browser',
-          '/usr/bin/microsoft-edge',
-          '/usr/bin/brave-browser'
+          ['chrome', '/usr/bin/google-chrome'],
+          ['chrome', '/usr/bin/google-chrome-stable'],
+          ['edge', '/usr/bin/microsoft-edge'],
+          ['brave', '/usr/bin/brave-browser'],
+          ['chromium', '/usr/bin/chromium'],
+          ['chromium', '/usr/bin/chromium-browser']
         ];
-  return candidates.find((candidate) => candidate && fs.existsSync(candidate));
+}
+
+function findChromiumExecutable(browserKind = 'auto') {
+  const normalized = normalizeBrowserKind(browserKind);
+  const candidate = chromiumCandidates().find(([kind, executable]) =>
+    (normalized === 'auto' || normalized === kind) && executable && fs.existsSync(executable));
+  return candidate?.[1];
+}
+
+function normalizeBrowserKind(value) {
+  const browserKind = String(value || 'auto').toLowerCase();
+  return ['auto', 'chrome', 'edge', 'brave', 'chromium'].includes(browserKind) ? browserKind : 'auto';
+}
+
+function browserKindLabel(browserKind) {
+  return { chrome: 'Google Chrome', edge: 'Microsoft Edge', brave: 'Brave', chromium: 'Chromium' }[browserKind] || '自动选择';
 }
 
 async function waitForDevTools(activePortFile, browser, cancellationToken) {
@@ -609,10 +678,13 @@ module.exports = {
   assertLinuxDoRequestUrl,
   browserCookiesToHeader,
   buildBrowserFetchExpression,
+  browserKindLabel,
+  chromiumCandidates,
   findChromiumExecutable,
   isLinuxDoUrl,
   isOwnedTemporaryProfile,
   parseBrowserJsonResponse,
   parseCookieHeader,
+  normalizeBrowserKind,
   waitForDevTools
 };

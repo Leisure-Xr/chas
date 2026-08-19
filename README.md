@@ -10,11 +10,11 @@
 
 ## LINUX DO Guest Browser
 
-支持游客浏览公开主题、Cloudflare 验证、主题续载、浏览历史、可选休息提醒和五个内置小游戏，不保存论坛登录凭据。
+支持游客浏览公开主题、Cloudflare 手动/自动验证、主题续载、浏览历史、限时主题分享、可选休息提醒和五个内置小游戏，不保存论坛登录凭据。
 
 - [插件源码与使用说明](linuxdo-guest-browser/)
-- [下载 VS Code 0.8.0](linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.8.0.vsix)
-- [下载 PyCharm 0.4.0](linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.4.0.zip)
+- [下载 VS Code 0.9.0](linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.9.0.vsix)
+- [下载 PyCharm 0.5.0](linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.5.0.zip)
 
 ## 仓库结构
 

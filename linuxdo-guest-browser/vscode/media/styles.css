@@ -48,7 +48,7 @@ input:focus-visible {
   z-index: 20;
   top: 0;
   display: grid;
-  grid-template-columns: 32px auto auto minmax(170px, 320px) repeat(4, 32px);
+  grid-template-columns: 32px auto auto minmax(170px, 320px) repeat(5, 32px);
   align-items: center;
   gap: 14px;
   min-height: 52px;
@@ -948,6 +948,36 @@ body.compact .load-more {
   font-variant-numeric: tabular-nums;
 }
 
+.game-best {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.countdown-panel {
+  min-height: 300px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.countdown-value {
+  color: var(--text);
+  font-size: 48px;
+  line-height: 1;
+}
+
+.game-inline-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+}
+
 .game-body {
   display: grid;
   justify-items: center;
@@ -993,6 +1023,15 @@ body.compact .load-more {
 .tile-512,
 .tile-1024,
 .tile-2048 { background: var(--accent); color: var(--accent-text); }
+
+.game-2048 .tile {
+  animation: tile-enter 120ms ease-out;
+}
+
+@keyframes tile-enter {
+  from { transform: scale(.9); opacity: .65; }
+  to { transform: scale(1); opacity: 1; }
+}
 
 .direction-pad {
   display: grid;
@@ -1049,6 +1088,8 @@ body.compact .load-more {
 .road-cell:nth-child(3n) { border-right: 0; }
 .road-cell.car { color: var(--accent); }
 .road-cell.obstacle { color: var(--vscode-errorForeground); }
+.road-cell.car,
+.road-cell.obstacle { transition: color 120ms ease, transform 120ms ease; }
 
 .jumper-canvas {
   width: min(100%, 520px);
@@ -1098,7 +1139,7 @@ body.compact .load-more {
 
 @media (max-width: 720px) {
   .toolbar {
-    grid-template-columns: 32px auto minmax(0, 1fr) repeat(4, 32px);
+    grid-template-columns: 32px auto minmax(0, 1fr) repeat(5, 32px);
     gap: 7px 10px;
     padding: 8px 12px;
   }
@@ -1166,7 +1207,7 @@ body.compact .load-more {
 
 @media (max-width: 460px) {
   .toolbar {
-    grid-template-columns: 32px minmax(0, 1fr) repeat(4, 28px);
+    grid-template-columns: 32px minmax(0, 1fr) repeat(5, 28px);
   }
 
   .toolbar .brand {

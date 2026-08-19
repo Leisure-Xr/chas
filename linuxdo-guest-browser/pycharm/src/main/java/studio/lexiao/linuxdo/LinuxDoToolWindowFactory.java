@@ -2,6 +2,7 @@ package studio.lexiao.linuxdo;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
@@ -22,6 +23,7 @@ import org.cef.handler.CefResourceRequestHandler;
 import org.cef.handler.CefResourceRequestHandlerAdapter;
 import org.cef.handler.CefRequestHandlerAdapter;
 import org.cef.handler.CefLoadHandlerAdapter;
+import org.cef.handler.CefDisplayHandlerAdapter;
 import org.cef.misc.BoolRef;
 import org.cef.network.CefRequest;
 import org.jetbrains.annotations.NotNull;
@@ -35,14 +37,22 @@ import javax.swing.JToggleButton;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.JOptionPane;
 import java.awt.BorderLayout;
 import java.awt.Font;
 import java.awt.FlowLayout;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
@@ -74,8 +84,10 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private static final String CATEGORIES_URL = "https://linux.do/categories";
         private static final String BREAK_REMINDER_PROPERTY = "linuxdo.guest.breakReminder.enabled";
         private static final String BREAK_ACTION_PATH = "/__lexiao_break/";
+        private static final String GAME_BEST_PROPERTY = "linuxdo.guest.gameBest.";
         private static final int SNOOZE_MINUTES = 10;
         private static final String BREAK_OVERLAY_SCRIPT = loadBreakOverlayScript();
+        private static final String GAME_CORE_SCRIPT = loadResourceScript("/game-core.js");
         private static final String BASE_PAGE_STYLE = """
                 .login-button,
                 .sign-up-button,
@@ -198,17 +210,23 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private final JButton refreshButton = iconButton(AllIcons.Actions.Refresh, "刷新");
         private final JButton resetButton = iconButton(AllIcons.Actions.Restart, "清理 Cookie 并开始新游客会话");
         private final JButton gameButton = new JButton("小游戏");
+        private final JButton shareButton = new JButton("分享");
+        private final JButton openShareButton = new JButton("打开分享码");
         private final JToggleButton compactButton = new JToggleButton("≡", true);
         private final JToggleButton breakReminderButton = new JToggleButton("休息提醒");
         private final JBTextField searchField = new JBTextField();
         private final JLabel status = new JLabel("正在启动游客会话...");
         private final PropertiesComponent properties = PropertiesComponent.getInstance();
+        private final Map<String, JToggleButton> navigationButtons = new LinkedHashMap<>();
         private volatile boolean compactMode = true;
         private volatile boolean breakOverlayVisible;
         private volatile boolean breakOverlayReminderMode;
         private volatile boolean breakReminderEnabled;
         private volatile String recommendedGame = "2048";
         private Timer breakReminderTimer;
+        private volatile boolean guestSessionInitializing = true;
+        private volatile String pendingNavigationUrl = HOME_URL;
+        private volatile String currentPageTitle = "LINUX DO 公开主题";
         private volatile boolean disposed;
 
         private GuestBrowserPanel() {
@@ -267,6 +285,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             breakReminderButton.addActionListener(event ->
                     setBreakReminderEnabled(breakReminderButton.isSelected(), true));
             gameButton.addActionListener(event -> showBreakGames());
+            shareButton.addActionListener(event -> shareCurrentTopic());
+            openShareButton.addActionListener(event -> openShareCode());
+            shareButton.setEnabled(false);
 
             historyAndBrand.add(backButton);
             historyAndBrand.add(forwardButton);
@@ -276,6 +297,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             tools.add(compactButton);
             tools.add(breakReminderButton);
             tools.add(gameButton);
+            tools.add(shareButton);
+            tools.add(openShareButton);
             tools.add(refreshButton);
             tools.add(resetButton);
             firstRow.add(historyAndBrand, BorderLayout.WEST);
@@ -307,11 +330,12 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             return toolbar;
         }
 
-        private JButton navigationButton(String label, String url) {
-            JButton button = new JButton(label);
+        private JToggleButton navigationButton(String label, String url) {
+            JToggleButton button = new JToggleButton(label);
             button.setFocusable(false);
             button.setMargin(JBUI.insets(2, 8));
-            button.addActionListener(event -> browser.loadURL(url));
+            button.addActionListener(event -> navigateTo(url));
+            navigationButtons.put(url, button);
             return button;
         }
 
@@ -320,7 +344,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (query.isEmpty() || disposed) {
                 return;
             }
-            browser.loadURL("https://linux.do/search?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8));
+            navigateTo("https://linux.do/search?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8));
         }
 
         private static JButton iconButton(javax.swing.Icon icon, String tooltip) {
@@ -331,6 +355,12 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         }
 
         private void installHistoryStateHandler() {
+            browser.getJBCefClient().addDisplayHandler(new CefDisplayHandlerAdapter() {
+                @Override
+                public void onTitleChange(CefBrowser cefBrowser, String title) {
+                    if (title != null && !title.isBlank()) currentPageTitle = title.replaceAll("[\\r\\n]+", " ").trim();
+                }
+            }, browser.getCefBrowser());
             browser.getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
                 @Override
                 public void onLoadingStateChange(
@@ -346,13 +376,17 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         backButton.setEnabled(canGoBack);
                         forwardButton.setEnabled(canGoForward);
                         refreshButton.setEnabled(!isLoading);
+                        navigationButtons.values().forEach(button -> button.setEnabled(!isLoading));
+                        searchField.setEnabled(!isLoading);
                         status.setText(isLoading ? "加载中..." : "游客模式");
+                        updateNavigationState(cefBrowser.getURL());
                     });
                 }
 
                 @Override
                 public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
                     if (frame != null && frame.isMain() && httpStatusCode < 400) {
+                        SwingUtilities.invokeLater(() -> updateNavigationState(cefBrowser.getURL()));
                         applyPageStyle(cefBrowser);
                         if (breakOverlayVisible) {
                             showBreakOverlay(cefBrowser);
@@ -360,6 +394,87 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     }
                 }
             }, browser.getCefBrowser());
+        }
+
+        private void navigateTo(String url) {
+            if (disposed || !isAllowedGuestUrl(url)) return;
+            if (guestSessionInitializing) {
+                pendingNavigationUrl = url;
+                status.setText("准备游客会话，将打开" + navigationLabel(url));
+                return;
+            }
+            pendingNavigationUrl = null;
+            CefBrowser cefBrowser = browser.getCefBrowser();
+            if (samePage(cefBrowser.getURL(), url)) cefBrowser.reload();
+            else cefBrowser.loadURL(url);
+        }
+
+        private void updateNavigationState(String currentUrl) {
+            navigationButtons.forEach((url, button) -> button.setSelected(samePage(currentUrl, url)));
+            shareButton.setEnabled(ShareCode.fromTopicUrl(currentUrl, safeCurrentTitle()) != null);
+        }
+
+        private String navigationLabel(String url) {
+            if (samePage(url, TOP_URL)) return "热门";
+            if (samePage(url, CATEGORIES_URL)) return "分类";
+            if (url != null && url.startsWith("https://linux.do/search")) return "搜索结果";
+            return "最新";
+        }
+
+        private static boolean samePage(String left, String right) {
+            if (left == null || right == null) return false;
+            try {
+                URI leftUri = URI.create(left);
+                URI rightUri = URI.create(right);
+                String leftPath = leftUri.getPath() == null ? "/" : leftUri.getPath().replaceAll("/$", "");
+                String rightPath = rightUri.getPath() == null ? "/" : rightUri.getPath().replaceAll("/$", "");
+                return leftPath.equalsIgnoreCase(rightPath) && String.valueOf(leftUri.getQuery()).equals(String.valueOf(rightUri.getQuery()));
+            } catch (IllegalArgumentException ignored) {
+                return left.equals(right);
+            }
+        }
+
+        private String safeCurrentTitle() {
+            String title = currentPageTitle == null ? "" : currentPageTitle.replaceAll("\\s+-\\s+LINUX DO.*$", "").trim();
+            return title.isEmpty() ? "LINUX DO 公开主题" : title.substring(0, Math.min(200, title.length()));
+        }
+
+        private void shareCurrentTopic() {
+            ShareCode.Topic topic = ShareCode.fromTopicUrl(browser.getCefBrowser().getURL(), safeCurrentTitle());
+            if (topic == null) {
+                status.setText("请先打开一个主题");
+                return;
+            }
+            String[] choices = {"10 分钟", "1 小时", "24 小时", "7 天"};
+            Object selected = JOptionPane.showInputDialog(this, "选择分享码有效期", "分享当前主题",
+                    JOptionPane.PLAIN_MESSAGE, null, choices, choices[1]);
+            if (selected == null) return;
+            long duration = switch (selected.toString()) {
+                case "10 分钟" -> TimeUnit.MINUTES.toMillis(10);
+                case "24 小时" -> TimeUnit.HOURS.toMillis(24);
+                case "7 天" -> TimeUnit.DAYS.toMillis(7);
+                default -> TimeUnit.HOURS.toMillis(1);
+            };
+            long now = System.currentTimeMillis();
+            String code = ShareCode.create(topic, duration, now);
+            CopyPasteManager.getInstance().setContents(new StringSelection(code));
+            String expiry = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                    .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(now + duration));
+            status.setText("分享码已复制，" + expiry + " 失效");
+        }
+
+        private void openShareCode() {
+            String clipboard = CopyPasteManager.getInstance().getContents(DataFlavor.stringFlavor);
+            String initialValue = clipboard != null && clipboard.trim().startsWith("LDGS1.") ? clipboard.trim() : "";
+            Object input = JOptionPane.showInputDialog(this, "粘贴 LDGS1 临时分享码", "打开临时分享码",
+                    JOptionPane.PLAIN_MESSAGE, null, null, initialValue);
+            if (input == null) return;
+            try {
+                ShareCode.Decoded decoded = ShareCode.parse(input.toString(), System.currentTimeMillis());
+                navigateTo(decoded.topic().url());
+            } catch (IllegalArgumentException error) {
+                JOptionPane.showMessageDialog(this, error.getMessage(), "无法打开分享码", JOptionPane.ERROR_MESSAGE);
+            }
         }
 
         private void applyPageStyle(CefBrowser cefBrowser) {
@@ -452,11 +567,33 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         finishBreak(true);
                     } else if ("continue".equals(action)) {
                         finishBreak(false);
+                    } else if ("score".equals(action)) {
+                        saveGameScore(uri.getQuery());
                     }
                 });
                 return true;
             } catch (IllegalArgumentException ignored) {
                 return false;
+            }
+        }
+
+        private void saveGameScore(String query) {
+            if (query == null) return;
+            String game = null;
+            int value = -1;
+            for (String part : query.split("&")) {
+                int separator = part.indexOf('=');
+                if (separator <= 0) continue;
+                String key = java.net.URLDecoder.decode(part.substring(0, separator), StandardCharsets.UTF_8);
+                String itemValue = java.net.URLDecoder.decode(part.substring(separator + 1), StandardCharsets.UTF_8);
+                if ("game".equals(key)) game = itemValue;
+                if ("value".equals(key)) {
+                    try { value = Integer.parseInt(itemValue); } catch (NumberFormatException ignored) { value = -1; }
+                }
+            }
+            if (game != null && game.matches("2048|snake|dodge|runner|mines") && value >= 0) {
+                int previous = properties.getInt(GAME_BEST_PROPERTY + game, 0);
+                if (value > previous) properties.setValue(GAME_BEST_PROPERTY + game, value, 0);
             }
         }
 
@@ -528,11 +665,23 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (disposed || !breakOverlayVisible || cefBrowser == null) {
                 return;
             }
-            String script = BREAK_OVERLAY_SCRIPT.replace(
+            String script = GAME_CORE_SCRIPT + "\n" + BREAK_OVERLAY_SCRIPT.replace(
                     "__LEXIAO_RECOMMENDED_GAME__",
                     "\"" + escapeJavaScript(recommendedGame) + "\""
-            ).replace("__LEXIAO_REMINDER_MODE__", Boolean.toString(breakOverlayReminderMode));
+            ).replace("__LEXIAO_REMINDER_MODE__", Boolean.toString(breakOverlayReminderMode))
+                    .replace("__LEXIAO_BEST_SCORES__", gameBestScoresJson());
             cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
+        }
+
+        private String gameBestScoresJson() {
+            String[] games = {"2048", "snake", "dodge", "runner", "mines"};
+            StringBuilder json = new StringBuilder("{");
+            for (int index = 0; index < games.length; index += 1) {
+                if (index > 0) json.append(',');
+                json.append('"').append(games[index]).append("\":")
+                        .append(Math.max(0, properties.getInt(GAME_BEST_PROPERTY + games[index], 0)));
+            }
+            return json.append('}').toString();
         }
 
         private void finishBreak(boolean snooze) {
@@ -561,13 +710,17 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         }
 
         private static String loadBreakOverlayScript() {
-            try (InputStream input = LinuxDoToolWindowFactory.class.getResourceAsStream("/break-overlay.js")) {
+            return loadResourceScript("/break-overlay.js");
+        }
+
+        private static String loadResourceScript(String name) {
+            try (InputStream input = LinuxDoToolWindowFactory.class.getResourceAsStream(name)) {
                 if (input == null) {
-                    throw new IllegalStateException("Missing break-overlay.js");
+                    throw new IllegalStateException("Missing resource " + name);
                 }
                 return new String(input.readAllBytes(), StandardCharsets.UTF_8);
             } catch (IOException error) {
-                throw new IllegalStateException("Cannot load break reminder", error);
+                throw new IllegalStateException("Cannot load resource " + name, error);
             }
         }
 
@@ -633,16 +786,21 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         }
 
         private void startGuestSession() {
+            guestSessionInitializing = true;
+            pendingNavigationUrl = HOME_URL;
             status.setText("正在清理游客会话...");
             clearLinuxDoCookies(() -> {
+                guestSessionInitializing = false;
                 status.setText("游客模式");
-                loadHome();
+                String target = pendingNavigationUrl == null ? HOME_URL : pendingNavigationUrl;
+                pendingNavigationUrl = null;
+                navigateTo(target);
             });
         }
 
         private void loadHome() {
             if (!disposed) {
-                browser.loadURL(HOME_URL);
+                navigateTo(HOME_URL);
             }
         }
 

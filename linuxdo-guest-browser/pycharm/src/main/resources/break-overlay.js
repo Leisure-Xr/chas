@@ -9,8 +9,18 @@
     previous.remove();
   }
 
+  var pauseButton = null;
   var recommended = __LEXIAO_RECOMMENDED_GAME__;
   var reminderMode = __LEXIAO_REMINDER_MODE__;
+  var gameRuntime = window.LinuxDoGameCore.createRuntime({
+    bestScores: __LEXIAO_BEST_SCORES__,
+    onBestScore: function (game, value) {
+      internalAction('score', 'game=' + encodeURIComponent(game) + '&value=' + encodeURIComponent(value));
+    },
+    onPause: function (paused) {
+      if (pauseButton) pauseButton.textContent = paused ? '继续' : '暂停';
+    }
+  });
   var gameNames = {
     '2048': '2048',
     snake: '贪吃蛇',
@@ -21,6 +31,7 @@
   var intervals = [];
   var animationFrame = 0;
   var keyHandler = null;
+  var countdownCancel = null;
 
   var host = document.createElement('div');
   host.id = 'lexiao-break-overlay';
@@ -37,13 +48,14 @@
     'button{min-height:30px;border:1px solid rgba(142,149,158,.5);border-radius:5px;background:transparent;color:inherit;padding:5px 10px;font:inherit;cursor:pointer}',
     'button:hover,button:focus-visible{background:rgba(142,149,158,.16);outline:none}button.primary{border-color:var(--tertiary,#4ea1ff);background:var(--tertiary,#3b82c4);color:#fff}button.quiet{border-color:transparent;color:var(--primary-medium,#aeb4bd)}',
     '.game-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}.game-head h2{margin:0;font-size:16px;flex:1}.score{font-variant-numeric:tabular-nums;color:var(--primary-medium,#aeb4bd);white-space:nowrap}',
+    '.countdown{min-height:280px;display:grid;place-content:center;justify-items:center;color:var(--primary-medium,#aeb4bd)}.countdown strong{font-size:48px;color:var(--primary,#e7e9ec)}.game-end{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}',
     '.game-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}.game-card{text-align:left;min-height:62px;padding:9px}.game-card strong,.game-card span{display:block}.game-card span{margin-top:3px;font-size:11px;color:var(--primary-medium,#aeb4bd)}.recommended{color:var(--tertiary,#57a6e6)!important}',
     '.game-status{min-height:20px;margin:8px 0 0;text-align:center;color:var(--primary-medium,#aeb4bd);font-size:12px}',
     '.dpad{display:grid;grid-template-columns:repeat(3,38px);grid-template-rows:repeat(2,32px);justify-content:center;gap:4px;margin:11px auto 0}.dpad button{padding:2px;min-height:32px}.dpad .up{grid-column:2}.dpad .left{grid-column:1;grid-row:2}.dpad .down{grid-column:2;grid-row:2}.dpad .right{grid-column:3;grid-row:2}',
     '.board-2048{width:min(300px,78vw);aspect-ratio:1;margin:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px;border-radius:6px;background:rgba(142,149,158,.24)}.tile{display:grid;place-items:center;aspect-ratio:1;border-radius:4px;background:rgba(142,149,158,.12);font-size:18px;font-weight:700}.tile[data-rank="1"]{background:#d9d2c2;color:#242424}.tile[data-rank="2"]{background:#d7c49d;color:#242424}.tile[data-rank="3"]{background:#e6a566;color:#202020}.tile[data-rank="4"]{background:#df8355;color:#fff}.tile[data-rank="5"]{background:#cf6552;color:#fff}.tile[data-rank="6"],.tile[data-rank="7"],.tile[data-rank="8"],.tile[data-rank="9"],.tile[data-rank="10"],.tile[data-rank="11"]{background:#b5964b;color:#fff;font-size:15px}',
     '.cell-board{width:min(312px,82vw);aspect-ratio:1;margin:auto;display:grid;gap:2px;padding:4px;border-radius:6px;background:rgba(142,149,158,.22)}.cell{min-width:0;min-height:0;border:0;border-radius:2px;padding:0;background:rgba(142,149,158,.1)}',
     '.snake{background:var(--tertiary,#4e9bd3)}.snake-head{background:#7ac66b}.food{background:#df6c63;border-radius:50%}',
-    '.road{position:relative;width:min(250px,70vw);height:320px;margin:auto;overflow:hidden;border:1px solid rgba(142,149,158,.35);border-radius:6px;background:linear-gradient(90deg,transparent 32.5%,rgba(142,149,158,.2) 33%,rgba(142,149,158,.2) 34%,transparent 34.5%,transparent 65.5%,rgba(142,149,158,.2) 66%,rgba(142,149,158,.2) 67%,transparent 67.5%)}.car,.obstacle{position:absolute;width:22%;height:11%;border-radius:4px;transform:translateX(-50%)}.car{bottom:5%;background:#58a6d8}.obstacle{background:#cf665d}.road-note{text-align:center;font-size:11px;color:var(--primary-medium,#aeb4bd);margin:6px 0}',
+    '.road{position:relative;width:min(250px,70vw);height:320px;margin:auto;overflow:hidden;border:1px solid rgba(142,149,158,.35);border-radius:6px;background:linear-gradient(90deg,transparent 32.5%,rgba(142,149,158,.2) 33%,rgba(142,149,158,.2) 34%,transparent 34.5%,transparent 65.5%,rgba(142,149,158,.2) 66%,rgba(142,149,158,.2) 67%,transparent 67.5%)}.car,.obstacle{position:absolute;width:22%;height:11%;border-radius:4px;transform:translateX(-50%);transition:left .12s ease,top .09s linear}.car{bottom:5%;background:#58a6d8}.obstacle{background:#cf665d}.road-note{text-align:center;font-size:11px;color:var(--primary-medium,#aeb4bd);margin:6px 0}',
     '.runner{display:block;width:100%;height:auto;border:1px solid rgba(142,149,158,.35);border-radius:6px;background:#171a1e;image-rendering:pixelated}',
     '.mine-board{width:min(324px,84vw);aspect-ratio:1;margin:auto;display:grid;grid-template-columns:repeat(9,1fr);gap:2px;padding:4px;border-radius:6px;background:rgba(142,149,158,.22)}.mine-cell{min-width:0;min-height:0;padding:0;border:0;border-radius:2px;background:rgba(142,149,158,.18);font-weight:700;font-size:12px}.mine-cell.open{background:rgba(142,149,158,.05)}.mine-cell.cursor{outline:2px solid var(--tertiary,#58a6d8);outline-offset:-2px}.mine-cell.mine{color:#df6c63}.mine-tools{display:flex;justify-content:center;gap:5px;margin-top:9px}.mine-tools button{min-width:42px}',
     '@media(max-width:390px){.panel{padding:12px}.game-list{grid-template-columns:1fr}.game-head{flex-wrap:wrap}.game-head h2{flex-basis:100%}}'
@@ -73,13 +85,17 @@
     return node;
   }
 
-  function internalAction(action) {
-    window.location.href = 'https://linux.do/__lexiao_break/' + action + '?t=' + Date.now();
+  function internalAction(action, params) {
+    window.location.href = 'https://linux.do/__lexiao_break/' + action + '?t=' + Date.now() + (params ? '&' + params : '');
   }
 
   function cleanupGame() {
     intervals.forEach(function (id) { clearInterval(id); });
     intervals = [];
+    if (countdownCancel) {
+      countdownCancel();
+      countdownCancel = null;
+    }
     if (animationFrame) {
       cancelAnimationFrame(animationFrame);
       animationFrame = 0;
@@ -88,6 +104,7 @@
       window.removeEventListener('keydown', keyHandler, true);
       keyHandler = null;
     }
+    pauseButton = null;
   }
 
   function bindKeys(handler) {
@@ -108,8 +125,13 @@
     panel.replaceChildren();
     var head = element('div', 'game-head');
     head.appendChild(element('h2', '', name));
-    var score = element('span', 'score', scoreText || '');
+    var state = gameRuntime.state();
+    var score = element('span', 'score', (scoreText || '') + ' · 最高 ' + state.best);
     head.appendChild(score);
+    pauseButton = makeButton('暂停', '', function () {
+      gameRuntime.togglePause();
+    });
+    head.appendChild(pauseButton);
     if (restart) {
       head.appendChild(makeButton('重新开始', '', restart));
     }
@@ -117,6 +139,17 @@
     head.appendChild(makeButton('结束休息', 'quiet', function () { internalAction('continue'); }));
     panel.appendChild(head);
     return score;
+  }
+
+  function updateScore(node, value, prefix) {
+    var state = gameRuntime.setScore(value);
+    node.textContent = (prefix || '得分 ') + state.score + ' · 最高 ' + state.best;
+  }
+
+  function finishGame(status, message, restart) {
+    gameRuntime.finish();
+    status.className = 'game-status game-end';
+    status.replaceChildren(element('strong', '', message), makeButton('再来一局', 'primary', restart));
   }
 
   function directionPad(onDirection) {
@@ -143,7 +176,7 @@
     actions.appendChild(makeButton('开始推荐 · ' + gameNames[recommended], 'primary', function () {
       startGame(recommended);
     }));
-    actions.appendChild(makeButton('开始 2048', '', show2048));
+    actions.appendChild(makeButton('开始 2048', '', function () { startGame('2048'); }));
     actions.appendChild(makeButton('选择游戏', '', showGameMenu));
     if (reminderMode) {
       actions.appendChild(makeButton('10 分钟后提醒', 'quiet', function () { internalAction('snooze'); }));
@@ -183,6 +216,20 @@
   }
 
   function startGame(game) {
+    cleanupGame();
+    gameRuntime.start(game);
+    panel.replaceChildren();
+    var countdown = element('div', 'countdown');
+    countdown.appendChild(element('span', '', '准备'));
+    var value = element('strong', '', '3');
+    countdown.appendChild(value);
+    panel.appendChild(countdown);
+    countdownCancel = window.LinuxDoGameCore.countdown(function (next) {
+      value.textContent = String(next);
+    }, function () { launchGame(game); });
+  }
+
+  function launchGame(game) {
     if (game === 'snake') {
       showSnake();
     } else if (game === 'dodge') {
@@ -204,11 +251,17 @@
     var values = [];
     var points = 0;
     var ended = false;
+    var undoState = null;
 
     function restart() {
+      gameRuntime.start('2048');
       values = new Array(16).fill(0);
       points = 0;
       ended = false;
+      undoState = null;
+      undoButton.disabled = true;
+      status.className = 'game-status';
+      status.textContent = '方向键或屏幕按钮移动';
       addTile();
       addTile();
       render();
@@ -225,6 +278,9 @@
     status = element('div', 'game-status', '方向键或屏幕按钮移动');
     panel.appendChild(status);
     panel.appendChild(directionPad(move));
+    var undoButton = makeButton('撤销一次', '', undo);
+    undoButton.disabled = true;
+    panel.appendChild(undoButton);
 
     function addTile() {
       var empty = [];
@@ -254,45 +310,31 @@
     }
 
     function move(direction) {
-      if (ended) {
+      if (ended || gameRuntime.state().paused) {
         return;
       }
-      var before = values.join(',');
-      var next = new Array(16).fill(0);
-      for (var outer = 0; outer < 4; outer += 1) {
-        var line = [];
-        for (var inner = 0; inner < 4; inner += 1) {
-          var source;
-          if (direction === 'left' || direction === 'right') {
-            source = outer * 4 + inner;
-          } else {
-            source = inner * 4 + outer;
-          }
-          line.push(values[source]);
-        }
-        if (direction === 'right' || direction === 'down') {
-          line.reverse();
-        }
-        line = mergeLine(line);
-        if (direction === 'right' || direction === 'down') {
-          line.reverse();
-        }
-        for (var target = 0; target < 4; target += 1) {
-          var destination = (direction === 'left' || direction === 'right')
-            ? outer * 4 + target
-            : target * 4 + outer;
-          next[destination] = line[target];
-        }
-      }
-      values = next;
-      if (values.join(',') !== before) {
+      var result = window.LinuxDoGameCore.move2048(values, direction);
+      if (result.moved) {
+        undoState = {values: values.slice(), points: points};
+        undoButton.disabled = false;
+        values = result.board;
+        points += result.gained;
         addTile();
         render();
       }
       if (!canMove()) {
         ended = true;
-        status.textContent = '本局结束，可以重新开始';
+        finishGame(status, '本局结束', restart);
       }
+    }
+
+    function undo() {
+      if (!undoState || gameRuntime.state().paused) return;
+      values = undoState.values;
+      points = undoState.points;
+      undoState = null;
+      undoButton.disabled = true;
+      render();
     }
 
     function canMove() {
@@ -316,7 +358,7 @@
         cells[index].textContent = value || '';
         cells[index].dataset.rank = value ? String(Math.min(11, Math.log2(value))) : '0';
       });
-      scoreNode.textContent = '得分 ' + points;
+      updateScore(scoreNode, points);
     }
 
     bindKeys(function (event) {
@@ -342,8 +384,11 @@
     var scoreNode;
     var status;
     var running;
+    var snakeTimer;
 
     function restart() {
+      gameRuntime.start('snake');
+      if (snakeTimer) clearTimeout(snakeTimer);
       snake = [{x: 6, y: 6}, {x: 5, y: 6}, {x: 4, y: 6}];
       direction = {x: 1, y: 0};
       pending = direction;
@@ -351,7 +396,9 @@
       running = true;
       placeFood();
       render();
+      status.className = 'game-status';
       status.textContent = '方向键或屏幕按钮控制';
+      scheduleTick();
     }
 
     scoreNode = gameHeader('贪吃蛇', '得分 0', restart);
@@ -386,19 +433,21 @@
     }
 
     function tick() {
-      if (!running) {
+      if (!running || gameRuntime.state().paused) {
         return;
       }
       direction = pending;
       var head = {x: snake[0].x + direction.x, y: snake[0].y + direction.y};
+      var willEat = head.x === food.x && head.y === food.y;
+      var collisionBody = willEat ? snake : snake.slice(0, -1);
       if (head.x < 0 || head.x >= size || head.y < 0 || head.y >= size
-          || snake.some(function (part) { return part.x === head.x && part.y === head.y; })) {
+          || collisionBody.some(function (part) { return part.x === head.x && part.y === head.y; })) {
         running = false;
-        status.textContent = '碰到了边界，本局结束';
+        finishGame(status, '碰到了边界', restart);
         return;
       }
       snake.unshift(head);
-      if (head.x === food.x && head.y === food.y) {
+      if (willEat) {
         score += 10;
         placeFood();
       } else {
@@ -413,7 +462,7 @@
         cells[part.y * size + part.x].className = index === 0 ? 'cell snake snake-head' : 'cell snake';
       });
       cells[food.y * size + food.x].className = 'cell food';
-      scoreNode.textContent = '得分 ' + score;
+      updateScore(scoreNode, score);
     }
 
     bindKeys(function (event) {
@@ -424,7 +473,13 @@
       }
       return false;
     });
-    intervals.push(setInterval(tick, 150));
+    function scheduleTick() {
+      snakeTimer = setTimeout(function () {
+        tick();
+        if (running) scheduleTick();
+      }, Math.max(70, 150 - score * 1.2));
+      intervals.push(snakeTimer);
+    }
     restart();
   }
 
@@ -440,11 +495,14 @@
     var running;
 
     function restart() {
+      gameRuntime.start('dodge');
+      if (obstacles) obstacles.forEach(function (obstacle) { obstacle.node.remove(); });
       lane = 1;
       obstacles = [];
       ticks = 0;
       score = 0;
       running = true;
+      status.className = 'game-status';
       status.textContent = '左右方向键或屏幕按钮切换车道';
       render();
     }
@@ -466,14 +524,14 @@
     }
 
     function steer(amount) {
-      if (running) {
+      if (running && !gameRuntime.state().paused) {
         lane = Math.max(0, Math.min(2, lane + amount));
         render();
       }
     }
 
     function tick() {
-      if (!running) {
+      if (!running || gameRuntime.state().paused) {
         return;
       }
       ticks += 1;
@@ -486,7 +544,7 @@
         return obstacle.lane === lane && obstacle.y > 77 && obstacle.y < 96;
       })) {
         running = false;
-        status.textContent = '发生碰撞，本局结束';
+        finishGame(status, '发生碰撞', restart);
       }
       obstacles = obstacles.filter(function (obstacle) {
         if (obstacle.y > 105) {
@@ -505,7 +563,7 @@
         obstacle.node.style.left = lanePosition(obstacle.lane);
         obstacle.node.style.top = obstacle.y + '%';
       });
-      scoreNode.textContent = '得分 ' + score;
+      updateScore(scoreNode, score);
     }
 
     bindKeys(function (event) {
@@ -537,12 +595,14 @@
     var ground = 214;
 
     function restart() {
+      gameRuntime.start('runner');
       player = {x: 62, y: ground - 28, width: 22, height: 28, velocity: 0};
       obstacles = [];
       score = 0;
       running = true;
       lastTime = performance.now();
       spawnDistance = 300;
+      status.className = 'game-status';
       status.textContent = '空格、上方向键或屏幕按钮跳跃';
       if (!animationFrame) {
         animationFrame = requestAnimationFrame(frame);
@@ -562,7 +622,7 @@
     panel.appendChild(controls);
 
     function jump() {
-      if (running && player.y >= ground - player.height - 1) {
+      if (running && !gameRuntime.state().paused && player.y >= ground - player.height - 1) {
         player.velocity = -540;
       }
     }
@@ -571,7 +631,7 @@
       animationFrame = requestAnimationFrame(frame);
       var delta = Math.min(0.035, (now - lastTime) / 1000);
       lastTime = now;
-      if (running) {
+      if (running && !gameRuntime.state().paused) {
         player.velocity += 1450 * delta;
         player.y = Math.min(ground - player.height, player.y + player.velocity * delta);
         spawnDistance -= (230 + Math.min(130, score * 0.7)) * delta;
@@ -597,7 +657,7 @@
               && player.y + player.height > obstacle.y;
         })) {
           running = false;
-          status.textContent = '撞到障碍，本局结束';
+          finishGame(status, '撞到障碍', restart);
         }
       }
       draw();
@@ -620,7 +680,7 @@
       obstacles.forEach(function (obstacle) {
         context.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
       });
-      scoreNode.textContent = '得分 ' + score;
+      updateScore(scoreNode, score);
     }
 
     bindKeys(function (event) {
@@ -641,21 +701,28 @@
     var cursor;
     var started;
     var ended;
+    var elapsedSeconds;
+    var mineTimer;
     var scoreNode;
     var status;
 
     function restart() {
+      gameRuntime.start('mines');
+      if (mineTimer) clearInterval(mineTimer);
       cells = new Array(width * width).fill(null).map(function () {
         return {mine: false, open: false, flag: false, nearby: 0};
       });
       cursor = 40;
       started = false;
       ended = false;
+      elapsedSeconds = 0;
+      status.className = 'game-status';
       status.textContent = '方向键移动，回车揭开，F 标记';
+      updateScore(scoreNode, 0, '已开 ');
       render();
     }
 
-    scoreNode = gameHeader('扫雷', '剩余 10', restart);
+    scoreNode = gameHeader('扫雷', '已开 0', restart);
     var board = element('div', 'mine-board');
     for (var i = 0; i < width * width; i += 1) {
       (function (index) {
@@ -667,6 +734,10 @@
           event.preventDefault();
           cursor = index;
           toggleFlag(index);
+        });
+        button.addEventListener('dblclick', function () {
+          cursor = index;
+          chord(index);
         });
         buttons.push(button);
         board.appendChild(button);
@@ -684,67 +755,79 @@
     mineTools.appendChild(makeButton('下', '', function () { moveCursor(0, 1); }));
     panel.appendChild(mineTools);
 
-    function neighbors(index) {
-      var result = [];
-      var x = index % width;
-      var y = Math.floor(index / width);
-      for (var dy = -1; dy <= 1; dy += 1) {
-        for (var dx = -1; dx <= 1; dx += 1) {
-          var nx = x + dx;
-          var ny = y + dy;
-          if ((dx || dy) && nx >= 0 && nx < width && ny >= 0 && ny < width) {
-            result.push(ny * width + nx);
-          }
-        }
-      }
-      return result;
-    }
-
     function placeMines(safeIndex) {
-      var available = [];
-      cells.forEach(function (_, index) {
-        if (index !== safeIndex && neighbors(safeIndex).indexOf(index) === -1) {
-          available.push(index);
-        }
+      window.LinuxDoGameCore.mineIndexes(width, mineCount, safeIndex).forEach(function (index) {
+        cells[index].mine = true;
       });
-      for (var count = 0; count < mineCount; count += 1) {
-        var selected = available.splice(Math.floor(Math.random() * available.length), 1)[0];
-        cells[selected].mine = true;
-      }
       cells.forEach(function (cell, index) {
-        cell.nearby = neighbors(index).filter(function (neighbor) { return cells[neighbor].mine; }).length;
+        cell.nearby = window.LinuxDoGameCore.neighbors(index, width)
+          .filter(function (neighbor) { return cells[neighbor].mine; }).length;
       });
       started = true;
+      mineTimer = setInterval(function () {
+        if (!ended && !gameRuntime.state().paused) {
+          elapsedSeconds += 1;
+          renderStatus();
+        }
+      }, 1000);
+      intervals.push(mineTimer);
     }
 
     function reveal(index) {
-      if (ended || cells[index].flag || cells[index].open) {
+      if (ended || gameRuntime.state().paused || cells[index].flag || cells[index].open) {
         return;
       }
       if (!started) {
         placeMines(index);
       }
-      cells[index].open = true;
       if (cells[index].mine) {
         ended = true;
+        clearInterval(mineTimer);
         cells.forEach(function (cell) {
           if (cell.mine) {
             cell.open = true;
           }
         });
-        status.textContent = '踩到地雷，本局结束';
-      } else if (cells[index].nearby === 0) {
-        neighbors(index).forEach(reveal);
+        finishGame(status, '踩到地雷', restart);
+      } else {
+        revealSafe(index);
       }
-      if (!ended && cells.filter(function (cell) { return cell.open; }).length === width * width - mineCount) {
+      var opened = cells.filter(function (cell) { return cell.open; }).length;
+      updateScore(scoreNode, opened, '已开 ');
+      if (!ended && opened === width * width - mineCount) {
         ended = true;
-        status.textContent = '已清理全部安全区域';
+        clearInterval(mineTimer);
+        finishGame(status, '已清理全部安全区域', restart);
       }
       render();
     }
 
+    function revealSafe(start) {
+      var queue = [start];
+      var seen = {};
+      while (queue.length) {
+        var index = queue.shift();
+        if (seen[index] || cells[index].flag || cells[index].mine) continue;
+        seen[index] = true;
+        cells[index].open = true;
+        if (cells[index].nearby === 0) {
+          queue = queue.concat(window.LinuxDoGameCore.neighbors(index, width));
+        }
+      }
+    }
+
+    function chord(index) {
+      if (ended || gameRuntime.state().paused || !cells[index].open || !cells[index].nearby) return;
+      var nearby = window.LinuxDoGameCore.neighbors(index, width);
+      var flags = nearby.filter(function (neighbor) { return cells[neighbor].flag; }).length;
+      if (flags !== cells[index].nearby) return;
+      nearby.forEach(function (neighbor) {
+        if (!cells[neighbor].flag) reveal(neighbor);
+      });
+    }
+
     function toggleFlag(index) {
-      if (!ended && !cells[index].open) {
+      if (!ended && !gameRuntime.state().paused && !cells[index].open) {
         cells[index].flag = !cells[index].flag;
         render();
       }
@@ -759,14 +842,18 @@
       render();
     }
 
+    function renderStatus() {
+      if (ended) return;
+      var flags = cells.filter(function (cell) { return cell.flag; }).length;
+      status.textContent = '剩余旗帜 ' + Math.max(0, mineCount - flags) + ' · ' + elapsedSeconds + ' 秒';
+    }
+
     function render() {
-      var flags = 0;
       cells.forEach(function (cell, index) {
         var button = buttons[index];
         button.className = 'mine-cell' + (cell.open ? ' open' : '') + (index === cursor ? ' cursor' : '')
           + (cell.open && cell.mine ? ' mine' : '');
         if (cell.flag) {
-          flags += 1;
           button.textContent = 'F';
         } else if (cell.open && cell.mine) {
           button.textContent = '*';
@@ -776,7 +863,7 @@
           button.textContent = '';
         }
       });
-      scoreNode.textContent = '剩余 ' + Math.max(0, mineCount - flags);
+      renderStatus();
     }
 
     bindKeys(function (event) {
@@ -802,7 +889,13 @@
 
   window.__lexiaoBreakCleanup = function () {
     cleanupGame();
+    document.removeEventListener('visibilitychange', visibilityHandler);
     window.__lexiaoBreakCleanup = null;
   };
+  var visibilityHandler = function () {
+    var state = gameRuntime.state();
+    if (document.hidden && state.kind && !state.finished) gameRuntime.setPaused(true);
+  };
+  document.addEventListener('visibilitychange', visibilityHandler);
   showReminder();
 })();
