@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Network 面板选择 latest.json 请求</title>
+  <desc id="desc">示意图展示在浏览器开发者工具 Network 面板选择 latest.json，而不是随便选择脚本或其他请求。</desc>
+  <rect width="1280" height="720" fill="#171a1f"/>
+  <text x="44" y="58" fill="#e8eaed" font-family="Arial,sans-serif" font-size="28" font-weight="700">① 选择正确的接口</text>
+  <text x="44" y="86" fill="#9aa4b2" font-family="Arial,sans-serif" font-size="16">Network / 网络 → 刷新 → 选择公开 JSON 请求</text>
+  <rect x="1065" y="40" width="170" height="34" rx="5" fill="#202d3a" stroke="#3b82c4"/>
+  <text x="1150" y="62" text-anchor="middle" fill="#9ed2ff" font-family="Arial,sans-serif" font-size="13">LINUX DO 游客参数</text>
+  <rect x="44" y="122" width="1192" height="518" rx="10" fill="#20242b" stroke="#343b46"/>
+  <rect x="44" y="122" width="1192" height="42" rx="10" fill="#252a32"/>
+  <rect x="58" y="130" width="92" height="27" rx="5" fill="#343c48"/>
+  <text x="104" y="149" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="13">Network</text>
+  <text x="186" y="149" fill="#aeb8c5" font-family="Arial,sans-serif" font-size="13">Console</text>
+  <text x="258" y="149" fill="#aeb8c5" font-family="Arial,sans-serif" font-size="13">Application</text>
+  <text x="1010" y="149" fill="#8793a2" font-family="Arial,sans-serif" font-size="13">https://linux.do/latest</text>
+  <rect x="44" y="164" width="300" height="476" fill="#1b1f25"/>
+  <line x1="344" y1="164" x2="344" y2="640" stroke="#343b46"/>
+  <text x="62" y="192" fill="#cbd5e1" font-family="Arial,sans-serif" font-size="14" font-weight="700">Name · Status</text>
+  <g font-family="Arial,sans-serif" font-size="14"><text x="62" y="232" fill="#e8eaed">latest</text><text x="62" y="253" fill="#69d391" font-size="12">200 · document</text><line x1="58" y1="270" x2="330" y2="270" stroke="#282e37"/>
+  <rect x="58" y="282" width="272" height="65" rx="3" fill="#233b53" stroke="#4ca3e8" stroke-width="2"/><text x="70" y="308" fill="#fff">/latest.json</text><text x="70" y="329" fill="#69d391" font-size="12">200 · fetch · application/json</text>
+  <line x1="58" y1="364" x2="330" y2="364" stroke="#282e37"/><text x="62" y="394" fill="#e8eaed">/categories.json</text><text x="62" y="415" fill="#8894a3" font-size="12">200 · fetch · application/json</text><line x1="58" y1="432" x2="330" y2="432" stroke="#282e37"/><text x="62" y="462" fill="#e8eaed">/assets/app.js</text><text x="62" y="483" fill="#8894a3" font-size="12">200 · script</text><line x1="58" y1="500" x2="330" y2="500" stroke="#282e37"/><text x="62" y="530" fill="#e8eaed">analytics</text><text x="62" y="551" fill="#8894a3" font-size="12">204 · fetch</text></g>
+  <text x="370" y="192" fill="#cbd5e1" font-family="Arial,sans-serif" font-size="14" font-weight="700">Headers · /latest.json</text>
+  <rect x="370" y="218" width="820" height="60" rx="5" fill="#202d3a" stroke="#4ca3e8"/>
+  <circle cx="397" cy="248" r="13" fill="#4ca3e8"/><text x="397" y="253" text-anchor="middle" fill="#101317" font-family="Arial,sans-serif" font-size="13" font-weight="700">1</text>
+  <text x="420" y="254" fill="#c9e7ff" font-family="Arial,sans-serif" font-size="15">优先选择 /latest.json，因为插件请求的就是这个公开 JSON 接口。</text>
+  <g font-family="Arial,sans-serif" font-size="14"><text x="370" y="320" fill="#9aa4b2">Request URL</text><text x="600" y="320" fill="#d9dee6">https://linux.do/latest.json</text><line x1="370" y1="336" x2="1190" y2="336" stroke="#2b323d"/><text x="370" y="370" fill="#9aa4b2">Request Method</text><text x="600" y="370" fill="#d9dee6">GET</text><line x1="370" y1="386" x2="1190" y2="386" stroke="#2b323d"/><text x="370" y="420" fill="#9aa4b2">Accept</text><text x="600" y="420" fill="#d9dee6">application/json</text><line x1="370" y1="436" x2="1190" y2="436" stroke="#2b323d"/><text x="370" y="470" fill="#ffd479">Cookie</text><text x="600" y="470" fill="#ffd479">在 Request Headers 复制，不要复制 Response Headers</text><line x1="370" y1="486" x2="1190" y2="486" stroke="#2b323d"/><text x="370" y="520" fill="#ffd479">User-Agent</text><text x="600" y="520" fill="#ffd479">与 Cookie 必须来自同一次浏览器验证</text></g>
+  <text x="44" y="682" fill="#93a0ae" font-family="Arial,sans-serif" font-size="13">其他请求的 Accept、Referer、sec-fetch-* 可能不同；本插件只需要 Cookie 与 User-Agent。</text>
+</svg>

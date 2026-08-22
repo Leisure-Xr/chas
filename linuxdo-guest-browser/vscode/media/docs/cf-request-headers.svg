@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Request Headers 中复制 Cookie 与 User-Agent</title>
+  <desc id="desc">示意图放大 Request Headers，标出 cookie 和 user-agent 两行，说明其他 sec-fetch 标头不用填写。</desc>
+  <rect width="1280" height="720" fill="#171a1f"/>
+  <text x="44" y="58" fill="#e8eaed" font-family="Arial,sans-serif" font-size="28" font-weight="700">② 复制两个字段</text>
+  <text x="44" y="86" fill="#9aa4b2" font-family="Arial,sans-serif" font-size="16">Headers / 标头 → Request Headers / 请求标头</text>
+  <rect x="1065" y="40" width="170" height="34" rx="5" fill="#202d3a" stroke="#3b82c4"/>
+  <text x="1150" y="62" text-anchor="middle" fill="#9ed2ff" font-family="Arial,sans-serif" font-size="13">只粘贴游客字段</text>
+  <rect x="44" y="122" width="1192" height="518" rx="10" fill="#20242b" stroke="#343b46"/>
+  <rect x="44" y="122" width="1192" height="42" rx="10" fill="#252a32"/>
+  <text x="64" y="149" fill="#aeb8c5" font-family="Arial,sans-serif" font-size="13">Network</text><rect x="144" y="130" width="100" height="27" rx="5" fill="#343c48"/><text x="194" y="149" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="13">Headers</text><text x="972" y="149" fill="#8793a2" font-family="Arial,sans-serif" font-size="13">Request Headers · /latest.json</text>
+  <text x="68" y="194" fill="#cbd5e1" font-family="Arial,sans-serif" font-size="14" font-weight="700">Request Headers</text>
+  <rect x="68" y="218" width="1144" height="60" rx="5" fill="#202d3a" stroke="#4ca3e8"/><circle cx="96" cy="248" r="13" fill="#4ca3e8"/><text x="96" y="253" text-anchor="middle" fill="#101317" font-family="Arial,sans-serif" font-size="13" font-weight="700">2</text><text x="120" y="254" fill="#c9e7ff" font-family="Arial,sans-serif" font-size="15">复制下面两行的完整值，粘贴到 VS Code 的“请求标头”文本框，再点击“解析标头”。</text>
+  <g font-family="Arial,sans-serif" font-size="14"><text x="68" y="320" fill="#9aa4b2">accept</text><text x="300" y="320" fill="#d9dee6">application/json</text><line x1="68" y1="336" x2="1212" y2="336" stroke="#2b323d"/><text x="68" y="370" fill="#9aa4b2">accept-language</text><text x="300" y="370" fill="#d9dee6">zh-CN,zh;q=0.9,en;q=0.8</text><line x1="68" y1="386" x2="1212" y2="386" stroke="#2b323d"/><text x="68" y="420" fill="#8fd0ff" font-weight="700">cookie</text><text x="300" y="420" fill="#ffd479">cf_clearance=YOUR_VALUE; __cf_bm=YOUR_VALUE; _bypass_cache=true</text><line x1="68" y1="436" x2="1212" y2="436" stroke="#2b323d"/><text x="68" y="470" fill="#8fd0ff" font-weight="700">user-agent</text><text x="300" y="470" fill="#ffd479">Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/...</text><line x1="68" y1="486" x2="1212" y2="486" stroke="#2b323d"/><text x="68" y="520" fill="#9aa4b2">referer</text><text x="300" y="520" fill="#d9dee6">https://linux.do/latest</text><line x1="68" y1="536" x2="1212" y2="536" stroke="#2b323d"/><text x="68" y="570" fill="#9aa4b2">sec-fetch-site</text><text x="300" y="570" fill="#d9dee6">same-origin</text></g>
+  <text x="68" y="614" fill="#93a0ae" font-family="Arial,sans-serif" font-size="13">不要手动补全或混用 sec-fetch-*；插件会自己生成普通公开 GET 请求头。</text>
+</svg>

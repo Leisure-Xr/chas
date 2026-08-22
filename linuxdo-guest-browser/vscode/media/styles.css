@@ -986,7 +986,6 @@ body.compact .load-more {
 
 .game-grid,
 .snake-grid,
-.racer-grid,
 .mines-grid {
   width: min(100%, 420px);
   aspect-ratio: 1;
@@ -1068,28 +1067,39 @@ body.compact .load-more {
 .snake-cell.snake { background: var(--accent); }
 .snake-cell.food { background: var(--vscode-testing-iconPassed, #2ea043); }
 
-.racer-grid {
-  aspect-ratio: 3 / 4;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(12, 1fr);
-  gap: 1px 4px;
-  background: var(--vscode-editor-background, #ffffff);
+.racer-track {
+  position: relative;
+  width: min(100%, 340px);
+  height: min(54vh, 430px);
+  min-height: 300px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--vscode-editor-background, #202124) 82%, var(--muted));
+  box-shadow: inset 9px 0 0 color-mix(in srgb, var(--line) 55%, transparent), inset -9px 0 0 color-mix(in srgb, var(--line) 55%, transparent);
 }
 
-.road-cell {
+.racer-car,
+.racer-obstacle {
+  position: absolute;
   display: grid;
-  min-width: 0;
+  width: 34px;
+  height: 38px;
   place-items: center;
-  border-right: 1px dashed var(--line);
-  color: var(--muted);
-  font-size: 18px;
+  transform: translateX(-50%);
+  font-size: 22px;
+  line-height: 1;
 }
 
-.road-cell:nth-child(3n) { border-right: 0; }
-.road-cell.car { color: var(--accent); }
-.road-cell.obstacle { color: var(--vscode-errorForeground); }
-.road-cell.car,
-.road-cell.obstacle { transition: color 120ms ease, transform 120ms ease; }
+.racer-car {
+  bottom: 7%;
+  color: var(--accent);
+  transition: left 90ms ease-out;
+}
+
+.racer-obstacle {
+  color: var(--vscode-errorForeground);
+  transition: top 55ms linear;
+}
 
 .jumper-canvas {
   width: min(100%, 520px);

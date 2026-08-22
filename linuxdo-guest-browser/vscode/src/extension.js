@@ -2,21 +2,15 @@
 
 const vscode = require('vscode');
 const {
-  ChromiumGuestSession,
+  GuestRequestSession,
   CloudflareError,
-  CdpClient,
   CLEARANCE_SECRET,
   GUEST_COOKIE_NAMES,
   GUEST_COOKIE_SECRET,
-  MAX_RESPONSE_BYTES,
-  REQUEST_TIMEOUT_MS,
   SITE_ORIGIN,
   USER_AGENT_SECRET,
-  findChromiumExecutable,
-  isLinuxDoUrl,
-  isOwnedTemporaryProfile,
-  normalizeBrowserKind
-} = require('./chromium-session');
+  isLinuxDoUrl
+} = require('./guest-session');
 const { createShareCode, parseShareCode } = require('./share-code');
 const { VerificationPanel } = require('./verification-panel');
 
@@ -39,59 +33,7 @@ class LinuxDoApi {
       throw new Error('拒绝访问非 LINUX DO 接口。');
     }
 
-    if (this.browserSession.isRunning || await this.browserSession.hasStoredVerification()) {
-      return this.browserSession.request(url);
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-      const headers = {
-        Accept: 'application/json',
-        'User-Agent': defaultUserAgent()
-      };
-
-      const response = await fetch(url, {
-        method: 'GET',
-        redirect: 'follow',
-        signal: controller.signal,
-        cache: 'no-store',
-        headers
-      });
-
-      if (!response.ok) {
-        if (response.status === 403) {
-          throw new CloudflareError(false);
-        }
-        if (response.status === 429) {
-          throw new Error('站点请求过于频繁（HTTP 429），请稍后再试。');
-        }
-        throw new Error(`LINUX DO 返回 HTTP ${response.status}。`);
-      }
-
-      const declaredLength = Number(response.headers.get('content-length') || 0);
-      if (declaredLength > MAX_RESPONSE_BYTES) {
-        throw new Error('站点返回的数据过大，已停止加载。');
-      }
-
-      const text = await response.text();
-      if (Buffer.byteLength(text, 'utf8') > MAX_RESPONSE_BYTES) {
-        throw new Error('站点返回的数据过大，已停止加载。');
-      }
-
-      try {
-        return JSON.parse(text);
-      } catch {
-        throw new Error('站点没有返回可识别的公开数据，可能正在进行人机验证。');
-      }
-    } catch (error) {
-      if (error && error.name === 'AbortError') {
-        throw new Error('连接 LINUX DO 超时。');
-      }
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
+    return this.browserSession.request(url);
   }
 
   async list(kind, categoryId) {
@@ -184,16 +126,6 @@ function normalizePost(post) {
     cooked: post.cooked || '',
     reads: post.reads || 0
   };
-}
-
-function defaultUserAgent() {
-  const chromeVersion = process.versions.chrome || '120.0.0.0';
-  const platform = process.platform === 'darwin'
-    ? 'Macintosh; Intel Mac OS X 10_15_7'
-    : process.platform === 'win32'
-      ? 'Windows NT 10.0; Win64; x64'
-      : 'X11; Linux x86_64';
-  return `Mozilla/5.0 (${platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36`;
 }
 
 function normalizeTopicList(data, kind) {
@@ -666,26 +598,18 @@ async function configureCloudflare(context, browserSession, onSaved) {
 }
 
 function createVerificationHandlers(context, browserSession, onSaved) {
-  const configuration = () => vscode.workspace.getConfiguration('linuxdoGuest');
   const currentCookie = async () => {
     const saved = await context.secrets.get(GUEST_COOKIE_SECRET);
     if (saved) return saved;
     const legacy = await context.secrets.get(CLEARANCE_SECRET);
     return legacy ? `cf_clearance=${legacy}` : '';
   };
-  const setBrowserKind = async (value) => {
-    const browserKind = normalizeBrowserKind(value);
-    await configuration().update('chromiumBrowser', browserKind, vscode.ConfigurationTarget.Global);
-    await browserSession.setBrowserKind(browserKind);
-    return browserKind;
-  };
   return {
     getState: async () => ({
       hasCookie: Boolean(await currentCookie()),
-      hasUserAgent: Boolean(await context.secrets.get(USER_AGENT_SECRET)),
-      browserKind: normalizeBrowserKind(configuration().get('chromiumBrowser', 'auto'))
+      hasUserAgent: Boolean(await context.secrets.get(USER_AGENT_SECRET))
     }),
-    save: async ({ cookie, userAgent, browserKind }) => {
+    save: async ({ cookie, userAgent, validate }) => {
       const cookieHeader = cookie.trim()
         ? filterGuestCookieHeader(cookie, MANUAL_GUEST_COOKIE_NAMES)
         : await currentCookie();
@@ -694,28 +618,14 @@ function createVerificationHandlers(context, browserSession, onSaved) {
       if (cookieError) throw new Error(cookieError);
       const userAgentError = validateUserAgent(expectedUserAgent);
       if (userAgentError) throw new Error(userAgentError);
-      const selectedBrowser = await setBrowserKind(browserKind);
       await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: '正在浏览器内校验手动游客参数',
+        title: validate ? '正在测试 Cloudflare 游客参数' : '正在保存 Cloudflare 游客参数',
         cancellable: false
-      }, () => browserSession.validateManualVerification({
+      }, () => browserSession.saveManualVerification({
         cookieHeader,
         userAgent: expectedUserAgent,
-        browserKind: selectedBrowser
-      }));
-      await onSaved?.();
-    },
-    auto: async (browserKind) => {
-      const selectedBrowser = await setBrowserKind(browserKind);
-      await vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: '请在独立游客浏览器中完成 LINUX DO 验证',
-        cancellable: true
-      }, (progress, cancellationToken) => browserSession.verifyInteractively({
-        browserKind: selectedBrowser,
-        cancellationToken,
-        report: (message) => progress.report({ message })
+        validate: Boolean(validate)
       }));
       await onSaved?.();
     },
@@ -818,8 +728,7 @@ function randomNonce() {
 
 function activate(context) {
   const provider = new GuestTreeProvider();
-  const initialBrowserKind = vscode.workspace.getConfiguration('linuxdoGuest').get('chromiumBrowser', 'auto');
-  const browserSession = new ChromiumGuestSession(context.secrets, initialBrowserKind);
+  const browserSession = new GuestRequestSession(context.secrets);
   activeBrowserSession = browserSession;
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('linuxdoGuest.explorer', provider),
@@ -842,10 +751,6 @@ function activate(context) {
       if (event.affectsConfiguration('linuxdoGuest.breakReminder.enabled')) {
         GuestReaderPanel.current?.updateBreakReminderSetting();
       }
-      if (event.affectsConfiguration('linuxdoGuest.chromiumBrowser')) {
-        const browserKind = vscode.workspace.getConfiguration('linuxdoGuest').get('chromiumBrowser', 'auto');
-        void browserSession.setBrowserKind(browserKind);
-      }
     }),
     provider.changeEmitter,
     { dispose: () => void browserSession.stop() }
@@ -862,12 +767,9 @@ module.exports = {
   activate,
   deactivate,
   LinuxDoApi,
-  CdpClient,
   extractClearance,
   filterGuestCookieHeader,
-  findChromiumExecutable,
   isLinuxDoUrl,
-  isOwnedTemporaryProfile,
   openShareCode,
   validateClearanceInput,
   validateGuestCookieInput,

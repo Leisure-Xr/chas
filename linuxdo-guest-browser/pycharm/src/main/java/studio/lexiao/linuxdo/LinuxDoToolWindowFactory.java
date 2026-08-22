@@ -30,9 +30,12 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
+import javax.swing.AbstractButton;
 import javax.swing.JButton;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JToggleButton;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -43,6 +46,8 @@ import java.awt.Font;
 import java.awt.FlowLayout;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -212,10 +217,13 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private final JButton gameButton = new JButton("小游戏");
         private final JButton shareButton = new JButton("分享");
         private final JButton openShareButton = new JButton("打开分享码");
+        private final JButton overflowButton = new JButton("⋯");
         private final JToggleButton compactButton = new JToggleButton("≡", true);
         private final JToggleButton breakReminderButton = new JToggleButton("休息提醒");
         private final JBTextField searchField = new JBTextField();
         private final JLabel status = new JLabel("正在启动游客会话...");
+        private final JLabel brandLabel = new JLabel("LINUX DO");
+        private final JLabel readOnlyLabel = new JLabel("只读");
         private final PropertiesComponent properties = PropertiesComponent.getInstance();
         private final Map<String, JToggleButton> navigationButtons = new LinkedHashMap<>();
         private volatile boolean compactMode = true;
@@ -251,26 +259,24 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             JPanel historyAndBrand = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 0));
             JPanel tools = new JPanel(new FlowLayout(FlowLayout.TRAILING, 4, 0));
 
-            JLabel brand = new JLabel("LINUX DO");
-            brand.setFont(brand.getFont().deriveFont(Font.BOLD, brand.getFont().getSize2D() - 1f));
-            JLabel readOnly = new JLabel("只读");
-            readOnly.setForeground(JBColor.GRAY);
-            readOnly.setFont(readOnly.getFont().deriveFont(readOnly.getFont().getSize2D() - 2f));
-            readOnly.setBorder(BorderFactory.createCompoundBorder(
+            brandLabel.setFont(brandLabel.getFont().deriveFont(Font.BOLD, brandLabel.getFont().getSize2D() - 1f));
+            readOnlyLabel.setForeground(JBColor.GRAY);
+            readOnlyLabel.setFont(readOnlyLabel.getFont().deriveFont(readOnlyLabel.getFont().getSize2D() - 2f));
+            readOnlyLabel.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(JBColor.border()),
                     JBUI.Borders.empty(1, 5)
             ));
 
-            compactButton.setToolTipText("切换紧凑/原始网页布局");
-            compactButton.setFocusable(false);
-            compactButton.setMargin(JBUI.insets(2, 8));
-            breakReminderButton.setFocusable(false);
-            breakReminderButton.setMargin(JBUI.insets(2, 8));
-            breakReminderButton.setToolTipText("随机 31-60 分钟后提醒休息");
-            gameButton.setFocusable(false);
-            gameButton.setMargin(JBUI.insets(2, 8));
-            gameButton.setToolTipText("随时打开休息小游戏");
-            resetButton.setFocusable(false);
+            styleToolbarButton(backButton, "返回");
+            styleToolbarButton(forwardButton, "前进");
+            styleToolbarButton(refreshButton, "刷新");
+            styleToolbarButton(resetButton, "清理 Cookie 并开始新游客会话");
+            styleToolbarButton(compactButton, "切换紧凑/原始网页布局");
+            styleToolbarButton(breakReminderButton, "随机 31-60 分钟后提醒休息");
+            styleToolbarButton(gameButton, "随时打开休息小游戏");
+            styleToolbarButton(shareButton, "分享当前主题");
+            styleToolbarButton(openShareButton, "打开临时分享码");
+            styleToolbarButton(overflowButton, "更多操作");
 
             backButton.setEnabled(false);
             forwardButton.setEnabled(false);
@@ -287,13 +293,14 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             gameButton.addActionListener(event -> showBreakGames());
             shareButton.addActionListener(event -> shareCurrentTopic());
             openShareButton.addActionListener(event -> openShareCode());
+            overflowButton.addActionListener(event -> showOverflowMenu());
             shareButton.setEnabled(false);
 
             historyAndBrand.add(backButton);
             historyAndBrand.add(forwardButton);
             historyAndBrand.add(Box.createHorizontalStrut(4));
-            historyAndBrand.add(brand);
-            historyAndBrand.add(readOnly);
+            historyAndBrand.add(brandLabel);
+            historyAndBrand.add(readOnlyLabel);
             tools.add(compactButton);
             tools.add(breakReminderButton);
             tools.add(gameButton);
@@ -301,6 +308,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             tools.add(openShareButton);
             tools.add(refreshButton);
             tools.add(resetButton);
+            tools.add(overflowButton);
             firstRow.add(historyAndBrand, BorderLayout.WEST);
             firstRow.add(tools, BorderLayout.EAST);
 
@@ -314,6 +322,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             searchField.setToolTipText("搜索公开主题");
             searchField.addActionListener(event -> search());
             JButton searchButton = iconButton(AllIcons.Actions.Search, "搜索");
+            styleToolbarButton(searchButton, "搜索");
             searchButton.addActionListener(event -> search());
             JPanel searchPanel = new JPanel(new BorderLayout(2, 0));
             searchPanel.add(searchField, BorderLayout.CENTER);
@@ -327,7 +336,60 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
             toolbar.add(firstRow, BorderLayout.NORTH);
             toolbar.add(secondRow, BorderLayout.SOUTH);
+            toolbar.addComponentListener(new ComponentAdapter() {
+                @Override
+                public void componentResized(ComponentEvent event) {
+                    updateResponsiveToolbar(toolbar.getWidth());
+                }
+            });
+            SwingUtilities.invokeLater(() -> updateResponsiveToolbar(toolbar.getWidth()));
             return toolbar;
+        }
+
+        private static void styleToolbarButton(AbstractButton button, String tooltip) {
+            button.setFocusable(false);
+            button.setToolTipText(tooltip);
+            button.setMargin(JBUI.insets(2, 7));
+            button.putClientProperty("JButton.buttonType", "toolBarButton");
+        }
+
+        private void updateResponsiveToolbar(int width) {
+            boolean wide = width >= JBUI.scale(760);
+            boolean narrow = width < JBUI.scale(520);
+            brandLabel.setVisible(width >= JBUI.scale(620));
+            readOnlyLabel.setVisible(width >= JBUI.scale(620));
+            compactButton.setVisible(wide);
+            breakReminderButton.setVisible(wide);
+            gameButton.setVisible(!narrow);
+            shareButton.setVisible(!narrow);
+            openShareButton.setVisible(wide);
+            resetButton.setVisible(wide);
+            overflowButton.setVisible(!wide);
+            status.setVisible(width >= JBUI.scale(820));
+            gameButton.setText(wide ? "小游戏" : "游戏");
+            navigationButtons.values().forEach(button -> button.setMargin(JBUI.insets(2, narrow ? 5 : 8)));
+            revalidate();
+            repaint();
+        }
+
+        private void showOverflowMenu() {
+            JPopupMenu menu = new JPopupMenu();
+            menu.add(menuAction(compactMode ? "使用原始网页布局" : "使用紧凑网页布局", compactButton::doClick));
+            menu.add(menuAction(breakReminderEnabled ? "关闭休息提醒" : "开启休息提醒", breakReminderButton::doClick));
+            menu.add(menuAction("打开小游戏", gameButton::doClick));
+            JMenuItem shareItem = menuAction("分享当前主题", shareButton::doClick);
+            shareItem.setEnabled(shareButton.isEnabled());
+            menu.add(shareItem);
+            menu.add(menuAction("打开临时分享码", openShareButton::doClick));
+            menu.addSeparator();
+            menu.add(menuAction("清理 Cookie 并重置会话", resetButton::doClick));
+            menu.show(overflowButton, 0, overflowButton.getHeight());
+        }
+
+        private static JMenuItem menuAction(String label, Runnable action) {
+            JMenuItem item = new JMenuItem(label);
+            item.addActionListener(event -> action.run());
+            return item;
         }
 
         private JToggleButton navigationButton(String label, String url) {

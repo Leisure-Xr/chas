@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.5.0.zip}"
+PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.6.0.zip}"
 
 "$PROJECT_DIR/../shared/check-game-core.sh"
 

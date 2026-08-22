@@ -24,7 +24,7 @@
   var gameNames = {
     '2048': '2048',
     snake: '贪吃蛇',
-    dodge: '车道闪避',
+    dodge: '公路闪避',
     runner: '像素跳跃',
     mines: '扫雷'
   };
@@ -55,7 +55,7 @@
     '.board-2048{width:min(300px,78vw);aspect-ratio:1;margin:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px;border-radius:6px;background:rgba(142,149,158,.24)}.tile{display:grid;place-items:center;aspect-ratio:1;border-radius:4px;background:rgba(142,149,158,.12);font-size:18px;font-weight:700}.tile[data-rank="1"]{background:#d9d2c2;color:#242424}.tile[data-rank="2"]{background:#d7c49d;color:#242424}.tile[data-rank="3"]{background:#e6a566;color:#202020}.tile[data-rank="4"]{background:#df8355;color:#fff}.tile[data-rank="5"]{background:#cf6552;color:#fff}.tile[data-rank="6"],.tile[data-rank="7"],.tile[data-rank="8"],.tile[data-rank="9"],.tile[data-rank="10"],.tile[data-rank="11"]{background:#b5964b;color:#fff;font-size:15px}',
     '.cell-board{width:min(312px,82vw);aspect-ratio:1;margin:auto;display:grid;gap:2px;padding:4px;border-radius:6px;background:rgba(142,149,158,.22)}.cell{min-width:0;min-height:0;border:0;border-radius:2px;padding:0;background:rgba(142,149,158,.1)}',
     '.snake{background:var(--tertiary,#4e9bd3)}.snake-head{background:#7ac66b}.food{background:#df6c63;border-radius:50%}',
-    '.road{position:relative;width:min(250px,70vw);height:320px;margin:auto;overflow:hidden;border:1px solid rgba(142,149,158,.35);border-radius:6px;background:linear-gradient(90deg,transparent 32.5%,rgba(142,149,158,.2) 33%,rgba(142,149,158,.2) 34%,transparent 34.5%,transparent 65.5%,rgba(142,149,158,.2) 66%,rgba(142,149,158,.2) 67%,transparent 67.5%)}.car,.obstacle{position:absolute;width:22%;height:11%;border-radius:4px;transform:translateX(-50%);transition:left .12s ease,top .09s linear}.car{bottom:5%;background:#58a6d8}.obstacle{background:#cf665d}.road-note{text-align:center;font-size:11px;color:var(--primary-medium,#aeb4bd);margin:6px 0}',
+    '.road{position:relative;width:min(300px,78vw);height:min(420px,58vh);min-height:300px;margin:auto;overflow:hidden;border:1px solid rgba(142,149,158,.38);border-radius:6px;background:#292d32;box-shadow:inset 9px 0 rgba(142,149,158,.18),inset -9px 0 rgba(142,149,158,.18)}.car,.obstacle{position:absolute;width:34px;height:38px;border-radius:5px;transform:translateX(-50%)}.car{bottom:6%;background:#58a6d8;transition:left .09s ease-out}.obstacle{background:#cf665d;transition:top .055s linear}.road-note{text-align:center;font-size:11px;color:var(--primary-medium,#aeb4bd);margin:6px 0}',
     '.runner{display:block;width:100%;height:auto;border:1px solid rgba(142,149,158,.35);border-radius:6px;background:#171a1e;image-rendering:pixelated}',
     '.mine-board{width:min(324px,84vw);aspect-ratio:1;margin:auto;display:grid;grid-template-columns:repeat(9,1fr);gap:2px;padding:4px;border-radius:6px;background:rgba(142,149,158,.22)}.mine-cell{min-width:0;min-height:0;padding:0;border:0;border-radius:2px;background:rgba(142,149,158,.18);font-weight:700;font-size:12px}.mine-cell.open{background:rgba(142,149,158,.05)}.mine-cell.cursor{outline:2px solid var(--tertiary,#58a6d8);outline-offset:-2px}.mine-cell.mine{color:#df6c63}.mine-tools{display:flex;justify-content:center;gap:5px;margin-top:9px}.mine-tools button{min-width:42px}',
     '@media(max-width:390px){.panel{padding:12px}.game-list{grid-template-columns:1fr}.game-head{flex-wrap:wrap}.game-head h2{flex-basis:100%}}'
@@ -198,7 +198,7 @@
     [
       ['2048', '方向键合并数字'],
       ['snake', '方向键控制移动'],
-      ['dodge', '左右切换车道'],
+      ['dodge', '单一道路内自由转向'],
       ['runner', '空格或上键跳跃'],
       ['mines', '方向键移动，回车揭开']
     ].forEach(function (item) {
@@ -486,7 +486,7 @@
   function showDodge() {
     var road;
     var player;
-    var lane;
+    var playerPosition;
     var obstacles;
     var ticks;
     var score;
@@ -497,17 +497,17 @@
     function restart() {
       gameRuntime.start('dodge');
       if (obstacles) obstacles.forEach(function (obstacle) { obstacle.node.remove(); });
-      lane = 1;
+      playerPosition = 50;
       obstacles = [];
       ticks = 0;
       score = 0;
       running = true;
       status.className = 'game-status';
-      status.textContent = '左右方向键或屏幕按钮切换车道';
+      status.textContent = '在一条道路内左右移动，避开迎面障碍';
       render();
     }
 
-    scoreNode = gameHeader('车道闪避', '得分 0', restart);
+    scoreNode = gameHeader('公路闪避', '得分 0', restart);
     road = element('div', 'road');
     player = element('div', 'car');
     road.appendChild(player);
@@ -519,13 +519,9 @@
     roadControls.appendChild(makeButton('向右', '', function () { steer(1); }));
     panel.appendChild(roadControls);
 
-    function lanePosition(value) {
-      return (16.67 + value * 33.33) + '%';
-    }
-
     function steer(amount) {
       if (running && !gameRuntime.state().paused) {
-        lane = Math.max(0, Math.min(2, lane + amount));
+        playerPosition = Math.max(10, Math.min(90, playerPosition + amount * 8));
         render();
       }
     }
@@ -535,13 +531,13 @@
         return;
       }
       ticks += 1;
-      if (ticks % Math.max(6, 11 - Math.floor(score / 100)) === 0) {
-        obstacles.push({lane: Math.floor(Math.random() * 3), y: -12, node: element('div', 'obstacle')});
+      if (ticks % Math.max(18, 34 - Math.floor(score / 45)) === 0) {
+        obstacles.push({x: 12 + Math.random() * 76, y: -12, node: element('div', 'obstacle')});
         road.appendChild(obstacles[obstacles.length - 1].node);
       }
-      obstacles.forEach(function (obstacle) { obstacle.y += 3.8 + Math.min(3, score / 160); });
+      obstacles.forEach(function (obstacle) { obstacle.y += 2.2 + Math.min(2.6, score / 220); });
       if (obstacles.some(function (obstacle) {
-        return obstacle.lane === lane && obstacle.y > 77 && obstacle.y < 96;
+        return obstacle.y > 76 && obstacle.y < 94 && Math.abs(obstacle.x - playerPosition) < 15;
       })) {
         running = false;
         finishGame(status, '发生碰撞', restart);
@@ -558,9 +554,9 @@
     }
 
     function render() {
-      player.style.left = lanePosition(lane);
+      player.style.left = playerPosition + '%';
       obstacles.forEach(function (obstacle) {
-        obstacle.node.style.left = lanePosition(obstacle.lane);
+        obstacle.node.style.left = obstacle.x + '%';
         obstacle.node.style.top = obstacle.y + '%';
       });
       updateScore(scoreNode, score);
@@ -577,7 +573,7 @@
       }
       return false;
     });
-    intervals.push(setInterval(tick, 90));
+    intervals.push(setInterval(tick, 55));
     restart();
   }
 

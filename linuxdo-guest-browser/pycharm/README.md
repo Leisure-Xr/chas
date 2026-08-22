@@ -7,13 +7,17 @@ The tool window follows the VS Code extension's compact reader layout. It includ
 back and forward navigation, latest/top/category shortcuts, public topic search,
 refresh, temporary topic sharing, and a compact/original page density toggle. The
 last navigation requested while the guest session is being initialized is preserved.
+The toolbar adapts to the tool-window width; low-frequency actions move into the
+`...` menu on narrow windows.
 
 An optional break reminder is available from the toolbar and is disabled by default.
 When enabled, it waits a random 31-60 minutes before showing a compact in-page break
-overlay. The overlay includes 2048, Snake, Lane Dodge, Pixel Jump, and Minesweeper;
+overlay. The overlay includes 2048, Snake, Road Dodge, Pixel Jump, and Minesweeper;
 each game supports a countdown, pause/restart, keyboard and on-screen controls,
 automatic pause on focus loss, increasing difficulty, and a local best score. There
-is no audio. Reminders can be snoozed for ten minutes or closed to continue reading.
+is no audio. Road Dodge uses one continuous road with smooth horizontal steering
+instead of discrete lanes. Reminders can be snoozed for ten minutes or closed to
+continue reading.
 
 The Share toolbar button creates an expiring code for the current public topic. The
 Open Share Code button accepts a code from the clipboard or an input dialog. Codes
@@ -51,7 +55,7 @@ PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 The installable ZIP is written to:
 
 ```text
-build/distributions/linuxdo-guest-browser-pycharm-0.5.0.zip
+build/distributions/linuxdo-guest-browser-pycharm-0.6.0.zip
 ```
 
 Install it through **Settings > Plugins > gear menu > Install Plugin from Disk**,

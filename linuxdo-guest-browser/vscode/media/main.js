@@ -228,7 +228,7 @@
     choices.append(
       gameChoice('2048', '合并数字', '方向键移动方块', recommended === '2048'),
       gameChoice('snake', '贪吃蛇', '吃到方块并避开自己', recommended === 'snake'),
-      gameChoice('racer', '车道闪避', '左右换道躲避障碍', recommended === 'racer'),
+      gameChoice('racer', '公路闪避', '在单一道路内自由转向', recommended === 'racer'),
       gameChoice('jumper', '像素跳跃', '奔跑并跳过障碍', recommended === 'jumper'),
       gameChoice('mines', '扫雷', '找出安全方格', recommended === 'mines')
     );
@@ -483,54 +483,62 @@
   }
 
   function startRacer() {
-    const rows = 12;
-    let lane = 1;
+    let playerX = 50;
     let obstacles = [];
     let scoreValue = 0;
     let ended = false;
-    const ui = gameShell('车道闪避', '左右键换道');
-    const road = node('div', 'racer-grid');
-    const status = node('p', 'game-status', '左右换道，避开迎面而来的障碍。');
+    let ticks = 0;
+    const ui = gameShell('公路闪避', '左右键连续转向');
+    const road = node('div', 'racer-track');
+    const player = node('span', 'racer-car', '▲');
+    road.append(player);
+    const status = node('p', 'game-status', '在一条道路内左右移动，避开迎面障碍。');
     ui.body.append(road, directionPad(moveLane, true), status);
 
     function moveLane(direction) {
       if (ended || gameRuntime.state().paused) return;
-      if (direction === 'left') lane = Math.max(0, lane - 1);
-      if (direction === 'right') lane = Math.min(2, lane + 1);
+      if (direction === 'left') playerX = Math.max(10, playerX - 8);
+      if (direction === 'right') playerX = Math.min(90, playerX + 8);
       render();
     }
 
     function tick() {
       if (ended || gameRuntime.state().paused) return;
-      obstacles = obstacles.map((item) => ({ ...item, row: item.row + 1 })).filter((item) => item.row < rows);
-      if (Math.random() < 0.48 && !obstacles.some((item) => item.row < 2)) {
-        obstacles.push({ lane: Math.floor(Math.random() * 3), row: 0 });
+      ticks += 1;
+      const speed = 2.2 + Math.min(2.6, scoreValue / 220);
+      obstacles.forEach((item) => { item.y += speed; });
+      if (ticks % Math.max(18, 34 - Math.floor(scoreValue / 45)) === 0) {
+        const item = { x: 12 + Math.random() * 76, y: -12, node: node('span', 'racer-obstacle', '■') };
+        obstacles.push(item);
+        road.append(item.node);
       }
-      if (obstacles.some((item) => item.lane === lane && item.row === rows - 2)) {
+      if (obstacles.some((item) => item.y > 76 && item.y < 94 && Math.abs(item.x - playerX) < 15)) {
         ended = true;
         clearInterval(gameTimer);
         finishGame(status, '发生碰撞');
-      } else {
-        scoreValue += 1;
       }
+      obstacles = obstacles.filter((item) => {
+        if (item.y > 108) {
+          item.node.remove();
+          scoreValue += 10;
+          return false;
+        }
+        return true;
+      });
       render();
     }
 
     function render() {
-      const obstacleKeys = new Set(obstacles.map((item) => `${item.lane}:${item.row}`));
-      const cells = [];
-      for (let row = 0; row < rows; row += 1) {
-        for (let column = 0; column < 3; column += 1) {
-          const car = row === rows - 2 && column === lane;
-          cells.push(node('span', `road-cell${car ? ' car' : obstacleKeys.has(`${column}:${row}`) ? ' obstacle' : ''}`, car ? '▲' : obstacleKeys.has(`${column}:${row}`) ? '■' : ''));
-        }
-      }
-      road.replaceChildren(...cells);
+      player.style.left = `${playerX}%`;
+      obstacles.forEach((item) => {
+        item.node.style.left = `${item.x}%`;
+        item.node.style.top = `${item.y}%`;
+      });
       setGameScore(ui, scoreValue);
     }
 
     render();
-    gameTimer = setInterval(tick, 260);
+    gameTimer = setInterval(tick, 55);
     gameKeyHandler = (event) => handleDirectionKey(event, moveLane);
   }
 
@@ -781,7 +789,7 @@
       node('div', 'state-icon shield-icon', '✓'),
       node('h1', '', '需要 Cloudflare 验证'),
       node('p', '', String(message.message || '请先在浏览器中完成人机验证。')),
-      actionButton(message.hasClearance ? '更新验证' : '自动或手动验证', () => vscode.postMessage({ type: 'cloudflareSetup' }))
+      actionButton(message.hasClearance ? '更新验证参数' : '填写验证参数', () => vscode.postMessage({ type: 'cloudflareSetup' }))
     );
     const note = node('p', 'privacy-note', '只保留游客验证白名单，不读取或保存论坛登录状态。');
     wrapper.append(note);

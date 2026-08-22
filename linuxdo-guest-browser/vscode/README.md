@@ -7,7 +7,7 @@
 - 查看最新主题、热门主题和站点分类
 - 搜索公开主题
 - 可选的随机休息提醒（31–60 分钟），默认关闭
-- 内置 2048、贪吃蛇、车道闪避、像素跳跃和扫雷
+- 内置 2048、贪吃蛇、单道路闪避、像素跳跃和扫雷
 - 五款游戏统一支持开始倒计时、暂停、重新开始、屏幕控制、失焦自动暂停和本地最高分
 - 为当前公开主题生成 10 分钟至 7 天有效的跨插件分享码
 - 在 VS Code 内阅读帖子
@@ -21,31 +21,32 @@
 
 ## 遇到 Cloudflare 403
 
-1. 在命令面板执行 `LINUX DO: 设置 Cloudflare 验证`，打开独立设置页。
-2. 选择 Cookie 来源浏览器，填写完整 Cookie 与该浏览器的 User-Agent。
-3. 点击“保存并验证”。扩展会在所选浏览器的独立临时会话中注入参数并读取 `/latest.json`。
-4. 校验成功后参数才会写入 SecretStorage，浏览器窗口随后最小化；校验失败不会覆盖此前可用参数。
+VS Code 版本不会启动、控制或读取任何外部浏览器。Cloudflare 验证在你自己的 Chrome、Edge 或 Brave 中完成，参数通过 VS Code 的验证设置页手动粘贴。扩展只发送公开 GET 请求，不会保存登录状态。
 
-设置页不会回显已保存 Cookie，输入框留空表示保留原值，并提供“清除 Cookie”“清除 User-Agent”和“全部清除”。任一清除操作都会停止当前游客浏览器。手动参数不便获取时，可点击“自动验证（备用）”并在独立浏览器窗口中完成 Cloudflare 验证。
+### Windows 获取参数
 
-临时窗口使用全新的浏览器配置，不继承日常浏览器的登录状态。验证通过后，该浏览器会在阅读器使用期间保持最小化运行，最新、热门、分类、搜索、主题和续页请求都会在同一个已验证浏览器会话中执行。关闭阅读器、退出 VS Code 或执行 `LINUX DO: 清除 Cloudflare 验证` 时，扩展会结束浏览器进程并删除临时配置目录。
+1. 在浏览器打开 `https://linux.do/latest`，完成 Cloudflare 验证；不要在隐私模式和普通窗口之间切换。
+2. 按 `F12`（部分电脑需要 `Fn+F12`），打开 **Network / 网络**，勾选 Preserve log / 保留日志，然后刷新页面。
+3. 推荐选择名称为 **`latest.json`**、类型为 `fetch`、响应类型为 `application/json` 的请求。不要选择图片、脚本、分析请求，也不要把 `/categories.json` 的标头与 `/latest.json` 的 Cookie 混用。
+4. 打开 **Headers / 标头 → Request Headers / 请求标头**。复制完整的 `cookie:` 和 `user-agent:` 两行；若浏览器支持，右键请求选择 **Copy → Copy request headers**，可一次复制整个请求标头块。
+5. 在 VS Code 执行 `LINUX DO: 设置 Cloudflare 验证`，把整个标头块粘贴到“请求标头”框，点击 **解析标头**。检查两个输入框，再点击 **保存并测试**。
+6. 测试会请求公开的 `/latest.json`；成功后才保存参数。若站点暂时返回 403，可确认参数来自同一浏览器后点击 **仅保存**，稍后回阅读器刷新重试。
 
-自动模式只保存 Cloudflare 字段、`_bypass_cache` 和临时窗口生成的匿名 `_forum_session`；不会保存 `_t`、`auth_token`、`remember_user_token` 等登录凭据。验证结果保存在 VS Code 的 SecretStorage 中。如果浏览器被手动关闭或 Cloudflare 再次要求验证，阅读器会显示“更新验证”，点击后即可重新连接。
+![Network 面板选择 latest.json](https://raw.githubusercontent.com/Leisure-Xr/chas/main/linuxdo-guest-browser/vscode/media/docs/cf-network-request.png)
 
-浏览器选择支持自动、Google Chrome、Microsoft Edge、Brave 和 Chromium。
+![Request Headers 中复制 Cookie 与 User-Agent](https://raw.githubusercontent.com/Leisure-Xr/chas/main/linuxdo-guest-browser/vscode/media/docs/cf-request-headers.png)
 
-### Windows 手动填写方法
+### 为什么不同接口的标头不一样
 
-1. 使用 Chrome、Edge 或 Brave 打开 `https://linux.do/latest` 并完成 Cloudflare 验证。
-2. 按 `F12`（部分电脑需要 `Fn+F12`），打开“应用/Application”面板。
-3. 展开“存储/Storage”→“Cookie”→`https://linux.do`，找到 `cf_clearance`，双击并复制它的“值/Value”；也可以从“网络/Network”的请求标头中复制整段 `cookie`。
-4. 打开“网络/Network”面板并刷新页面，选择第一个 `linux.do` 文档请求。
-5. 在“标头/Headers”→“请求标头/Request Headers”中复制 `user-agent` 的完整值。
-6. 回到 VS Code 的验证设置页，选择同一个来源浏览器，粘贴 Cookie 和 User-Agent 后点击“保存并验证”。
+`/latest.json`、`/categories.json`、主题 JSON 和主文档请求的 `Accept`、`Referer`、`sec-fetch-*`、缓存头可能不同，这是正常的。插件不要求你手动填写这些易变化的头，只需要同一次验证中的 `cookie` 与 `user-agent`；插件会自己生成公开 GET 请求的普通头。必须从 **Request Headers** 复制，不要从 Response Headers 复制，也不要从两个浏览器或两个时间点拼接。
 
-也可以在浏览器“控制台/Console”输入 `navigator.userAgent` 获取 User-Agent。Cookie 和 User-Agent 必须来自同一个浏览器，并与设置页选择的浏览器一致；若校验提示不一致，请改正浏览器选择或改用自动验证。
+### 手动填写与清除
 
-即使粘贴整段 Cookie，手动模式也只保留 `cf_clearance`、`__cf_bm`、`__cfuvid`、`_cfuvid`、`_bypass_cache`，以及未检测到登录标记时的匿名 `_forum_session`。Stripe 字段始终丢弃；如果检测到 `_t`、`remember_user_token` 或 `auth_token`，论坛会话也会被丢弃。
+- Cookie 输入框支持完整 Cookie 或仅 `cf_clearance=...`；解析时只保留 `cf_clearance`、`__cf_bm`、`__cfuvid`、`_cfuvid`、`_bypass_cache` 和未登录的 `_forum_session`。
+- `_t`、`auth_token`、`remember_user_token`、Stripe 字段永远不会写入 SecretStorage；检测到登录令牌时会丢弃 `_forum_session`。
+- 已保存值只显示“已保存”，不会回显原文；输入框留空表示保留原值。
+- **清除 Cookie**、**清除 User-Agent**、**全部清除** 会立即删除对应 SecretStorage 参数；阅读器刷新后会重新显示 Cloudflare 提示。
+- 参数只在 VS Code 的 SecretStorage 中保存，不创建临时浏览器配置目录，也不会读取日常浏览器数据。
 
 ## 使用
 

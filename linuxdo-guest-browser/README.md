@@ -4,14 +4,14 @@
 
 ## 下载
 
-- [VS Code 0.9.0](dist/linuxdo-guest-browser-vscode-0.9.0.vsix)
-- [PyCharm 0.5.0](dist/linuxdo-guest-browser-pycharm-0.5.0.zip)
+- [VS Code 0.10.0](dist/linuxdo-guest-browser-vscode-0.10.0.vsix)
+- [PyCharm 0.6.0](dist/linuxdo-guest-browser-pycharm-0.6.0.zip)
 
 ### VS Code
 
 打开扩展面板，选择右上角菜单中的 `Install from VSIX...`，然后选择 VSIX 文件。
 
-VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。验证设置页支持手动填写 Cookie、User-Agent 与来源浏览器，也提供自动验证备用入口。参数通过浏览器内 `/latest.json` 校验后才会保存；验证后的公开请求始终在同一个最小化游客会话中执行。
+VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。验证设置页只支持手动填写 Cookie 与 User-Agent，不会启动、控制或读取 Chrome、Edge、Brave 等外部浏览器。参数会从你复制的 Request Headers 中解析，并通过 `/latest.json` 测试后才会保存；完整的 Windows DevTools 获取步骤和示意图见 [VS Code 说明](vscode/README.md)。
 
 ### PyCharm
 
