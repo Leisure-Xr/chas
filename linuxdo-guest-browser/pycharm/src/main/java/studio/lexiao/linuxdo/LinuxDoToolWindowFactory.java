@@ -653,7 +653,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     try { value = Integer.parseInt(itemValue); } catch (NumberFormatException ignored) { value = -1; }
                 }
             }
-            if (game != null && game.matches("2048|snake|dodge|runner|mines") && value >= 0) {
+            if ("dodge".equals(game)) game = "racer";
+            if ("runner".equals(game)) game = "jumper";
+            if (game != null && game.matches("2048|snake|racer|jumper|mines") && value >= 0) {
                 int previous = properties.getInt(GAME_BEST_PROPERTY + game, 0);
                 if (value > previous) properties.setValue(GAME_BEST_PROPERTY + game, value, 0);
             }
@@ -704,7 +706,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (!breakReminderEnabled || disposed) {
                 return;
             }
-            String[] games = {"2048", "snake", "dodge", "runner", "mines"};
+            String[] games = {"2048", "snake", "racer", "jumper", "mines"};
             recommendedGame = games[ThreadLocalRandom.current().nextInt(games.length)];
             breakOverlayVisible = true;
             breakOverlayReminderMode = true;
@@ -716,7 +718,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (disposed) {
                 return;
             }
-            String[] games = {"2048", "snake", "dodge", "runner", "mines"};
+            String[] games = {"2048", "snake", "racer", "jumper", "mines"};
             recommendedGame = games[ThreadLocalRandom.current().nextInt(games.length)];
             breakOverlayVisible = true;
             breakOverlayReminderMode = false;
@@ -736,12 +738,20 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         }
 
         private String gameBestScoresJson() {
-            String[] games = {"2048", "snake", "dodge", "runner", "mines"};
+            String[] games = {"2048", "snake", "racer", "jumper", "mines"};
             StringBuilder json = new StringBuilder("{");
             for (int index = 0; index < games.length; index += 1) {
                 if (index > 0) json.append(',');
-                json.append('"').append(games[index]).append("\":")
-                        .append(Math.max(0, properties.getInt(GAME_BEST_PROPERTY + games[index], 0)));
+                String legacy = "racer".equals(games[index]) ? "dodge"
+                        : "jumper".equals(games[index]) ? "runner" : games[index];
+                int score = Math.max(
+                        properties.getInt(GAME_BEST_PROPERTY + games[index], 0),
+                        properties.getInt(GAME_BEST_PROPERTY + legacy, 0)
+                );
+                if (score > properties.getInt(GAME_BEST_PROPERTY + games[index], 0)) {
+                    properties.setValue(GAME_BEST_PROPERTY + games[index], score, 0);
+                }
+                json.append('"').append(games[index]).append("\":").append(Math.max(0, score));
             }
             return json.append('}').toString();
         }

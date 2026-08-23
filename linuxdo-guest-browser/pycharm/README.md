@@ -14,10 +14,12 @@ An optional break reminder is available from the toolbar and is disabled by defa
 When enabled, it waits a random 31-60 minutes before showing a compact in-page break
 overlay. The overlay includes 2048, Snake, Road Dodge, Pixel Jump, and Minesweeper;
 each game supports a countdown, pause/restart, keyboard and on-screen controls,
-automatic pause on focus loss, increasing difficulty, and a local best score. There
-is no audio. Road Dodge uses one continuous road with smooth horizontal steering
-instead of discrete lanes. Reminders can be snoozed for ten minutes or closed to
-continue reading.
+automatic pause on focus loss, increasing difficulty, and a local best score. The
+game board is fitted from the tool window's live width and height, uses high-DPI
+canvas rendering, and keeps the current round when the tool window is resized. There
+is no audio, particle effect, vibration, or screen shake. Road Dodge uses one
+continuous road with press-and-hold steering instead of discrete lanes. Reminders can
+be snoozed for ten minutes or closed to continue reading.
 
 The Share toolbar button creates an expiring code for the current public topic. The
 Open Share Code button accepts a code from the clipboard or an input dialog. Codes
@@ -55,7 +57,7 @@ PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 The installable ZIP is written to:
 
 ```text
-build/distributions/linuxdo-guest-browser-pycharm-0.6.0.zip
+build/distributions/linuxdo-guest-browser-pycharm-0.7.0.zip
 ```
 
 Install it through **Settings > Plugins > gear menu > Install Plugin from Disk**,

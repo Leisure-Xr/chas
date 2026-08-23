@@ -1,64 +1,76 @@
 (function () {
   'use strict';
 
-  if (window.__lexiaoBreakCleanup) {
-    window.__lexiaoBreakCleanup();
-  }
+  if (window.__lexiaoBreakCleanup) window.__lexiaoBreakCleanup();
   var previous = document.getElementById('lexiao-break-overlay');
-  if (previous) {
-    previous.remove();
-  }
+  if (previous) previous.remove();
 
-  var pauseButton = null;
-  var recommended = __LEXIAO_RECOMMENDED_GAME__;
+  var core = window.LinuxDoGameCore;
+  var recommended = core.canonicalGame(__LEXIAO_RECOMMENDED_GAME__);
   var reminderMode = __LEXIAO_REMINDER_MODE__;
-  var gameRuntime = window.LinuxDoGameCore.createRuntime({
+  var pauseButton;
+  var pauseLayer;
+  var activeGame = '';
+  var timers = [];
+  var frameId = 0;
+  var countdownCancel;
+  var keyDownHandler;
+  var keyUpHandler;
+  var inputReset;
+  var resizeCleanup;
+  var cleanupCallbacks = [];
+  var gameNames = {
+    '2048': '2048',
+    snake: '贪吃蛇',
+    racer: '公路闪避',
+    jumper: '像素跳跃',
+    mines: '扫雷'
+  };
+  var gameRuntime = core.createRuntime({
     bestScores: __LEXIAO_BEST_SCORES__,
     onBestScore: function (game, value) {
       internalAction('score', 'game=' + encodeURIComponent(game) + '&value=' + encodeURIComponent(value));
     },
     onPause: function (paused) {
-      if (pauseButton) pauseButton.textContent = paused ? '继续' : '暂停';
+      if (paused && inputReset) inputReset();
+      if (pauseButton) {
+        pauseButton.textContent = paused ? '▶' : 'Ⅱ';
+        pauseButton.title = paused ? '继续' : '暂停';
+      }
+      if (pauseLayer) pauseLayer.hidden = !paused;
     }
   });
-  var gameNames = {
-    '2048': '2048',
-    snake: '贪吃蛇',
-    dodge: '公路闪避',
-    runner: '像素跳跃',
-    mines: '扫雷'
-  };
-  var intervals = [];
-  var animationFrame = 0;
-  var keyHandler = null;
-  var countdownCancel = null;
 
   var host = document.createElement('div');
   host.id = 'lexiao-break-overlay';
   host.style.cssText = 'position:fixed;inset:0;z-index:2147483646;';
-  var shadow = host.attachShadow({mode: 'open'});
+  var shadow = host.attachShadow({ mode: 'open' });
   var style = document.createElement('style');
   style.textContent = [
     ':host{all:initial;color-scheme:light dark}',
-    '*{box-sizing:border-box}',
-    '.backdrop{position:absolute;inset:0;display:grid;place-items:center;padding:18px;background:rgba(18,21,25,.58);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--primary,#e7e9ec)}',
-    '.panel{width:min(440px,96vw);max-height:92vh;overflow:auto;border:1px solid rgba(142,149,158,.45);border-radius:8px;background:var(--secondary,#202327);box-shadow:0 14px 42px rgba(0,0,0,.28);padding:16px}',
-    '.intro{text-align:center;padding:6px 4px 2px}.eyebrow{margin:0 0 5px;color:var(--primary-medium,#9ca3ad);font-size:11px}.intro h2{margin:0;font-size:19px;letter-spacing:0}.intro p{margin:7px auto 0;max-width:340px;color:var(--primary-medium,#aeb4bd)}',
-    '.actions{display:flex;flex-wrap:wrap;justify-content:center;gap:7px;margin-top:15px}',
-    'button{min-height:30px;border:1px solid rgba(142,149,158,.5);border-radius:5px;background:transparent;color:inherit;padding:5px 10px;font:inherit;cursor:pointer}',
-    'button:hover,button:focus-visible{background:rgba(142,149,158,.16);outline:none}button.primary{border-color:var(--tertiary,#4ea1ff);background:var(--tertiary,#3b82c4);color:#fff}button.quiet{border-color:transparent;color:var(--primary-medium,#aeb4bd)}',
-    '.game-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}.game-head h2{margin:0;font-size:16px;flex:1}.score{font-variant-numeric:tabular-nums;color:var(--primary-medium,#aeb4bd);white-space:nowrap}',
-    '.countdown{min-height:280px;display:grid;place-content:center;justify-items:center;color:var(--primary-medium,#aeb4bd)}.countdown strong{font-size:48px;color:var(--primary,#e7e9ec)}.game-end{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}',
-    '.game-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}.game-card{text-align:left;min-height:62px;padding:9px}.game-card strong,.game-card span{display:block}.game-card span{margin-top:3px;font-size:11px;color:var(--primary-medium,#aeb4bd)}.recommended{color:var(--tertiary,#57a6e6)!important}',
-    '.game-status{min-height:20px;margin:8px 0 0;text-align:center;color:var(--primary-medium,#aeb4bd);font-size:12px}',
-    '.dpad{display:grid;grid-template-columns:repeat(3,38px);grid-template-rows:repeat(2,32px);justify-content:center;gap:4px;margin:11px auto 0}.dpad button{padding:2px;min-height:32px}.dpad .up{grid-column:2}.dpad .left{grid-column:1;grid-row:2}.dpad .down{grid-column:2;grid-row:2}.dpad .right{grid-column:3;grid-row:2}',
-    '.board-2048{width:min(300px,78vw);aspect-ratio:1;margin:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px;border-radius:6px;background:rgba(142,149,158,.24)}.tile{display:grid;place-items:center;aspect-ratio:1;border-radius:4px;background:rgba(142,149,158,.12);font-size:18px;font-weight:700}.tile[data-rank="1"]{background:#d9d2c2;color:#242424}.tile[data-rank="2"]{background:#d7c49d;color:#242424}.tile[data-rank="3"]{background:#e6a566;color:#202020}.tile[data-rank="4"]{background:#df8355;color:#fff}.tile[data-rank="5"]{background:#cf6552;color:#fff}.tile[data-rank="6"],.tile[data-rank="7"],.tile[data-rank="8"],.tile[data-rank="9"],.tile[data-rank="10"],.tile[data-rank="11"]{background:#b5964b;color:#fff;font-size:15px}',
-    '.cell-board{width:min(312px,82vw);aspect-ratio:1;margin:auto;display:grid;gap:2px;padding:4px;border-radius:6px;background:rgba(142,149,158,.22)}.cell{min-width:0;min-height:0;border:0;border-radius:2px;padding:0;background:rgba(142,149,158,.1)}',
-    '.snake{background:var(--tertiary,#4e9bd3)}.snake-head{background:#7ac66b}.food{background:#df6c63;border-radius:50%}',
-    '.road{position:relative;width:min(300px,78vw);height:min(420px,58vh);min-height:300px;margin:auto;overflow:hidden;border:1px solid rgba(142,149,158,.38);border-radius:6px;background:#292d32;box-shadow:inset 9px 0 rgba(142,149,158,.18),inset -9px 0 rgba(142,149,158,.18)}.car,.obstacle{position:absolute;width:34px;height:38px;border-radius:5px;transform:translateX(-50%)}.car{bottom:6%;background:#58a6d8;transition:left .09s ease-out}.obstacle{background:#cf665d;transition:top .055s linear}.road-note{text-align:center;font-size:11px;color:var(--primary-medium,#aeb4bd);margin:6px 0}',
-    '.runner{display:block;width:100%;height:auto;border:1px solid rgba(142,149,158,.35);border-radius:6px;background:#171a1e;image-rendering:pixelated}',
-    '.mine-board{width:min(324px,84vw);aspect-ratio:1;margin:auto;display:grid;grid-template-columns:repeat(9,1fr);gap:2px;padding:4px;border-radius:6px;background:rgba(142,149,158,.22)}.mine-cell{min-width:0;min-height:0;padding:0;border:0;border-radius:2px;background:rgba(142,149,158,.18);font-weight:700;font-size:12px}.mine-cell.open{background:rgba(142,149,158,.05)}.mine-cell.cursor{outline:2px solid var(--tertiary,#58a6d8);outline-offset:-2px}.mine-cell.mine{color:#df6c63}.mine-tools{display:flex;justify-content:center;gap:5px;margin-top:9px}.mine-tools button{min-width:42px}',
-    '@media(max-width:390px){.panel{padding:12px}.game-list{grid-template-columns:1fr}.game-head{flex-wrap:wrap}.game-head h2{flex-basis:100%}}'
+    '*{box-sizing:border-box;letter-spacing:0}',
+    '.backdrop{position:absolute;inset:0;display:grid;place-items:center;padding:8px;overflow:hidden;background:rgba(18,21,25,.62);font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--primary,#e7e9ec)}',
+    '.panel{width:min(680px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;border:1px solid rgba(142,149,158,.45);border-radius:7px;background:var(--secondary,#202327);box-shadow:0 14px 42px rgba(0,0,0,.3);padding:16px}',
+    '.panel.is-game{display:flex;height:min(720px,calc(100vh - 16px));min-height:0;flex-direction:column;overflow:hidden}',
+    '.intro{text-align:center;padding:4px}.eyebrow{margin:0 0 4px;color:var(--primary-medium,#aeb4bd);font-size:11px}.intro h2{margin:0;font-size:18px}.intro p{margin:6px auto 0;max-width:380px;color:var(--primary-medium,#aeb4bd)}',
+    '.actions,.result-actions,.hold-controls,.mine-controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:7px}.actions{margin-top:14px}',
+    'button{min-height:34px;border:1px solid rgba(142,149,158,.5);border-radius:4px;background:transparent;color:inherit;padding:5px 10px;font:inherit;cursor:pointer;touch-action:manipulation}',
+    'button:hover,button:focus-visible{background:rgba(142,149,158,.16);outline:none}button.primary{border-color:var(--tertiary,#4ea1ff);background:var(--tertiary,#3b82c4);color:#fff}button.quiet{border-color:transparent;color:var(--primary-medium,#aeb4bd)}button:disabled{opacity:.45;cursor:default}',
+    '.game-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:13px}.game-card{text-align:left;min-height:62px;padding:9px}.game-card strong,.game-card span{display:block}.game-card span{margin-top:3px;font-size:11px;color:var(--primary-medium,#aeb4bd)}.recommended{color:var(--tertiary,#57a6e6)!important}',
+    '.game-head{display:flex;flex:0 0 auto;align-items:center;gap:7px;margin-bottom:10px;padding-bottom:9px;border-bottom:1px solid rgba(142,149,158,.28)}.game-title{display:grid;min-width:0;margin-right:auto}.game-title strong{font-size:15px}.game-title small{color:var(--primary-medium,#aeb4bd);white-space:nowrap}.score{display:grid;min-width:50px;justify-items:end;font-variant-numeric:tabular-nums;white-space:nowrap}.score small{font-size:10px;color:var(--primary-medium,#aeb4bd)}.icon{width:32px;height:32px;flex:0 0 32px;padding:0;border-color:transparent;font-size:16px}',
+    '.game-body{position:relative;display:flex;min-height:0;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:7px}.game-state{position:absolute;z-index:5;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:18px;background:color-mix(in srgb,var(--secondary,#202327) 94%,transparent);text-align:center}.game-state[hidden]{display:none}.game-state strong{font-size:19px}.game-state span,.status{color:var(--primary-medium,#aeb4bd)}',
+    '.countdown{min-height:min(300px,calc(100vh - 50px));display:grid;place-content:center;justify-items:center;color:var(--primary-medium,#aeb4bd)}.countdown strong{font-size:48px;color:var(--primary,#e7e9ec)}',
+    '.game-board,.game-canvas{display:block;flex:0 0 auto;max-width:100%;overflow:hidden;border:1px solid rgba(142,149,158,.38);border-radius:5px;background:var(--secondary-very-high,#272b30)}.square-canvas{aspect-ratio:1}',
+    '.board-2048{position:relative}.tile-backgrounds{position:absolute;inset:6px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.tile-background{border:1px solid rgba(142,149,158,.28);border-radius:4px;background:rgba(142,149,158,.09)}.tile-layer{position:absolute;inset:0}.tile{position:absolute;top:0;left:0;display:grid;place-items:center;border-radius:4px;background:rgba(142,149,158,.16);font-size:20px;font-weight:700;transition:transform 130ms cubic-bezier(.2,.75,.25,1);will-change:transform}.tile[data-rank="1"]{background:#d9d2c2;color:#242424}.tile[data-rank="2"]{background:#d7c49d;color:#242424}.tile[data-rank="3"]{background:#e6a566;color:#202020}.tile[data-rank="4"]{background:#df8355;color:#fff}.tile[data-rank="5"]{background:#cf6552;color:#fff}.tile[data-rank="6"],.tile[data-rank="7"],.tile[data-rank="8"],.tile[data-rank="9"],.tile[data-rank="10"],.tile[data-rank="11"]{background:#b5964b;color:#fff;font-size:16px}.tile.spawned{animation:tile-in 130ms ease-out}.tile.merged{animation:tile-merge 160ms ease-out}.tile.undoing{animation:tile-undo 150ms ease-out}',
+    '@keyframes tile-in{from{scale:.88;opacity:.45}to{scale:1;opacity:1}}@keyframes tile-merge{0%{scale:1}45%{scale:1.12}100%{scale:1}}@keyframes tile-undo{from{opacity:.45}to{opacity:1}}',
+    '.dpad{display:grid;grid-template-columns:repeat(3,38px);grid-template-areas:". up ." "left down right";gap:4px}.dpad.horizontal{display:flex}.dpad [data-direction="up"]{grid-area:up}.dpad [data-direction="left"]{grid-area:left}.dpad [data-direction="down"]{grid-area:down}.dpad [data-direction="right"]{grid-area:right}.dpad button{width:38px;height:36px;padding:0}.hold-controls{gap:8px}.hold-control{width:78px;height:38px;font-size:18px;touch-action:none}.hold-control:active,.jump-button:active{background:rgba(142,149,158,.22)}',
+    '.runner-canvas{image-rendering:pixelated}.status{min-height:19px;margin:0;text-align:center;font-size:12px;font-variant-numeric:tabular-nums}',
+    '.mine-board{display:grid;grid-template-columns:repeat(9,1fr);gap:2px;padding:4px}.mine-cell{min-width:0;min-height:0;padding:0;border:0;border-radius:2px;background:rgba(142,149,158,.17);font-weight:700;font-size:12px;transition:background-color 90ms ease-out,color 90ms ease-out}.mine-cell.open{background:rgba(142,149,158,.05)}.mine-cell.cursor{outline:2px solid var(--tertiary,#58a6d8);outline-offset:-2px}.mine-cell.mine,.mine-cell.wrong{color:#df6c63}.mine-cell.wrong{text-decoration:line-through}.mine-cell.triggered{background:rgba(223,108,99,.22)}.mine-cell.revealing{animation:mine-in 150ms ease-out both}@keyframes mine-in{from{opacity:.35;scale:.92}to{opacity:1;scale:1}}.mine-controls{gap:0}.mine-controls button{min-width:70px;border-radius:0}.mine-controls button:first-child{border-radius:4px 0 0 4px}.mine-controls button:last-child{border-radius:0 4px 4px 0}',
+    '@media(max-width:430px),(max-height:570px){.panel{padding:10px}.game-head{gap:4px;margin-bottom:7px;padding-bottom:6px}.game-title small{display:none}.game-body{gap:4px}.status{font-size:11px}.score{min-width:42px}}',
+    '@media(max-width:350px){.backdrop{padding:3px}.panel,.panel.is-game{width:calc(100vw - 6px);height:calc(100vh - 6px);max-height:calc(100vh - 6px)}.game-list{grid-template-columns:1fr}}',
+    '@media(max-height:420px),(max-width:280px){.panel.is-game{overflow:auto}.panel.is-game .game-body{min-height:360px;flex:none}}',
+    '@media(pointer:coarse){button.icon,.dpad button,.hold-control,.jump-button{min-width:44px;min-height:44px}}',
+    '@media(prefers-reduced-motion:reduce){.tile,.mine-cell{transition-duration:.01ms}.tile.spawned,.tile.merged,.tile.undoing,.mine-cell.revealing{animation:none}}'
   ].join('');
   shadow.appendChild(style);
   var backdrop = element('div', 'backdrop');
@@ -68,119 +80,95 @@
   document.documentElement.appendChild(host);
 
   function element(tag, className, text) {
-    var node = document.createElement(tag);
-    if (className) {
-      node.className = className;
-    }
-    if (text !== undefined) {
-      node.textContent = text;
-    }
-    return node;
+    var item = document.createElement(tag);
+    if (className) item.className = className;
+    if (text !== undefined) item.textContent = text;
+    return item;
   }
 
   function makeButton(label, className, handler) {
-    var node = element('button', className || '', label);
-    node.type = 'button';
-    node.addEventListener('click', handler);
-    return node;
+    var item = element('button', className || '', label);
+    item.type = 'button';
+    item.addEventListener('click', handler);
+    return item;
+  }
+
+  function iconButton(label, title, handler) {
+    var item = makeButton(label, 'icon', handler);
+    item.title = title;
+    item.setAttribute('aria-label', title);
+    return item;
   }
 
   function internalAction(action, params) {
     window.location.href = 'https://linux.do/__lexiao_break/' + action + '?t=' + Date.now() + (params ? '&' + params : '');
   }
 
-  function cleanupGame() {
-    intervals.forEach(function (id) { clearInterval(id); });
-    intervals = [];
-    if (countdownCancel) {
-      countdownCancel();
-      countdownCancel = null;
-    }
-    if (animationFrame) {
-      cancelAnimationFrame(animationFrame);
-      animationFrame = 0;
-    }
-    if (keyHandler) {
-      window.removeEventListener('keydown', keyHandler, true);
-      keyHandler = null;
-    }
-    pauseButton = null;
+  function schedule(callback, delay) {
+    var id = setTimeout(callback, delay);
+    timers.push(id);
+    return id;
   }
 
-  function bindKeys(handler) {
-    if (keyHandler) {
-      window.removeEventListener('keydown', keyHandler, true);
-    }
-    keyHandler = function (event) {
-      if (handler(event)) {
+  function cleanupGame() {
+    timers.forEach(function (id) { clearTimeout(id); clearInterval(id); });
+    timers = [];
+    if (frameId) cancelAnimationFrame(frameId);
+    frameId = 0;
+    if (countdownCancel) countdownCancel();
+    countdownCancel = null;
+    if (keyDownHandler) window.removeEventListener('keydown', keyDownHandler, true);
+    if (keyUpHandler) window.removeEventListener('keyup', keyUpHandler, true);
+    keyDownHandler = null;
+    keyUpHandler = null;
+    if (inputReset) inputReset();
+    inputReset = null;
+    if (resizeCleanup) resizeCleanup();
+    resizeCleanup = null;
+    cleanupCallbacks.forEach(function (callback) { callback(); });
+    cleanupCallbacks = [];
+    pauseButton = null;
+    pauseLayer = null;
+  }
+
+  function bindKeys(down, up) {
+    if (keyDownHandler) window.removeEventListener('keydown', keyDownHandler, true);
+    if (keyUpHandler) window.removeEventListener('keyup', keyUpHandler, true);
+    keyDownHandler = function (event) {
+      if (event.key === 'Escape') {
+        internalAction('continue');
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (down && down(event)) {
         event.preventDefault();
         event.stopImmediatePropagation();
       }
     };
-    window.addEventListener('keydown', keyHandler, true);
-  }
-
-  function gameHeader(name, scoreText, restart) {
-    cleanupGame();
-    panel.replaceChildren();
-    var head = element('div', 'game-head');
-    head.appendChild(element('h2', '', name));
-    var state = gameRuntime.state();
-    var score = element('span', 'score', (scoreText || '') + ' · 最高 ' + state.best);
-    head.appendChild(score);
-    pauseButton = makeButton('暂停', '', function () {
-      gameRuntime.togglePause();
-    });
-    head.appendChild(pauseButton);
-    if (restart) {
-      head.appendChild(makeButton('重新开始', '', restart));
-    }
-    head.appendChild(makeButton('选择游戏', '', showGameMenu));
-    head.appendChild(makeButton('结束休息', 'quiet', function () { internalAction('continue'); }));
-    panel.appendChild(head);
-    return score;
-  }
-
-  function updateScore(node, value, prefix) {
-    var state = gameRuntime.setScore(value);
-    node.textContent = (prefix || '得分 ') + state.score + ' · 最高 ' + state.best;
-  }
-
-  function finishGame(status, message, restart) {
-    gameRuntime.finish();
-    status.className = 'game-status game-end';
-    status.replaceChildren(element('strong', '', message), makeButton('再来一局', 'primary', restart));
-  }
-
-  function directionPad(onDirection) {
-    var pad = element('div', 'dpad');
-    [
-      ['上', 'up', 'up'],
-      ['左', 'left', 'left'],
-      ['下', 'down', 'down'],
-      ['右', 'right', 'right']
-    ].forEach(function (item) {
-      pad.appendChild(makeButton(item[0], item[1], function () { onDirection(item[2]); }));
-    });
-    return pad;
+    keyUpHandler = function (event) {
+      if (up && up(event)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+    window.addEventListener('keydown', keyDownHandler, true);
+    window.addEventListener('keyup', keyUpHandler, true);
   }
 
   function showReminder() {
     cleanupGame();
+    activeGame = '';
+    panel.className = 'panel';
     panel.replaceChildren();
     var intro = element('div', 'intro');
     intro.appendChild(element('p', 'eyebrow', (reminderMode ? '休息提醒' : '小游戏') + ' · 本次推荐 ' + gameNames[recommended]));
     intro.appendChild(element('h2', '', reminderMode ? '离开帖子两分钟' : '休息一下'));
     intro.appendChild(element('p', '', reminderMode ? '活动一下肩颈，或者玩一局轻量小游戏。' : '选择一个轻量小游戏，随时回到阅读。'));
     var actions = element('div', 'actions');
-    actions.appendChild(makeButton('开始推荐 · ' + gameNames[recommended], 'primary', function () {
-      startGame(recommended);
-    }));
-    actions.appendChild(makeButton('开始 2048', '', function () { startGame('2048'); }));
+    actions.appendChild(makeButton('开始推荐 · ' + gameNames[recommended], 'primary', function () { startGame(recommended); }));
     actions.appendChild(makeButton('选择游戏', '', showGameMenu));
-    if (reminderMode) {
-      actions.appendChild(makeButton('10 分钟后提醒', 'quiet', function () { internalAction('snooze'); }));
-    }
+    if (reminderMode) actions.appendChild(makeButton('10 分钟后提醒', 'quiet', function () { internalAction('snooze'); }));
     actions.appendChild(makeButton('关闭并继续阅读', 'quiet', function () { internalAction('continue'); }));
     intro.appendChild(actions);
     panel.appendChild(intro);
@@ -188,710 +176,656 @@
 
   function showGameMenu() {
     cleanupGame();
+    activeGame = '';
+    panel.className = 'panel';
     panel.replaceChildren();
     var intro = element('div', 'intro');
     intro.appendChild(element('p', 'eyebrow', '小游戏'));
     intro.appendChild(element('h2', '', '选择一种休息方式'));
-    intro.appendChild(element('p', '', '所有游戏都支持键盘和屏幕按钮。'));
     panel.appendChild(intro);
     var list = element('div', 'game-list');
     [
-      ['2048', '方向键合并数字'],
-      ['snake', '方向键控制移动'],
-      ['dodge', '单一道路内自由转向'],
-      ['runner', '空格或上键跳跃'],
-      ['mines', '方向键移动，回车揭开']
-    ].forEach(function (item) {
-      var card = makeButton('', 'game-card', function () { startGame(item[0]); });
-      card.appendChild(element('strong', '', gameNames[item[0]]));
-      card.appendChild(element('span', item[0] === recommended ? 'recommended' : '',
-        item[0] === recommended ? '本次推荐 · ' + item[1] : item[1]));
+      ['2048', '合并数字'],
+      ['snake', '灵活转向'],
+      ['racer', '单条道路自由转向'],
+      ['jumper', '控制跳跃高度'],
+      ['mines', '找出安全方格']
+    ].forEach(function (description) {
+      var card = makeButton('', 'game-card', function () { startGame(description[0]); });
+      card.appendChild(element('strong', '', gameNames[description[0]]));
+      card.appendChild(element('span', description[0] === recommended ? 'recommended' : '', (description[0] === recommended ? '本次推荐 · ' : '') + description[1]));
       list.appendChild(card);
     });
     panel.appendChild(list);
     var actions = element('div', 'actions');
-    actions.appendChild(makeButton(reminderMode ? '返回提醒' : '返回', '', showReminder));
+    actions.appendChild(makeButton('返回', '', showReminder));
     actions.appendChild(makeButton('结束休息', 'quiet', function () { internalAction('continue'); }));
     panel.appendChild(actions);
   }
 
-  function startGame(game) {
+  function startGame(kind) {
     cleanupGame();
-    gameRuntime.start(game);
+    activeGame = core.canonicalGame(kind);
+    gameRuntime.start(activeGame);
+    panel.className = 'panel is-game';
     panel.replaceChildren();
     var countdown = element('div', 'countdown');
     countdown.appendChild(element('span', '', '准备'));
     var value = element('strong', '', '3');
     countdown.appendChild(value);
     panel.appendChild(countdown);
-    countdownCancel = window.LinuxDoGameCore.countdown(function (next) {
-      value.textContent = String(next);
-    }, function () { launchGame(game); });
+    countdownCancel = core.countdown(function (next) { value.textContent = String(next); }, function () {
+      if (activeGame === 'snake') showSnake();
+      else if (activeGame === 'racer') showRacer();
+      else if (activeGame === 'jumper') showJumper();
+      else if (activeGame === 'mines') showMines();
+      else show2048();
+    });
   }
 
-  function launchGame(game) {
-    if (game === 'snake') {
-      showSnake();
-    } else if (game === 'dodge') {
-      showDodge();
-    } else if (game === 'runner') {
-      showRunner();
-    } else if (game === 'mines') {
-      showMines();
-    } else {
-      show2048();
-    }
+  function gameShell(title, instructions) {
+    cleanupGame();
+    panel.className = 'panel is-game';
+    panel.replaceChildren();
+    var head = element('div', 'game-head');
+    head.appendChild(iconButton('←', '选择其他游戏', showGameMenu));
+    var titleNode = element('div', 'game-title');
+    titleNode.appendChild(element('strong', '', title));
+    titleNode.appendChild(element('small', '', instructions));
+    head.appendChild(titleNode);
+    var scoreWrap = element('span', 'score');
+    var scoreNode = element('strong', '', '0');
+    var bestNode = element('small', '', '最高 ' + gameRuntime.state().best);
+    scoreWrap.append(scoreNode, bestNode);
+    head.appendChild(scoreWrap);
+    pauseButton = iconButton('Ⅱ', '暂停', function () { gameRuntime.togglePause(); });
+    head.appendChild(pauseButton);
+    head.appendChild(iconButton('↻', '重新开始', function () { startGame(activeGame); }));
+    head.appendChild(iconButton('×', '结束休息', function () { internalAction('continue'); }));
+    var body = element('div', 'game-body');
+    pauseLayer = element('div', 'game-state');
+    pauseLayer.hidden = true;
+    pauseLayer.appendChild(element('strong', '', '已暂停'));
+    pauseLayer.appendChild(makeButton('继续', 'primary', function () { gameRuntime.setPaused(false); }));
+    var resultLayer = element('div', 'game-state');
+    resultLayer.hidden = true;
+    body.append(pauseLayer, resultLayer);
+    panel.append(head, body);
+    return { panel: panel, body: body, score: scoreNode, best: bestNode, result: resultLayer };
+  }
+
+  function setScore(ui, value) {
+    var state = gameRuntime.setScore(value);
+    ui.score.textContent = String(state.score);
+    ui.best.textContent = '最高 ' + state.best;
+  }
+
+  function finishGame(ui, message, detail) {
+    gameRuntime.finish();
+    if (inputReset) inputReset();
+    if (pauseLayer) pauseLayer.hidden = true;
+    ui.result.hidden = false;
+    ui.result.replaceChildren(element('strong', '', message), element('span', '', detail || ''));
+    var actions = element('div', 'result-actions');
+    actions.appendChild(makeButton('再来一局', 'primary', function () { startGame(activeGame); }));
+    actions.appendChild(makeButton('选择游戏', '', showGameMenu));
+    ui.result.appendChild(actions);
   }
 
   function show2048() {
-    var board;
-    var scoreNode;
-    var status;
-    var cells = [];
-    var values = [];
-    var points = 0;
-    var ended = false;
-    var undoState = null;
-
-    function restart() {
-      gameRuntime.start('2048');
-      values = new Array(16).fill(0);
-      points = 0;
-      ended = false;
-      undoState = null;
-      undoButton.disabled = true;
-      status.className = 'game-status';
-      status.textContent = '方向键或屏幕按钮移动';
-      addTile();
-      addTile();
-      render();
-    }
-
-    scoreNode = gameHeader('2048', '得分 0', restart);
-    board = element('div', 'board-2048');
-    for (var i = 0; i < 16; i += 1) {
-      var cell = element('div', 'tile');
-      cells.push(cell);
-      board.appendChild(cell);
-    }
-    panel.appendChild(board);
-    status = element('div', 'game-status', '方向键或屏幕按钮移动');
-    panel.appendChild(status);
-    panel.appendChild(directionPad(move));
+    var ui = gameShell('2048', '方向键移动');
+    var game = core.create2048();
+    var board = element('div', 'game-board board-2048');
+    var backgrounds = element('div', 'tile-backgrounds');
+    for (var index = 0; index < 16; index += 1) backgrounds.appendChild(element('span', 'tile-background'));
+    var layer = element('div', 'tile-layer');
+    board.append(backgrounds, layer);
+    var status = element('p', 'status', '每局可撤销一次');
     var undoButton = makeButton('撤销一次', '', undo);
     undoButton.disabled = true;
-    panel.appendChild(undoButton);
+    var nodes = new Map();
+    var animating = false;
+    var queuedDirection = '';
+    ui.body.append(board, directionPad(move), undoButton, status);
+    observeGameSize(ui, board, 'square', function () { renderStatic(game.state()); });
 
-    function addTile() {
-      var empty = [];
-      values.forEach(function (value, index) {
-        if (!value) {
-          empty.push(index);
-        }
-      });
-      if (empty.length) {
-        values[empty[Math.floor(Math.random() * empty.length)]] = Math.random() < 0.9 ? 2 : 4;
-      }
+    function createTile(tile, spawned) {
+      var item = element('span', 'tile' + (spawned ? ' spawned' : ''), String(tile.value));
+      item.dataset.id = String(tile.id);
+      item.dataset.rank = String(Math.min(11, Math.log2(tile.value)));
+      nodes.set(tile.id, item);
+      layer.appendChild(item);
+      positionTile(item, tile.index, board);
+      return item;
     }
 
-    function mergeLine(line) {
-      var packed = line.filter(Boolean);
-      for (var index = 0; index < packed.length - 1; index += 1) {
-        if (packed[index] === packed[index + 1]) {
-          packed[index] *= 2;
-          points += packed[index];
-          packed.splice(index + 1, 1);
-        }
-      }
-      while (packed.length < 4) {
-        packed.push(0);
-      }
-      return packed;
+    function renderStatic(state, undoing) {
+      var live = new Set(state.tiles.map(function (tile) { return tile.id; }));
+      nodes.forEach(function (item, id) {
+        if (!live.has(id)) { item.remove(); nodes.delete(id); }
+      });
+      state.tiles.forEach(function (tile) {
+        var item = nodes.get(tile.id) || createTile(tile, false);
+        item.className = 'tile' + (undoing ? ' undoing' : '');
+        item.dataset.rank = String(Math.min(11, Math.log2(tile.value)));
+        item.textContent = String(tile.value);
+        item.style.transition = 'none';
+        positionTile(item, tile.index, board);
+        requestAnimationFrame(function () { item.style.transition = ''; });
+      });
+      undoButton.disabled = !state.canUndo;
+      status.textContent = state.undoUsed ? '本局撤销已使用' : '每局可撤销一次';
+      setScore(ui, state.score);
     }
 
     function move(direction) {
-      if (ended || gameRuntime.state().paused) {
+      if (gameRuntime.state().paused || gameRuntime.state().finished) return;
+      if (animating) { queuedDirection = direction; return; }
+      var state = game.move(direction);
+      if (!state.moved) {
+        if (state.finished) finishGame(ui, '没有可移动方块', '得分 ' + state.score);
         return;
       }
-      var result = window.LinuxDoGameCore.move2048(values, direction);
-      if (result.moved) {
-        undoState = {values: values.slice(), points: points};
-        undoButton.disabled = false;
-        values = result.board;
-        points += result.gained;
-        addTile();
-        render();
-      }
-      if (!canMove()) {
-        ended = true;
-        finishGame(status, '本局结束', restart);
-      }
+      animating = true;
+      state.events.filter(function (event) { return event.type === 'move'; }).forEach(function (event) {
+        var item = nodes.get(event.id);
+        if (item) requestAnimationFrame(function () { positionTile(item, event.to, board); });
+      });
+      schedule(function () {
+        renderStatic(state, false);
+        state.events.forEach(function (event) {
+          if (event.merged && !event.removed && nodes.get(event.id)) nodes.get(event.id).classList.add('merged');
+          if (event.type === 'spawn' && nodes.get(event.id)) nodes.get(event.id).classList.add('spawned');
+        });
+        animating = false;
+        if (state.finished) finishGame(ui, '本局结束', '得分 ' + state.score);
+        var next = queuedDirection;
+        queuedDirection = '';
+        if (next && !state.finished) move(next);
+      }, reducedMotion() ? 20 : 145);
     }
 
     function undo() {
-      if (!undoState || gameRuntime.state().paused) return;
-      values = undoState.values;
-      points = undoState.points;
-      undoState = null;
-      undoButton.disabled = true;
-      render();
+      if (gameRuntime.state().paused || animating) return;
+      renderStatic(game.undo(), true);
     }
 
-    function canMove() {
-      if (values.some(function (value) { return value === 0; })) {
-        return true;
-      }
-      for (var y = 0; y < 4; y += 1) {
-        for (var x = 0; x < 4; x += 1) {
-          var index = y * 4 + x;
-          if ((x < 3 && values[index] === values[index + 1])
-              || (y < 3 && values[index] === values[index + 4])) {
-            return true;
-          }
-        }
-      }
-      return false;
-    }
+    renderStatic(game.state());
+    bindKeys(function (event) { return handleDirection(event, move); });
+  }
 
-    function render() {
-      values.forEach(function (value, index) {
-        cells[index].textContent = value || '';
-        cells[index].dataset.rank = value ? String(Math.min(11, Math.log2(value))) : '0';
-      });
-      updateScore(scoreNode, points);
-    }
-
-    bindKeys(function (event) {
-      var directions = {ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right'};
-      if (directions[event.key]) {
-        move(directions[event.key]);
-        return true;
-      }
-      return false;
-    });
-    restart();
+  function positionTile(item, index, board) {
+    var padding = 6;
+    var gap = 6;
+    var cell = Math.max(0, (board.clientWidth - padding * 2 - gap * 3) / 4);
+    var column = index % 4;
+    var row = Math.floor(index / 4);
+    item.style.width = cell + 'px';
+    item.style.height = cell + 'px';
+    item.style.transform = 'translate(' + (padding + column * (cell + gap)) + 'px,' + (padding + row * (cell + gap)) + 'px)';
   }
 
   function showSnake() {
-    var size = 12;
-    var board;
-    var cells = [];
-    var snake;
-    var food;
-    var direction;
-    var pending;
-    var score;
-    var scoreNode;
-    var status;
-    var running;
-    var snakeTimer;
-
-    function restart() {
-      gameRuntime.start('snake');
-      if (snakeTimer) clearTimeout(snakeTimer);
-      snake = [{x: 6, y: 6}, {x: 5, y: 6}, {x: 4, y: 6}];
-      direction = {x: 1, y: 0};
-      pending = direction;
-      score = 0;
-      running = true;
-      placeFood();
-      render();
-      status.className = 'game-status';
-      status.textContent = '方向键或屏幕按钮控制';
-      scheduleTick();
-    }
-
-    scoreNode = gameHeader('贪吃蛇', '得分 0', restart);
-    board = element('div', 'cell-board');
-    board.style.gridTemplateColumns = 'repeat(' + size + ',1fr)';
-    for (var i = 0; i < size * size; i += 1) {
-      var cell = element('div', 'cell');
-      cells.push(cell);
-      board.appendChild(cell);
-    }
-    panel.appendChild(board);
-    status = element('div', 'game-status');
-    panel.appendChild(status);
-    panel.appendChild(directionPad(changeDirection));
-
-    function placeFood() {
-      do {
-        food = {x: Math.floor(Math.random() * size), y: Math.floor(Math.random() * size)};
-      } while (snake.some(function (part) { return part.x === food.x && part.y === food.y; }));
-    }
-
-    function changeDirection(name) {
-      var next = {
-        up: {x: 0, y: -1},
-        down: {x: 0, y: 1},
-        left: {x: -1, y: 0},
-        right: {x: 1, y: 0}
-      }[name];
-      if (next && !(next.x === -direction.x && next.y === -direction.y)) {
-        pending = next;
-      }
-    }
+    var ui = gameShell('贪吃蛇', '方向键转向');
+    var game = core.createSnake({ size: 16 });
+    var canvas = element('canvas', 'game-canvas square-canvas');
+    var status = element('p', 'status', '长度 3 · 速度 1');
+    var state = game.state();
+    var lastStep = performance.now();
+    ui.body.append(canvas, directionPad(function (direction) { game.queueDirection(direction); }), status);
+    observeGameSize(ui, canvas, 'square', function () { draw(performance.now(), false); });
 
     function tick() {
-      if (!running || gameRuntime.state().paused) {
-        return;
+      if (!gameRuntime.state().paused) {
+        state = game.step();
+        lastStep = performance.now();
+        setScore(ui, state.score);
+        status.textContent = '长度 ' + state.snake.length + ' · 速度 ' + (1 + Math.floor(state.score / 40));
+        if (state.finished) {
+          finishGame(ui, '撞到了', '得分 ' + state.score);
+          return;
+        }
       }
-      direction = pending;
-      var head = {x: snake[0].x + direction.x, y: snake[0].y + direction.y};
-      var willEat = head.x === food.x && head.y === food.y;
-      var collisionBody = willEat ? snake : snake.slice(0, -1);
-      if (head.x < 0 || head.x >= size || head.y < 0 || head.y >= size
-          || collisionBody.some(function (part) { return part.x === head.x && part.y === head.y; })) {
-        running = false;
-        finishGame(status, '碰到了边界', restart);
-        return;
-      }
-      snake.unshift(head);
-      if (willEat) {
-        score += 10;
-        placeFood();
-      } else {
-        snake.pop();
-      }
-      render();
+      schedule(tick, state.interval);
     }
 
-    function render() {
-      cells.forEach(function (cell) { cell.className = 'cell'; });
-      snake.forEach(function (part, index) {
-        cells[part.y * size + part.x].className = index === 0 ? 'cell snake snake-head' : 'cell snake';
+    function draw(now, scheduleNext) {
+      now = now || performance.now();
+      if (scheduleNext === undefined) scheduleNext = true;
+      var context = prepareCanvas(canvas);
+      if (!context) return;
+      var width = canvas.clientWidth;
+      var cell = width / state.size;
+      context.clearRect(0, 0, width, width);
+      context.fillStyle = '#25292e';
+      context.fillRect(0, 0, width, width);
+      context.strokeStyle = 'rgba(142,149,158,.18)';
+      context.lineWidth = 1;
+      for (var line = 1; line < state.size; line += 1) {
+        var point = Math.round(line * cell) + 0.5;
+        context.beginPath(); context.moveTo(point, 0); context.lineTo(point, width); context.moveTo(0, point); context.lineTo(width, point); context.stroke();
+      }
+      var pulse = reducedMotion() ? 1 : 0.9 + Math.sin(now / 170) * 0.08;
+      context.fillStyle = '#6ab56a';
+      context.beginPath(); context.arc((state.food.x + 0.5) * cell, (state.food.y + 0.5) * cell, cell * 0.28 * pulse, 0, Math.PI * 2); context.fill();
+      var progress = gameRuntime.state().paused ? 1 : Math.min(1, (now - lastStep) / state.interval);
+      state.snake.slice().reverse().forEach(function (part, reverseIndex) {
+        var index = state.snake.length - reverseIndex - 1;
+        var old = state.previous[index] || part;
+        var x = old.x + (part.x - old.x) * progress;
+        var y = old.y + (part.y - old.y) * progress;
+        context.fillStyle = index === 0 ? '#5aa7dc' : '#438fc4';
+        roundedRect(context, x * cell + cell * 0.1, y * cell + cell * 0.1, cell * 0.8, cell * 0.8, cell * 0.22);
+        context.fill();
       });
-      cells[food.y * size + food.x].className = 'cell food';
-      updateScore(scoreNode, score);
+      var head = state.snake[0];
+      context.fillStyle = '#fff';
+      context.beginPath();
+      context.arc((head.x + 0.5 + state.direction.x * 0.18) * cell, (head.y + 0.5 + state.direction.y * 0.18) * cell, Math.max(1.2, cell * 0.065), 0, Math.PI * 2);
+      context.fill();
+      if (scheduleNext && !state.finished) frameId = requestAnimationFrame(function (next) { draw(next, true); });
     }
 
-    bindKeys(function (event) {
-      var directions = {ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right'};
-      if (directions[event.key]) {
-        changeDirection(directions[event.key]);
-        return true;
-      }
-      return false;
-    });
-    function scheduleTick() {
-      snakeTimer = setTimeout(function () {
-        tick();
-        if (running) scheduleTick();
-      }, Math.max(70, 150 - score * 1.2));
-      intervals.push(snakeTimer);
-    }
-    restart();
+    draw(performance.now(), true);
+    schedule(tick, state.interval);
+    bindKeys(function (event) { return handleDirection(event, function (direction) { game.queueDirection(direction); }); });
   }
 
-  function showDodge() {
-    var road;
-    var player;
-    var playerPosition;
-    var obstacles;
-    var ticks;
-    var score;
-    var scoreNode;
-    var status;
-    var running;
+  function showRacer() {
+    var ui = gameShell('公路闪避', '按住左右键转向');
+    var game = core.createRacer();
+    var input = core.createInputState();
+    var stepper = core.createFixedStepper(1 / 120, 10);
+    var canvas = element('canvas', 'game-canvas racer-canvas');
+    var status = element('p', 'status', '单条道路内自由转向');
+    var state = game.state();
+    var previousTime;
+    ui.body.append(canvas, holdControls(input), status);
+    observeGameSize(ui, canvas, 'racer', draw);
+    inputReset = function () { input.reset(); game.setSteer(0); };
 
-    function restart() {
-      gameRuntime.start('dodge');
-      if (obstacles) obstacles.forEach(function (obstacle) { obstacle.node.remove(); });
-      playerPosition = 50;
-      obstacles = [];
-      ticks = 0;
-      score = 0;
-      running = true;
-      status.className = 'game-status';
-      status.textContent = '在一条道路内左右移动，避开迎面障碍';
-      render();
-    }
-
-    scoreNode = gameHeader('公路闪避', '得分 0', restart);
-    road = element('div', 'road');
-    player = element('div', 'car');
-    road.appendChild(player);
-    panel.appendChild(road);
-    status = element('div', 'game-status');
-    panel.appendChild(status);
-    var roadControls = element('div', 'actions');
-    roadControls.appendChild(makeButton('向左', '', function () { steer(-1); }));
-    roadControls.appendChild(makeButton('向右', '', function () { steer(1); }));
-    panel.appendChild(roadControls);
-
-    function steer(amount) {
-      if (running && !gameRuntime.state().paused) {
-        playerPosition = Math.max(10, Math.min(90, playerPosition + amount * 8));
-        render();
-      }
-    }
-
-    function tick() {
-      if (!running || gameRuntime.state().paused) {
-        return;
-      }
-      ticks += 1;
-      if (ticks % Math.max(18, 34 - Math.floor(score / 45)) === 0) {
-        obstacles.push({x: 12 + Math.random() * 76, y: -12, node: element('div', 'obstacle')});
-        road.appendChild(obstacles[obstacles.length - 1].node);
-      }
-      obstacles.forEach(function (obstacle) { obstacle.y += 2.2 + Math.min(2.6, score / 220); });
-      if (obstacles.some(function (obstacle) {
-        return obstacle.y > 76 && obstacle.y < 94 && Math.abs(obstacle.x - playerPosition) < 15;
-      })) {
-        running = false;
-        finishGame(status, '发生碰撞', restart);
-      }
-      obstacles = obstacles.filter(function (obstacle) {
-        if (obstacle.y > 105) {
-          obstacle.node.remove();
-          score += 10;
-          return false;
-        }
-        return true;
-      });
-      render();
-    }
-
-    function render() {
-      player.style.left = playerPosition + '%';
-      obstacles.forEach(function (obstacle) {
-        obstacle.node.style.left = obstacle.x + '%';
-        obstacle.node.style.top = obstacle.y + '%';
-      });
-      updateScore(scoreNode, score);
-    }
-
-    bindKeys(function (event) {
-      if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') {
-        steer(-1);
-        return true;
-      }
-      if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') {
-        steer(1);
-        return true;
-      }
-      return false;
-    });
-    intervals.push(setInterval(tick, 55));
-    restart();
-  }
-
-  function showRunner() {
-    var canvas;
-    var context;
-    var scoreNode;
-    var status;
-    var player;
-    var obstacles;
-    var score;
-    var running;
-    var lastTime;
-    var spawnDistance;
-    var ground = 214;
-
-    function restart() {
-      gameRuntime.start('runner');
-      player = {x: 62, y: ground - 28, width: 22, height: 28, velocity: 0};
-      obstacles = [];
-      score = 0;
-      running = true;
-      lastTime = performance.now();
-      spawnDistance = 300;
-      status.className = 'game-status';
-      status.textContent = '空格、上方向键或屏幕按钮跳跃';
-      if (!animationFrame) {
-        animationFrame = requestAnimationFrame(frame);
-      }
-    }
-
-    scoreNode = gameHeader('像素跳跃', '得分 0', restart);
-    canvas = element('canvas', 'runner');
-    canvas.width = 600;
-    canvas.height = 260;
-    context = canvas.getContext('2d');
-    panel.appendChild(canvas);
-    status = element('div', 'game-status');
-    panel.appendChild(status);
-    var controls = element('div', 'actions');
-    controls.appendChild(makeButton('跳跃', 'primary', jump));
-    panel.appendChild(controls);
-
-    function jump() {
-      if (running && !gameRuntime.state().paused && player.y >= ground - player.height - 1) {
-        player.velocity = -540;
-      }
-    }
-
-    function frame(now) {
-      animationFrame = requestAnimationFrame(frame);
-      var delta = Math.min(0.035, (now - lastTime) / 1000);
-      lastTime = now;
-      if (running && !gameRuntime.state().paused) {
-        player.velocity += 1450 * delta;
-        player.y = Math.min(ground - player.height, player.y + player.velocity * delta);
-        spawnDistance -= (230 + Math.min(130, score * 0.7)) * delta;
-        if (spawnDistance <= 0) {
-          var height = 24 + Math.floor(Math.random() * 28);
-          obstacles.push({x: 610, y: ground - height, width: 18 + Math.floor(Math.random() * 16), height: height});
-          spawnDistance = 180 + Math.random() * 210;
-        }
-        obstacles.forEach(function (obstacle) {
-          obstacle.x -= (230 + Math.min(130, score * 0.7)) * delta;
-        });
-        obstacles = obstacles.filter(function (obstacle) {
-          if (obstacle.x + obstacle.width < 0) {
-            score += 5;
-            return false;
-          }
-          return true;
-        });
-        if (obstacles.some(function (obstacle) {
-          return player.x < obstacle.x + obstacle.width
-              && player.x + player.width > obstacle.x
-              && player.y < obstacle.y + obstacle.height
-              && player.y + player.height > obstacle.y;
-        })) {
-          running = false;
-          finishGame(status, '撞到障碍', restart);
-        }
-      }
+    function frame(time) {
+      if (previousTime === undefined) previousTime = time;
+      var delta = (time - previousTime) / 1000;
+      previousTime = time;
+      if (!gameRuntime.state().paused && !state.finished) {
+        game.setSteer(input.axis('left', 'right'));
+        stepper.advance(delta, function (step) { state = game.step(step); });
+        status.textContent = state.events.some(function (event) { return event.type === 'near-miss'; }) ? '擦肩 +5' : '速度 ' + Math.round(state.difficulty.speed * 100);
+        setScore(ui, state.score);
+        if (state.finished) finishGame(ui, '发生碰撞', '得分 ' + state.score);
+      } else stepper.reset();
       draw();
+      if (!state.finished) frameId = requestAnimationFrame(frame);
     }
 
     function draw() {
-      context.fillStyle = '#171a1e';
-      context.fillRect(0, 0, 600, 260);
-      context.fillStyle = '#343a40';
-      context.fillRect(0, ground, 600, 46);
-      context.fillStyle = '#4f5963';
-      for (var x = 0; x < 600; x += 32) {
-        context.fillRect(x, ground + 10, 18, 4);
+      var context = prepareCanvas(canvas);
+      if (!context) return;
+      var width = canvas.clientWidth;
+      var height = canvas.clientHeight;
+      var roadLeft = width * 0.055;
+      var roadWidth = width * 0.89;
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = '#30343a'; context.fillRect(0, 0, width, height);
+      context.fillStyle = '#202429'; context.fillRect(roadLeft, 0, roadWidth, height);
+      context.fillStyle = '#646b72';
+      context.fillRect(roadLeft, 0, Math.max(3, width * 0.012), height);
+      context.fillRect(roadLeft + roadWidth - Math.max(3, width * 0.012), 0, Math.max(3, width * 0.012), height);
+      var markerOffset = (state.roadOffset * height * 0.28) % (height * 0.18);
+      context.fillStyle = '#8a9198';
+      for (var y = -height * 0.2 + markerOffset; y < height; y += height * 0.18) {
+        context.fillRect(roadLeft + width * 0.018, y, width * 0.012, height * 0.075);
+        context.fillRect(roadLeft + roadWidth - width * 0.03, y, width * 0.012, height * 0.075);
       }
-      context.fillStyle = '#58a6d8';
-      context.fillRect(player.x, player.y, player.width, player.height);
-      context.fillStyle = '#a8d0e8';
-      context.fillRect(player.x + 14, player.y + 5, 4, 4);
-      context.fillStyle = '#d26b60';
-      obstacles.forEach(function (obstacle) {
-        context.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
-      });
-      updateScore(scoreNode, score);
+      state.obstacles.forEach(function (obstacle) { drawCar(context, obstacle, width, height, '#d36b62', false); });
+      drawCar(context, state.player, width, height, '#58a6d8', true);
     }
 
+    draw();
+    frameId = requestAnimationFrame(frame);
+    bindKeys(function (event) { return continuousDirection(event, input, true); }, function (event) { return continuousDirection(event, input, false); });
+  }
+
+  function showJumper() {
+    var ui = gameShell('像素跳跃', '短按低跳，长按高跳');
+    var game = core.createJumper();
+    var stepper = core.createFixedStepper(1 / 120, 10);
+    var canvas = element('canvas', 'game-canvas runner-canvas');
+    var status = element('p', 'status', '短按低跳，长按高跳');
+    var jumpButton = holdButton('跳跃', function () { game.pressJump(); }, function () { game.releaseJump(); }, 'primary jump-button');
+    var state = game.state();
+    var previousTime;
+    ui.body.append(canvas, jumpButton, status);
+    observeGameSize(ui, canvas, 'jumper', draw);
+    inputReset = function () { game.releaseJump(); };
+
+    function frame(time) {
+      if (previousTime === undefined) previousTime = time;
+      var delta = (time - previousTime) / 1000;
+      previousTime = time;
+      if (!gameRuntime.state().paused && !state.finished) {
+        stepper.advance(delta, function (step) { state = game.step(step); });
+        status.textContent = '速度 ' + Math.round(state.difficulty.speed * 100) + ' · ' + Math.floor(state.elapsed) + ' 秒';
+        setScore(ui, state.score);
+        if (state.finished) finishGame(ui, '碰到障碍', '得分 ' + state.score);
+      } else stepper.reset();
+      draw();
+      if (!state.finished) frameId = requestAnimationFrame(frame);
+    }
+
+    function draw() {
+      var context = prepareCanvas(canvas);
+      if (!context) return;
+      var width = canvas.clientWidth;
+      var height = canvas.clientHeight;
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = '#25292e'; context.fillRect(0, 0, width, height);
+      var farOffset = (state.elapsed * state.difficulty.speed * width * 0.16) % (width * 0.34);
+      context.fillStyle = '#1d2024';
+      for (var x = -width * 0.34 - farOffset; x < width; x += width * 0.34) {
+        context.beginPath(); context.moveTo(x, height * 0.62); context.lineTo(x + width * 0.17, height * 0.38); context.lineTo(x + width * 0.34, height * 0.62); context.closePath(); context.fill();
+      }
+      var ground = state.ground * height;
+      context.fillStyle = '#191c20'; context.fillRect(0, ground, width, height - ground);
+      context.fillStyle = '#555d64'; context.fillRect(0, ground, width, Math.max(2, height * 0.012));
+      var stripe = (state.elapsed * state.difficulty.speed * width) % (width * 0.12);
+      for (var line = -stripe; line < width; line += width * 0.12) context.fillRect(line, ground + height * 0.07, width * 0.06, Math.max(2, height * 0.012));
+      state.obstacles.forEach(function (obstacle) {
+        context.fillStyle = '#d36b62'; roundedRect(context, obstacle.x * width, obstacle.y * height, obstacle.width * width, obstacle.height * height, Math.max(2, width * 0.006)); context.fill();
+      });
+      drawRunner(context, state, width, height);
+    }
+
+    draw();
+    frameId = requestAnimationFrame(frame);
     bindKeys(function (event) {
-      if (event.key === 'ArrowUp' || event.key === ' ' || event.key.toLowerCase() === 'w') {
-        jump();
+      if (event.key === ' ' || event.key === 'ArrowUp' || event.key.toLowerCase() === 'w') {
+        if (!event.repeat) game.pressJump();
         return true;
       }
+      return event.key === 'Escape' ? (internalAction('continue'), true) : false;
+    }, function (event) {
+      if (event.key === ' ' || event.key === 'ArrowUp' || event.key.toLowerCase() === 'w') { game.releaseJump(); return true; }
       return false;
     });
-    restart();
   }
 
   function showMines() {
-    var width = 9;
-    var mineCount = 10;
-    var cells;
+    var ui = gameShell('扫雷', '展开安全方格');
+    var game = core.createMines({ size: 9, mineCount: 10 });
+    var state = game.state();
+    var elapsed = 0;
+    var started = false;
+    var flagMode = false;
+    var ignoreClick = false;
+    var board = element('div', 'game-board mine-board');
     var buttons = [];
-    var cursor;
-    var started;
-    var ended;
-    var elapsedSeconds;
-    var mineTimer;
-    var scoreNode;
-    var status;
-
-    function restart() {
-      gameRuntime.start('mines');
-      if (mineTimer) clearInterval(mineTimer);
-      cells = new Array(width * width).fill(null).map(function () {
-        return {mine: false, open: false, flag: false, nearby: 0};
-      });
-      cursor = 40;
-      started = false;
-      ended = false;
-      elapsedSeconds = 0;
-      status.className = 'game-status';
-      status.textContent = '方向键移动，回车揭开，F 标记';
-      updateScore(scoreNode, 0, '已开 ');
-      render();
+    var status = element('p', 'status');
+    for (var index = 0; index < 81; index += 1) {
+      (function (cellIndex) {
+        var cellButton = makeButton('', 'mine-cell', function () {
+          if (ignoreClick) { ignoreClick = false; return; }
+          if (flagMode) toggleFlag(cellIndex); else reveal(cellIndex);
+        });
+        cellButton.addEventListener('contextmenu', function (event) { event.preventDefault(); toggleFlag(cellIndex); });
+        cellButton.addEventListener('dblclick', function (event) { event.preventDefault(); chord(cellIndex); });
+        var holdTimer;
+        cellButton.addEventListener('pointerdown', function (event) {
+          if (event.pointerType === 'mouse') return;
+          holdTimer = setTimeout(function () { ignoreClick = true; toggleFlag(cellIndex); }, 480);
+        });
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (name) {
+          cellButton.addEventListener(name, function () { clearTimeout(holdTimer); });
+        });
+        buttons.push(cellButton);
+        board.appendChild(cellButton);
+      })(index);
     }
+    var revealButton = makeButton('展开', 'primary', function () { reveal(state.cursor); });
+    var flagButton = makeButton('标记', '', function () {
+      flagMode = !flagMode;
+      flagButton.classList.toggle('primary', flagMode);
+      flagButton.setAttribute('aria-pressed', String(flagMode));
+    });
+    var tools = element('div', 'mine-controls');
+    tools.append(revealButton, flagButton);
+    ui.body.append(board, tools, directionPad(moveCursor), status);
+    observeGameSize(ui, board, 'square', render);
 
-    scoreNode = gameHeader('扫雷', '已开 0', restart);
-    var board = element('div', 'mine-board');
-    for (var i = 0; i < width * width; i += 1) {
-      (function (index) {
-        var button = makeButton('', 'mine-cell', function () {
-          cursor = index;
-          reveal(index);
-        });
-        button.addEventListener('contextmenu', function (event) {
-          event.preventDefault();
-          cursor = index;
-          toggleFlag(index);
-        });
-        button.addEventListener('dblclick', function () {
-          cursor = index;
-          chord(index);
-        });
-        buttons.push(button);
-        board.appendChild(button);
-      })(i);
-    }
-    panel.appendChild(board);
-    status = element('div', 'game-status');
-    panel.appendChild(status);
-    var mineTools = element('div', 'mine-tools');
-    mineTools.appendChild(makeButton('上', '', function () { moveCursor(0, -1); }));
-    mineTools.appendChild(makeButton('左', '', function () { moveCursor(-1, 0); }));
-    mineTools.appendChild(makeButton('揭开', 'primary', function () { reveal(cursor); }));
-    mineTools.appendChild(makeButton('标记', '', function () { toggleFlag(cursor); }));
-    mineTools.appendChild(makeButton('右', '', function () { moveCursor(1, 0); }));
-    mineTools.appendChild(makeButton('下', '', function () { moveCursor(0, 1); }));
-    panel.appendChild(mineTools);
-
-    function placeMines(safeIndex) {
-      window.LinuxDoGameCore.mineIndexes(width, mineCount, safeIndex).forEach(function (index) {
-        cells[index].mine = true;
-      });
-      cells.forEach(function (cell, index) {
-        cell.nearby = window.LinuxDoGameCore.neighbors(index, width)
-          .filter(function (neighbor) { return cells[neighbor].mine; }).length;
-      });
+    function startTimer() {
+      if (started) return;
       started = true;
-      mineTimer = setInterval(function () {
-        if (!ended && !gameRuntime.state().paused) {
-          elapsedSeconds += 1;
-          renderStatus();
-        }
+      var timer = setInterval(function () {
+        if (!state.finished && !gameRuntime.state().paused) { elapsed += 1; renderStatus(); }
       }, 1000);
-      intervals.push(mineTimer);
+      timers.push(timer);
     }
 
     function reveal(index) {
-      if (ended || gameRuntime.state().paused || cells[index].flag || cells[index].open) {
-        return;
-      }
-      if (!started) {
-        placeMines(index);
-      }
-      if (cells[index].mine) {
-        ended = true;
-        clearInterval(mineTimer);
-        cells.forEach(function (cell) {
-          if (cell.mine) {
-            cell.open = true;
-          }
-        });
-        finishGame(status, '踩到地雷', restart);
-      } else {
-        revealSafe(index);
-      }
-      var opened = cells.filter(function (cell) { return cell.open; }).length;
-      updateScore(scoreNode, opened, '已开 ');
-      if (!ended && opened === width * width - mineCount) {
-        ended = true;
-        clearInterval(mineTimer);
-        finishGame(status, '已清理全部安全区域', restart);
-      }
-      render();
-    }
-
-    function revealSafe(start) {
-      var queue = [start];
-      var seen = {};
-      while (queue.length) {
-        var index = queue.shift();
-        if (seen[index] || cells[index].flag || cells[index].mine) continue;
-        seen[index] = true;
-        cells[index].open = true;
-        if (cells[index].nearby === 0) {
-          queue = queue.concat(window.LinuxDoGameCore.neighbors(index, width));
-        }
-      }
-    }
-
-    function chord(index) {
-      if (ended || gameRuntime.state().paused || !cells[index].open || !cells[index].nearby) return;
-      var nearby = window.LinuxDoGameCore.neighbors(index, width);
-      var flags = nearby.filter(function (neighbor) { return cells[neighbor].flag; }).length;
-      if (flags !== cells[index].nearby) return;
-      nearby.forEach(function (neighbor) {
-        if (!cells[neighbor].flag) reveal(neighbor);
-      });
+      if (gameRuntime.state().paused || state.finished) return;
+      var wasInitialized = state.initialized;
+      state = game.reveal(index);
+      if (!wasInitialized && state.initialized) startTimer();
+      render(state.events);
+      complete();
     }
 
     function toggleFlag(index) {
-      if (!ended && !gameRuntime.state().paused && !cells[index].open) {
-        cells[index].flag = !cells[index].flag;
-        render();
-      }
-    }
-
-    function moveCursor(dx, dy) {
-      var x = cursor % width;
-      var y = Math.floor(cursor / width);
-      x = Math.max(0, Math.min(width - 1, x + dx));
-      y = Math.max(0, Math.min(width - 1, y + dy));
-      cursor = y * width + x;
+      if (gameRuntime.state().paused || state.finished) return;
+      state = game.toggleFlag(index);
       render();
     }
 
-    function renderStatus() {
-      if (ended) return;
-      var flags = cells.filter(function (cell) { return cell.flag; }).length;
-      status.textContent = '剩余旗帜 ' + Math.max(0, mineCount - flags) + ' · ' + elapsedSeconds + ' 秒';
+    function chord(index) {
+      if (gameRuntime.state().paused || state.finished) return;
+      state = game.chord(index);
+      render(state.events);
+      complete();
     }
 
-    function render() {
-      cells.forEach(function (cell, index) {
-        var button = buttons[index];
-        button.className = 'mine-cell' + (cell.open ? ' open' : '') + (index === cursor ? ' cursor' : '')
-          + (cell.open && cell.mine ? ' mine' : '');
-        if (cell.flag) {
-          button.textContent = 'F';
-        } else if (cell.open && cell.mine) {
-          button.textContent = '*';
-        } else if (cell.open && cell.nearby) {
-          button.textContent = String(cell.nearby);
-        } else {
-          button.textContent = '';
+    function moveCursor(direction) {
+      var movement = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[direction];
+      if (!movement) return;
+      state = game.moveCursor(movement[0], movement[1]);
+      render();
+      if (buttons[state.cursor]) buttons[state.cursor].focus({ preventScroll: true });
+    }
+
+    function render(events) {
+      events = events || [];
+      var revealed = new Map();
+      events.filter(function (event) { return event.type === 'reveal'; }).forEach(function (event) {
+        event.indexes.forEach(function (cellIndex, order) { revealed.set(cellIndex, order); });
+      });
+      state.cells.forEach(function (cell, cellIndex) {
+        var item = buttons[cellIndex];
+        item.className = 'mine-cell' + (cell.open ? ' open' : '') + (cell.open && cell.mine ? ' mine' : '')
+          + (cell.wrong ? ' wrong' : '') + (cellIndex === state.triggered ? ' triggered' : '') + (cellIndex === state.cursor ? ' cursor' : '');
+        item.textContent = cell.open ? (cell.mine ? '×' : cell.nearby || '') : cell.flagged ? '⚑' : '';
+        if (revealed.has(cellIndex) && !reducedMotion()) {
+          item.classList.remove('revealing');
+          item.style.animationDelay = Math.min(180, revealed.get(cellIndex) * 12) + 'ms';
+          requestAnimationFrame(function () { item.classList.add('revealing'); });
         }
       });
+      setScore(ui, state.opened);
       renderStatus();
     }
 
+    function renderStatus() {
+      if (!state.finished) status.textContent = '剩余旗帜 ' + state.remainingFlags + ' · ' + elapsed + ' 秒';
+    }
+
+    function complete() {
+      if (!state.finished) return;
+      finishGame(ui, state.won ? '全部安全区域已展开' : '踩到地雷', elapsed + ' 秒 · 已展开 ' + state.opened);
+    }
+
+    render();
     bindKeys(function (event) {
-      if (event.key === 'ArrowUp') {
-        moveCursor(0, -1);
-      } else if (event.key === 'ArrowDown') {
-        moveCursor(0, 1);
-      } else if (event.key === 'ArrowLeft') {
-        moveCursor(-1, 0);
-      } else if (event.key === 'ArrowRight') {
-        moveCursor(1, 0);
-      } else if (event.key === 'Enter' || event.key === ' ') {
-        reveal(cursor);
-      } else if (event.key.toLowerCase() === 'f') {
-        toggleFlag(cursor);
-      } else {
-        return false;
-      }
-      return true;
+      var direction = directionForKey(event.key);
+      if (direction) { moveCursor(direction); return true; }
+      if (event.key === 'Enter' || event.key === ' ') { reveal(state.cursor); return true; }
+      if (event.key.toLowerCase() === 'f') { toggleFlag(state.cursor); return true; }
+      return false;
     });
-    restart();
+  }
+
+  function directionPad(handler) {
+    var pad = element('div', 'dpad');
+    [['up', '↑'], ['left', '←'], ['down', '↓'], ['right', '→']].forEach(function (item) {
+      var button = makeButton(item[1], '', function () { handler(item[0]); });
+      button.dataset.direction = item[0];
+      pad.appendChild(button);
+    });
+    return pad;
+  }
+
+  function directionForKey(key) {
+    return { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down', ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right' }[key];
+  }
+
+  function handleDirection(event, handler) {
+    var direction = directionForKey(event.key);
+    if (direction) { handler(direction); return true; }
+    return false;
+  }
+
+  function continuousDirection(event, input, pressed) {
+    var direction = directionForKey(event.key);
+    if (direction === 'left' || direction === 'right') {
+      if (pressed) input.press(direction); else input.release(direction);
+      return true;
+    }
+    return false;
+  }
+
+  function holdControls(input) {
+    var controls = element('div', 'hold-controls');
+    controls.append(
+      holdButton('←', function () { input.press('left'); }, function () { input.release('left'); }, 'hold-control'),
+      holdButton('→', function () { input.press('right'); }, function () { input.release('right'); }, 'hold-control')
+    );
+    return controls;
+  }
+
+  function holdButton(label, onPress, onRelease, className) {
+    var button = element('button', className || '', label);
+    button.type = 'button';
+    button.addEventListener('pointerdown', function (event) {
+      event.preventDefault();
+      if (button.setPointerCapture) button.setPointerCapture(event.pointerId);
+      onPress();
+    });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (name) {
+      button.addEventListener(name, function (event) { event.preventDefault(); onRelease(); });
+    });
+    return button;
+  }
+
+  function observeGameSize(ui, stage, kind, onResize) {
+    if (resizeCleanup) resizeCleanup();
+    var frame;
+    function update() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(function () {
+        var toolbar = ui.panel.querySelector('.game-head');
+        var siblings = Array.prototype.slice.call(ui.body.children).filter(function (item) {
+          return item !== stage && !item.classList.contains('game-state');
+        });
+        var reserved = siblings.reduce(function (height, item) { return height + item.getBoundingClientRect().height; }, 0) + siblings.length * 7;
+        var availableWidth = Math.max(180, ui.body.clientWidth);
+        var availableHeight = Math.max(170, ui.panel.clientHeight - (toolbar ? toolbar.offsetHeight : 0) - reserved - 34);
+        var width;
+        var height;
+        if (kind === 'square') {
+          width = height = Math.min(440, availableWidth, availableHeight);
+        } else {
+          var ratio = kind === 'racer' ? (availableWidth < 520 ? 0.8 : 1.6) : (availableWidth < 520 ? 4 / 3 : 16 / 9);
+          width = Math.min(kind === 'racer' ? 640 : 720, availableWidth);
+          height = width / ratio;
+          if (height > availableHeight) { height = availableHeight; width = Math.min(availableWidth, height * ratio); }
+        }
+        stage.style.width = Math.max(kind === 'square' ? 160 : 180, Math.floor(width)) + 'px';
+        stage.style.height = Math.max(160, Math.floor(height)) + 'px';
+        onResize();
+      });
+    }
+    var observer = new ResizeObserver(update);
+    observer.observe(ui.panel);
+    observer.observe(ui.body);
+    update();
+    resizeCleanup = function () { observer.disconnect(); cancelAnimationFrame(frame); };
+  }
+
+  function prepareCanvas(canvas) {
+    var width = Math.max(1, Math.round(canvas.clientWidth));
+    var height = Math.max(1, Math.round(canvas.clientHeight));
+    var ratio = Math.max(1, window.devicePixelRatio || 1);
+    var pixelWidth = Math.round(width * ratio);
+    var pixelHeight = Math.round(height * ratio);
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) { canvas.width = pixelWidth; canvas.height = pixelHeight; }
+    var context = canvas.getContext('2d');
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    return context;
+  }
+
+  function roundedRect(context, x, y, width, height, radius) {
+    var value = Math.min(radius, width / 2, height / 2);
+    context.beginPath(); context.moveTo(x + value, y);
+    context.arcTo(x + width, y, x + width, y + height, value);
+    context.arcTo(x + width, y + height, x, y + height, value);
+    context.arcTo(x, y + height, x, y, value);
+    context.arcTo(x, y, x + width, y, value); context.closePath();
+  }
+
+  function drawCar(context, car, width, height, color, player) {
+    var carWidth = car.width * width;
+    var carHeight = car.height * height;
+    var x = car.x * width - carWidth / 2;
+    var y = car.y * height;
+    context.fillStyle = color; roundedRect(context, x, y, carWidth, carHeight, Math.max(3, carWidth * 0.18)); context.fill();
+    context.fillStyle = player ? '#e8f3fa' : '#25292e'; roundedRect(context, x + carWidth * 0.18, y + carHeight * 0.18, carWidth * 0.64, carHeight * 0.28, 2); context.fill();
+    context.fillStyle = '#171a1e';
+    context.fillRect(x - carWidth * 0.05, y + carHeight * 0.22, carWidth * 0.1, carHeight * 0.22);
+    context.fillRect(x + carWidth * 0.95, y + carHeight * 0.22, carWidth * 0.1, carHeight * 0.22);
+    context.fillRect(x - carWidth * 0.05, y + carHeight * 0.66, carWidth * 0.1, carHeight * 0.22);
+    context.fillRect(x + carWidth * 0.95, y + carHeight * 0.66, carWidth * 0.1, carHeight * 0.22);
+  }
+
+  function drawRunner(context, state, width, height) {
+    var player = state.player;
+    var x = player.x * width;
+    var y = player.y * height;
+    var playerWidth = player.width * width;
+    var playerHeight = player.height * height;
+    var phase = Math.floor(state.elapsed * 12) % 2;
+    context.fillStyle = '#58a6d8'; roundedRect(context, x, y, playerWidth, playerHeight * 0.72, Math.max(2, playerWidth * 0.15)); context.fill();
+    context.fillRect(x + (phase ? playerWidth * 0.12 : playerWidth * 0.52), y + playerHeight * 0.66, playerWidth * 0.30, playerHeight * 0.34);
+    context.fillStyle = '#e8f3fa'; context.fillRect(x + playerWidth * 0.66, y + playerHeight * 0.18, Math.max(2, playerWidth * 0.1), Math.max(2, playerWidth * 0.1));
+  }
+
+  function reducedMotion() {
+    return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  function pauseForFocusLoss() {
+    var state = gameRuntime.state();
+    if (state.kind && !state.finished) {
+      if (inputReset) inputReset();
+      gameRuntime.setPaused(true);
+    }
   }
 
   window.__lexiaoBreakCleanup = function () {
     cleanupGame();
     document.removeEventListener('visibilitychange', visibilityHandler);
+    window.removeEventListener('blur', pauseForFocusLoss);
     window.__lexiaoBreakCleanup = null;
   };
-  var visibilityHandler = function () {
-    var state = gameRuntime.state();
-    if (document.hidden && state.kind && !state.finished) gameRuntime.setPaused(true);
-  };
+  var visibilityHandler = function () { if (document.hidden) pauseForFocusLoss(); };
   document.addEventListener('visibilitychange', visibilityHandler);
+  window.addEventListener('blur', pauseForFocusLoss);
   showReminder();
 })();

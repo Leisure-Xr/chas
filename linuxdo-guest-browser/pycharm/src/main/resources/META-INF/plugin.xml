@@ -9,7 +9,7 @@
       and linux.do cookies are cleared whenever a reader session starts or ends.
     ]]></description>
 
-    <version>0.6.0</version>
+    <version>0.7.0</version>
     <idea-version since-build="242" until-build="262.*"/>
     <depends>com.intellij.modules.platform</depends>
 

@@ -4,8 +4,8 @@
 
 ## 下载
 
-- [VS Code 0.10.0](dist/linuxdo-guest-browser-vscode-0.10.0.vsix)
-- [PyCharm 0.6.0](dist/linuxdo-guest-browser-pycharm-0.6.0.zip)
+- [VS Code 0.11.0](dist/linuxdo-guest-browser-vscode-0.11.0.vsix)
+- [PyCharm 0.7.0](dist/linuxdo-guest-browser-pycharm-0.7.0.zip)
 
 ### VS Code
 
@@ -21,7 +21,7 @@ PyCharm 版使用内嵌 JCEF 浏览器，保留网页原生滚动和浏览历史
 
 ### 休息提醒与小游戏
 
-两个版本都提供默认关闭的休息提醒开关。开启后会随机等待 31–60 分钟，再显示可跳过或延后 10 分钟的休息提示。五款小游戏支持倒计时、暂停、重新开始、屏幕控制和本地最高分；失焦时自动暂停，不含音效。
+两个版本都提供默认关闭的休息提醒开关。开启后会随机等待 31–60 分钟，再显示可跳过或延后 10 分钟的休息提示。五款小游戏使用同一套玩法核心，支持自适应棋盘和高 DPI Canvas、倒计时、暂停、重新开始、键盘/屏幕控制、失焦自动暂停和本地最高分；调整 IDE 或工具窗口大小不会重置当前游戏，不含音效、粒子或震动。
 
 ### 限时分享
 

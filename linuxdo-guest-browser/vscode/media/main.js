@@ -24,8 +24,13 @@
   let gameFrame;
   let gameCountdownCancel;
   let gamePauseButton;
+  let gamePauseLayer;
   let activeGame;
   let gameKeyHandler;
+  let gameKeyUpHandler;
+  let gameInputReset;
+  let gameResizeCleanup;
+  let gameCleanup = [];
   const pageCache = new Map();
   const gameOverlay = createGameOverlay();
   const gameRuntime = LinuxDoGameCore.createRuntime({
@@ -35,9 +40,17 @@
       vscode.setState(savedState);
     },
     onPause: (paused) => {
-      if (gamePauseButton) gamePauseButton.textContent = paused ? '继续' : '暂停';
+      if (paused) gameInputReset?.();
+      if (gamePauseButton) {
+        gamePauseButton.textContent = paused ? '▶' : 'Ⅱ';
+        gamePauseButton.title = paused ? '继续' : '暂停';
+        gamePauseButton.setAttribute('aria-label', paused ? '继续' : '暂停');
+      }
+      if (gamePauseLayer) gamePauseLayer.hidden = !paused;
     }
   });
+  savedState = { ...savedState, gameBestScores: gameRuntime.bestScores() };
+  vscode.setState(savedState);
 
   document.body.classList.toggle('compact', savedState.compact !== false);
 
@@ -77,8 +90,20 @@
       navigate({ type: 'back' });
     }
   });
+  window.addEventListener('keyup', (event) => {
+    if (!gameOverlay.hidden && gameKeyUpHandler?.(event)) event.preventDefault();
+  });
+  window.addEventListener('blur', () => {
+    if (!gameOverlay.hidden && activeGame && !gameRuntime.state().finished) {
+      gameInputReset?.();
+      gameRuntime.setPaused(true);
+    }
+  });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && !gameOverlay.hidden && activeGame) gameRuntime.setPaused(true);
+    if (document.hidden && !gameOverlay.hidden && activeGame) {
+      gameInputReset?.();
+      gameRuntime.setPaused(true);
+    }
   });
 
   content.addEventListener('click', (event) => {
@@ -215,6 +240,8 @@
     stopGame();
     clearTimeout(breakTimer);
     const panel = gameOverlay.querySelector('.break-panel');
+    panel.classList.remove('is-game', 'game-compact');
+    delete panel.dataset.game;
     const games = ['2048', 'snake', 'racer', 'jumper', 'mines'];
     const recommended = games[Math.floor(Math.random() * games.length)];
     const heading = node('div', 'break-heading', [
@@ -262,16 +289,17 @@
 
   function startGame(kind) {
     stopGame();
-    activeGame = kind;
-    gameRuntime.start(kind);
+    activeGame = LinuxDoGameCore.canonicalGame(kind);
+    gameRuntime.start(activeGame);
     const launch = () => {
-      if (kind === 'snake') startSnake();
-      else if (kind === 'racer') startRacer();
-      else if (kind === 'jumper') startJumper();
-      else if (kind === 'mines') startMines();
+      if (activeGame === 'snake') startSnake();
+      else if (activeGame === 'racer') startRacer();
+      else if (activeGame === 'jumper') startJumper();
+      else if (activeGame === 'mines') startMines();
       else start2048();
     };
     const panel = gameOverlay.querySelector('.break-panel');
+    panel.classList.add('is-game');
     const countdownValue = node('strong', 'countdown-value', '3');
     panel.replaceChildren(node('div', 'countdown-panel', [node('span', '', '准备'), countdownValue]));
     gameOverlay.hidden = false;
@@ -280,12 +308,22 @@
 
   function gameShell(title, instructions) {
     const panel = gameOverlay.querySelector('.break-panel');
+    panel.classList.add('is-game');
+    panel.dataset.game = activeGame;
     const score = node('strong', 'game-score', '0');
     score.id = 'mini-game-score';
     const body = node('div', 'game-body');
     body.id = 'mini-game-body';
     const best = node('span', 'game-best', `最高 ${gameRuntime.state().best}`);
     gamePauseButton = iconAction('Ⅱ', '暂停或继续', () => gameRuntime.togglePause());
+    gamePauseLayer = node('div', 'game-state-layer pause-layer', [
+      node('strong', '', '已暂停'),
+      actionButton('继续', () => gameRuntime.setPaused(false))
+    ]);
+    gamePauseLayer.hidden = true;
+    const resultLayer = node('div', 'game-state-layer result-layer');
+    resultLayer.hidden = true;
+    body.append(gamePauseLayer, resultLayer);
     const heading = node('div', 'game-toolbar', [
       iconAction('←', '选择其他游戏', () => showGameMenu(false)),
       node('div', 'game-title', [node('strong', '', title), node('small', '', instructions)]),
@@ -296,7 +334,7 @@
     ]);
     panel.replaceChildren(heading, body);
     gameOverlay.hidden = false;
-    return { body, score, best };
+    return { panel, body, score, best, resultLayer };
   }
 
   function iconAction(label, title, handler) {
@@ -316,6 +354,7 @@
   }
 
   function stopGame() {
+    clearTimeout(gameTimer);
     clearInterval(gameTimer);
     cancelAnimationFrame(gameFrame);
     gameTimer = undefined;
@@ -323,8 +362,16 @@
     gameCountdownCancel?.();
     gameCountdownCancel = undefined;
     gamePauseButton = undefined;
+    gamePauseLayer = undefined;
+    gameInputReset?.();
+    gameInputReset = undefined;
+    gameResizeCleanup?.();
+    gameResizeCleanup = undefined;
+    gameCleanup.forEach((cleanup) => cleanup());
+    gameCleanup = [];
     activeGame = undefined;
     gameKeyHandler = undefined;
+    gameKeyUpHandler = undefined;
   }
 
   function setGameScore(ui, value) {
@@ -333,300 +380,319 @@
     if (ui.best) ui.best.textContent = `最高 ${state.best}`;
   }
 
-  function finishGame(status, message) {
+  function finishGame(ui, message, detail) {
     gameRuntime.finish();
-    status.replaceChildren(node('strong', '', message), actionButton('再来一局', () => startGame(activeGame)));
+    gameInputReset?.();
+    if (gamePauseLayer) gamePauseLayer.hidden = true;
+    ui.resultLayer.hidden = false;
+    ui.resultLayer.replaceChildren(
+      node('strong', '', message),
+      detail ? node('span', '', detail) : document.createTextNode(''),
+      node('div', 'result-actions', [
+        actionButton('再来一局', () => startGame(activeGame)),
+        actionButton('选择游戏', () => showGameMenu(false))
+      ])
+    );
   }
 
   function start2048() {
-    let board = Array(16).fill(0);
-    let scoreValue = 0;
-    let undoState;
     const ui = gameShell('2048', '方向键或下方按钮移动');
-    const grid = node('div', 'game-grid game-2048');
-    const status = node('p', 'game-status', '合并相同数字，尽量得到 2048。');
+    const game = LinuxDoGameCore.create2048();
+    const grid = node('div', 'game-board game-2048');
+    const backgrounds = node('div', 'tile-backgrounds');
+    const tileLayer = node('div', 'tile-layer');
+    backgrounds.replaceChildren(...Array.from({ length: 16 }, () => node('span', 'tile-background')));
+    grid.append(backgrounds, tileLayer);
+    const status = node('p', 'game-status', '每局可撤销一次');
     const undoButton = actionButton('撤销一次', undo);
     undoButton.disabled = true;
-    ui.body.append(grid, directionPad((direction) => move(direction)), node('div', 'game-inline-actions', undoButton), status);
-
-    function addTile() {
-      const empty = board.map((value, index) => value ? -1 : index).filter((index) => index >= 0);
-      if (!empty.length) return;
-      board[empty[Math.floor(Math.random() * empty.length)]] = Math.random() < 0.9 ? 2 : 4;
-    }
+    const tileNodes = new Map();
+    let animating = false;
+    let queuedDirection;
+    ui.body.append(grid, directionPad(move), node('div', 'game-inline-actions', undoButton), status);
+    observeGameSize(ui, grid, 'square', () => renderStatic(game.state()));
 
     function move(direction) {
-      if (gameRuntime.state().paused) return;
-      const result = LinuxDoGameCore.move2048(board, direction);
-      if (result.moved) {
-        undoState = { board: board.slice(), score: scoreValue };
-        undoButton.disabled = false;
-        board = result.board;
-        scoreValue += result.gained;
-        addTile();
-        render();
+      if (gameRuntime.state().paused || gameRuntime.state().finished) return;
+      if (animating) {
+        queuedDirection = direction;
+        return;
       }
-      if (!canMove2048(board)) finishGame(status, '本局结束');
+      const result = game.move(direction);
+      if (result.moved) {
+        animateMove(result);
+      } else if (result.finished) {
+        finishGame(ui, '没有可移动方块', `得分 ${result.score}`);
+      }
     }
 
     function undo() {
-      if (!undoState || gameRuntime.state().paused) return;
-      board = undoState.board;
-      scoreValue = undoState.score;
-      undoState = undefined;
-      undoButton.disabled = true;
-      render();
+      if (gameRuntime.state().paused || animating) return;
+      const state = game.undo();
+      renderStatic(state, true);
     }
 
-    function render() {
-      grid.replaceChildren(...board.map((value) => {
-        const tile = node('span', `tile tile-${Math.min(value, 2048)}`, value || '');
-        return tile;
-      }));
-      setGameScore(ui, scoreValue);
+    function makeTile(tile, spawned) {
+      const item = node('span', `tile tile-${Math.min(tile.value, 2048)}${spawned ? ' spawned' : ''}`, String(tile.value));
+      item.dataset.id = String(tile.id);
+      tileNodes.set(tile.id, item);
+      tileLayer.append(item);
+      position2048Tile(item, tile.index, grid);
+      return item;
     }
 
-    addTile();
-    addTile();
-    render();
+    function renderStatic(state, undoing = false) {
+      const live = new Set(state.tiles.map((tile) => tile.id));
+      tileNodes.forEach((item, id) => {
+        if (!live.has(id)) {
+          item.remove();
+          tileNodes.delete(id);
+        }
+      });
+      state.tiles.forEach((tile) => {
+        const item = tileNodes.get(tile.id) || makeTile(tile, false);
+        item.className = `tile tile-${Math.min(tile.value, 2048)}${undoing ? ' undoing' : ''}`;
+        item.textContent = String(tile.value);
+        item.style.transition = 'none';
+        position2048Tile(item, tile.index, grid);
+        requestAnimationFrame(() => { item.style.transition = ''; });
+      });
+      undoButton.disabled = !state.canUndo;
+      status.textContent = state.undoUsed ? '本局撤销已使用' : '每局可撤销一次';
+      setGameScore(ui, state.score);
+    }
+
+    function animateMove(state) {
+      animating = true;
+      state.events.filter((event) => event.type === 'move').forEach((event) => {
+        const item = tileNodes.get(event.id);
+        if (item) {
+          item.classList.add('moving');
+          requestAnimationFrame(() => position2048Tile(item, event.to, grid));
+        }
+      });
+      gameTimer = setTimeout(() => {
+        renderStatic(state);
+        state.events.forEach((event) => {
+          if (event.merged && !event.removed) tileNodes.get(event.id)?.classList.add('merged');
+          if (event.type === 'spawn') tileNodes.get(event.id)?.classList.add('spawned');
+        });
+        animating = false;
+        if (state.finished) finishGame(ui, '本局结束', `得分 ${state.score}`);
+        const next = queuedDirection;
+        queuedDirection = undefined;
+        if (next && !state.finished) move(next);
+      }, prefersReducedMotion() ? 20 : 145);
+    }
+
+    renderStatic(game.state());
     gameKeyHandler = (event) => handleDirectionKey(event, move);
   }
 
-  function lineIndexes(direction, line) {
-    const forward = direction === 'left' || direction === 'up';
-    const indexes = [];
-    for (let step = 0; step < 4; step += 1) {
-      const position = forward ? step : 3 - step;
-      indexes.push(direction === 'left' || direction === 'right' ? line * 4 + position : position * 4 + line);
-    }
-    return indexes;
-  }
-
-  function canMove2048(board) {
-    if (board.some((value) => !value)) return true;
-    return board.some((value, index) =>
-      (index % 4 < 3 && value === board[index + 1]) || (index < 12 && value === board[index + 4]));
+  function position2048Tile(item, index, grid) {
+    const padding = 6;
+    const gap = 6;
+    const cell = Math.max(0, (grid.clientWidth - padding * 2 - gap * 3) / 4);
+    const column = index % 4;
+    const row = Math.floor(index / 4);
+    item.style.width = `${cell}px`;
+    item.style.height = `${cell}px`;
+    item.style.transform = `translate(${padding + column * (cell + gap)}px, ${padding + row * (cell + gap)}px)`;
   }
 
   function startSnake() {
-    const size = 16;
-    let snake = [{ x: 8, y: 8 }, { x: 7, y: 8 }, { x: 6, y: 8 }];
-    let direction = { x: 1, y: 0 };
-    let nextDirection = direction;
-    let food = randomFreeCell(size, snake);
-    let scoreValue = 0;
-    let ended = false;
     const ui = gameShell('贪吃蛇', '方向键改变方向');
-    const grid = node('div', 'snake-grid');
-    const status = node('p', 'game-status', '吃到亮色方块，避免碰墙和自己。');
-    ui.body.append(grid, directionPad(setDirection), status);
-
-    function setDirection(value) {
-      const candidate = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[value];
-      if (candidate && (candidate.x !== -direction.x || candidate.y !== -direction.y)) nextDirection = candidate;
-    }
+    const game = LinuxDoGameCore.createSnake({ size: 16 });
+    const canvas = node('canvas', 'game-canvas square-canvas');
+    const status = node('p', 'game-status', '长度 3 · 速度 1');
+    let lastStepAt = performance.now();
+    let snakeState = game.state();
+    ui.body.append(canvas, directionPad((direction) => game.queueDirection(direction)), status);
+    observeGameSize(ui, canvas, 'square', () => draw(performance.now(), false));
 
     function tick() {
-      if (ended || gameRuntime.state().paused) return;
-      direction = nextDirection;
-      const head = { x: snake[0].x + direction.x, y: snake[0].y + direction.y };
-      const willEat = head.x === food.x && head.y === food.y;
-      const collisionBody = willEat ? snake : snake.slice(0, -1);
-      if (head.x < 0 || head.y < 0 || head.x >= size || head.y >= size || collisionBody.some((part) => part.x === head.x && part.y === head.y)) {
-        ended = true;
-        clearInterval(gameTimer);
-        finishGame(status, '本局结束');
-        return;
-      }
-      snake.unshift(head);
-      if (willEat) {
-        scoreValue += 10;
-        food = randomFreeCell(size, snake);
-      } else {
-        snake.pop();
-      }
-      render();
-    }
-
-    function render() {
-      const occupied = new Set(snake.map((part) => `${part.x}:${part.y}`));
-      const cells = [];
-      for (let y = 0; y < size; y += 1) {
-        for (let x = 0; x < size; x += 1) {
-          const key = `${x}:${y}`;
-          cells.push(node('span', key === `${food.x}:${food.y}` ? 'snake-cell food' : occupied.has(key) ? 'snake-cell snake' : 'snake-cell'));
+      if (!gameRuntime.state().paused) {
+        snakeState = game.step();
+        lastStepAt = performance.now();
+        setGameScore(ui, snakeState.score);
+        status.textContent = `长度 ${snakeState.snake.length} · 速度 ${1 + Math.floor(snakeState.score / 40)}`;
+        if (snakeState.finished) {
+          finishGame(ui, '撞到了', `得分 ${snakeState.score}`);
+          return;
         }
       }
-      grid.replaceChildren(...cells);
-      setGameScore(ui, scoreValue);
+      gameTimer = setTimeout(tick, snakeState.interval);
     }
 
-    render();
-    function scheduleTick() {
-      clearTimeout(gameTimer);
-      gameTimer = setTimeout(() => {
-        tick();
-        if (!ended) scheduleTick();
-      }, Math.max(72, 145 - scoreValue * 1.2));
+    function draw(time = performance.now(), scheduleNext = true) {
+      const ctx = prepareCanvas(canvas);
+      if (!ctx) return;
+      const width = canvas.clientWidth;
+      const cell = width / snakeState.size;
+      ctx.clearRect(0, 0, width, width);
+      ctx.fillStyle = canvasColor('--vscode-sideBar-background', '#252526');
+      ctx.fillRect(0, 0, width, width);
+      ctx.strokeStyle = canvasColor('--line', 'rgba(127,127,127,.22)');
+      ctx.lineWidth = 1;
+      for (let line = 1; line < snakeState.size; line += 1) {
+        const point = Math.round(line * cell) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(point, 0); ctx.lineTo(point, width);
+        ctx.moveTo(0, point); ctx.lineTo(width, point);
+        ctx.stroke();
+      }
+      const pulse = prefersReducedMotion() ? 1 : 0.9 + Math.sin(time / 170) * 0.08;
+      ctx.fillStyle = canvasColor('--vscode-testing-iconPassed', '#4da665');
+      ctx.beginPath();
+      ctx.arc((snakeState.food.x + 0.5) * cell, (snakeState.food.y + 0.5) * cell, cell * 0.28 * pulse, 0, Math.PI * 2);
+      ctx.fill();
+      const progress = gameRuntime.state().paused ? 1 : Math.min(1, (time - lastStepAt) / snakeState.interval);
+      snakeState.snake.slice().reverse().forEach((part, reverseIndex) => {
+        const index = snakeState.snake.length - reverseIndex - 1;
+        const previous = snakeState.previous[index] || part;
+        const x = previous.x + (part.x - previous.x) * progress;
+        const y = previous.y + (part.y - previous.y) * progress;
+        ctx.fillStyle = index === 0 ? canvasColor('--vscode-button-background', '#2f7cc0') : canvasColor('--vscode-textLink-foreground', '#3794d0');
+        roundedRect(ctx, x * cell + cell * 0.1, y * cell + cell * 0.1, cell * 0.8, cell * 0.8, cell * 0.22);
+        ctx.fill();
+      });
+      const head = snakeState.snake[0];
+      const eyeBaseX = (head.x + 0.5 + snakeState.direction.x * 0.18) * cell;
+      const eyeBaseY = (head.y + 0.5 + snakeState.direction.y * 0.18) * cell;
+      ctx.fillStyle = canvasColor('--vscode-button-foreground', '#ffffff');
+      ctx.beginPath(); ctx.arc(eyeBaseX, eyeBaseY, Math.max(1.2, cell * 0.065), 0, Math.PI * 2); ctx.fill();
+      if (scheduleNext && !snakeState.finished) gameFrame = requestAnimationFrame((next) => draw(next, true));
     }
-    scheduleTick();
-    gameKeyHandler = (event) => handleDirectionKey(event, setDirection);
-  }
 
-  function randomFreeCell(size, occupied) {
-    const used = new Set(occupied.map((part) => `${part.x}:${part.y}`));
-    const free = [];
-    for (let y = 0; y < size; y += 1) {
-      for (let x = 0; x < size; x += 1) if (!used.has(`${x}:${y}`)) free.push({ x, y });
-    }
-    return free[Math.floor(Math.random() * free.length)] || { x: 0, y: 0 };
+    draw(performance.now(), true);
+    gameTimer = setTimeout(tick, snakeState.interval);
+    gameKeyHandler = (event) => handleDirectionKey(event, (direction) => game.queueDirection(direction));
   }
 
   function startRacer() {
-    let playerX = 50;
-    let obstacles = [];
-    let scoreValue = 0;
-    let ended = false;
-    let ticks = 0;
     const ui = gameShell('公路闪避', '左右键连续转向');
-    const road = node('div', 'racer-track');
-    const player = node('span', 'racer-car', '▲');
-    road.append(player);
-    const status = node('p', 'game-status', '在一条道路内左右移动，避开迎面障碍。');
-    ui.body.append(road, directionPad(moveLane, true), status);
+    const game = LinuxDoGameCore.createRacer();
+    const input = LinuxDoGameCore.createInputState();
+    const stepper = LinuxDoGameCore.createFixedStepper(1 / 120, 10);
+    const canvas = node('canvas', 'game-canvas racer-canvas');
+    const status = node('p', 'game-status', '单条道路内自由转向');
+    const controls = holdControls(input, 'left', 'right');
+    let racerState = game.state();
+    let previousTime;
+    ui.body.append(canvas, controls, status);
+    observeGameSize(ui, canvas, 'racer', draw);
+    gameInputReset = () => { input.reset(); game.setSteer(0); };
 
-    function moveLane(direction) {
-      if (ended || gameRuntime.state().paused) return;
-      if (direction === 'left') playerX = Math.max(10, playerX - 8);
-      if (direction === 'right') playerX = Math.min(90, playerX + 8);
-      render();
+    function frame(time) {
+      if (previousTime === undefined) previousTime = time;
+      const delta = (time - previousTime) / 1000;
+      previousTime = time;
+      if (!gameRuntime.state().paused && !racerState.finished) {
+        game.setSteer(input.axis('left', 'right'));
+        stepper.advance(delta, (step) => { racerState = game.step(step); });
+        const near = racerState.events.some((event) => event.type === 'near-miss');
+        status.textContent = near ? '擦肩 +5' : `速度 ${Math.round(racerState.difficulty.speed * 100)}`;
+        setGameScore(ui, racerState.score);
+        if (racerState.finished) finishGame(ui, '发生碰撞', `得分 ${racerState.score}`);
+      } else stepper.reset();
+      draw();
+      if (!racerState.finished) gameFrame = requestAnimationFrame(frame);
     }
 
-    function tick() {
-      if (ended || gameRuntime.state().paused) return;
-      ticks += 1;
-      const speed = 2.2 + Math.min(2.6, scoreValue / 220);
-      obstacles.forEach((item) => { item.y += speed; });
-      if (ticks % Math.max(18, 34 - Math.floor(scoreValue / 45)) === 0) {
-        const item = { x: 12 + Math.random() * 76, y: -12, node: node('span', 'racer-obstacle', '■') };
-        obstacles.push(item);
-        road.append(item.node);
+    function draw() {
+      const ctx = prepareCanvas(canvas);
+      if (!ctx) return;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      const roadLeft = width * 0.055;
+      const roadWidth = width * 0.89;
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = canvasColor('--vscode-sideBar-background', '#25282c');
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = canvasColor('--vscode-editor-background', '#1f2327');
+      ctx.fillRect(roadLeft, 0, roadWidth, height);
+      ctx.fillStyle = canvasColor('--line', '#62676d');
+      ctx.fillRect(roadLeft, 0, Math.max(3, width * 0.012), height);
+      ctx.fillRect(roadLeft + roadWidth - Math.max(3, width * 0.012), 0, Math.max(3, width * 0.012), height);
+      const markerOffset = (racerState.roadOffset * height * 0.28) % (height * 0.18);
+      ctx.fillStyle = canvasColor('--vscode-descriptionForeground', '#8a8f96');
+      for (let y = -height * 0.2 + markerOffset; y < height; y += height * 0.18) {
+        ctx.fillRect(roadLeft + width * 0.018, y, width * 0.012, height * 0.075);
+        ctx.fillRect(roadLeft + roadWidth - width * 0.03, y, width * 0.012, height * 0.075);
       }
-      if (obstacles.some((item) => item.y > 76 && item.y < 94 && Math.abs(item.x - playerX) < 15)) {
-        ended = true;
-        clearInterval(gameTimer);
-        finishGame(status, '发生碰撞');
-      }
-      obstacles = obstacles.filter((item) => {
-        if (item.y > 108) {
-          item.node.remove();
-          scoreValue += 10;
-          return false;
-        }
-        return true;
-      });
-      render();
+      racerState.obstacles.forEach((obstacle) => drawCar(ctx, obstacle, width, height, canvasColor('--vscode-errorForeground', '#d56565'), false));
+      drawCar(ctx, racerState.player, width, height, canvasColor('--vscode-button-background', '#2f7cc0'), true);
     }
 
-    function render() {
-      player.style.left = `${playerX}%`;
-      obstacles.forEach((item) => {
-        item.node.style.left = `${item.x}%`;
-        item.node.style.top = `${item.y}%`;
-      });
-      setGameScore(ui, scoreValue);
-    }
-
-    render();
-    gameTimer = setInterval(tick, 55);
-    gameKeyHandler = (event) => handleDirectionKey(event, moveLane);
+    draw();
+    gameFrame = requestAnimationFrame(frame);
+    gameKeyHandler = (event) => continuousDirectionKey(event, input, true);
+    gameKeyUpHandler = (event) => continuousDirectionKey(event, input, false);
   }
 
   function startJumper() {
     const ui = gameShell('像素跳跃', '空格或上方向键跳跃');
-    const canvas = document.createElement('canvas');
-    canvas.className = 'jumper-canvas';
-    canvas.width = 520;
-    canvas.height = 260;
-    const jumpButton = actionButton('跳跃', jump);
-    const status = node('p', 'game-status', '越过障碍，奔跑速度会逐渐提升。');
-    ui.body.append(canvas, node('div', 'jump-controls', jumpButton), status);
-    const context = canvas.getContext('2d');
-    const style = getComputedStyle(document.body);
-    const colors = {
-      background: style.getPropertyValue('--vscode-editor-background').trim() || '#1e1e1e',
-      line: style.getPropertyValue('--line').trim() || '#666666',
-      player: style.getPropertyValue('--accent').trim() || '#3977c3',
-      obstacle: style.getPropertyValue('--vscode-errorForeground').trim() || '#d35f5f',
-      text: style.getPropertyValue('--muted').trim() || '#999999'
-    };
-    const ground = 220;
-    const player = { x: 58, y: ground - 28, width: 23, height: 28, velocity: 0 };
-    let obstacles = [];
-    let spawnIn = 1.2;
-    let elapsed = 0;
+    const game = LinuxDoGameCore.createJumper();
+    const stepper = LinuxDoGameCore.createFixedStepper(1 / 120, 10);
+    const canvas = node('canvas', 'game-canvas jumper-canvas');
+    const jumpButton = holdButton('跳跃', () => game.pressJump(), () => game.releaseJump(), 'primary-button jump-button');
+    const status = node('p', 'game-status', '短按低跳，长按高跳');
+    let jumperState = game.state();
     let previousTime;
-    let ended = false;
-
-    function jump() {
-      if (!ended && !gameRuntime.state().paused && player.y >= ground - player.height - 1) player.velocity = -430;
-    }
+    ui.body.append(canvas, node('div', 'jump-controls', jumpButton), status);
+    observeGameSize(ui, canvas, 'jumper', draw);
+    gameInputReset = () => game.releaseJump();
 
     function frame(time) {
       if (previousTime === undefined) previousTime = time;
-      const delta = Math.min((time - previousTime) / 1000, 0.04);
+      const delta = (time - previousTime) / 1000;
       previousTime = time;
-      if (gameRuntime.state().paused) {
-        draw();
-        gameFrame = requestAnimationFrame(frame);
-        return;
+      if (!gameRuntime.state().paused && !jumperState.finished) {
+        stepper.advance(delta, (step) => { jumperState = game.step(step); });
+        setGameScore(ui, jumperState.score);
+        status.textContent = `速度 ${Math.round(jumperState.difficulty.speed * 100)} · ${Math.floor(jumperState.elapsed)} 秒`;
+        if (jumperState.finished) finishGame(ui, '碰到障碍', `得分 ${jumperState.score}`);
+      } else {
+        stepper.reset();
       }
-      elapsed += delta;
-      player.velocity += 1050 * delta;
-      player.y = Math.min(ground - player.height, player.y + player.velocity * delta);
-      if (player.y >= ground - player.height) player.velocity = 0;
-      spawnIn -= delta;
-      const speed = 190 + Math.min(150, elapsed * 4);
-      if (spawnIn <= 0) {
-        const height = 24 + Math.floor(Math.random() * 28);
-        obstacles.push({ x: canvas.width + 10, y: ground - height, width: 20 + Math.floor(Math.random() * 14), height });
-        spawnIn = 1.15 + Math.random() * 1.15;
-      }
-      obstacles = obstacles.map((obstacle) => ({ ...obstacle, x: obstacle.x - speed * delta })).filter((obstacle) => obstacle.x + obstacle.width > 0);
-      if (obstacles.some((obstacle) => rectanglesOverlap(player, obstacle))) {
-        ended = true;
-        finishGame(status, '碰到障碍');
-      }
-      setGameScore(ui, Math.floor(elapsed * 10));
       draw();
-      if (!ended) gameFrame = requestAnimationFrame(frame);
+      if (!jumperState.finished) gameFrame = requestAnimationFrame(frame);
     }
 
     function draw() {
-      context.fillStyle = colors.background;
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.strokeStyle = colors.line;
-      context.lineWidth = 2;
-      context.beginPath();
-      context.moveTo(0, ground + 1);
-      context.lineTo(canvas.width, ground + 1);
-      context.stroke();
-      context.fillStyle = colors.player;
-      context.fillRect(player.x, player.y, player.width, player.height);
-      context.fillStyle = colors.background;
-      context.fillRect(player.x + 14, player.y + 6, 4, 4);
-      context.fillStyle = colors.obstacle;
-      obstacles.forEach((obstacle) => context.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height));
-      context.fillStyle = colors.text;
-      context.font = '12px sans-serif';
-      context.fillText('SPACE / ↑', 12, 20);
+      const ctx = prepareCanvas(canvas);
+      if (!ctx) return;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = canvasColor('--vscode-sideBar-background', '#24272b');
+      ctx.fillRect(0, 0, width, height);
+      const farOffset = (jumperState.elapsed * jumperState.difficulty.speed * width * 0.16) % (width * 0.34);
+      ctx.fillStyle = canvasColor('--vscode-editor-background', '#1e2024');
+      for (let x = -width * 0.34 - farOffset; x < width; x += width * 0.34) {
+        ctx.beginPath();
+        ctx.moveTo(x, height * 0.62); ctx.lineTo(x + width * 0.17, height * 0.38); ctx.lineTo(x + width * 0.34, height * 0.62); ctx.closePath(); ctx.fill();
+      }
+      const ground = jumperState.ground * height;
+      ctx.fillStyle = canvasColor('--vscode-editor-background', '#1e1e1e');
+      ctx.fillRect(0, ground, width, height - ground);
+      ctx.fillStyle = canvasColor('--line', '#555b62');
+      ctx.fillRect(0, ground, width, Math.max(2, height * 0.012));
+      const stripe = (jumperState.elapsed * jumperState.difficulty.speed * width) % (width * 0.12);
+      for (let x = -stripe; x < width; x += width * 0.12) ctx.fillRect(x, ground + height * 0.07, width * 0.06, Math.max(2, height * 0.012));
+      jumperState.obstacles.forEach((obstacle) => {
+        ctx.fillStyle = canvasColor('--vscode-errorForeground', '#d56565');
+        roundedRect(ctx, obstacle.x * width, obstacle.y * height, obstacle.width * width, obstacle.height * height, Math.max(2, width * 0.006));
+        ctx.fill();
+      });
+      drawRunner(ctx, jumperState, width, height);
     }
 
     draw();
     gameFrame = requestAnimationFrame(frame);
     gameKeyHandler = (event) => {
       if (event.key === ' ' || event.key === 'ArrowUp') {
-        jump();
+        if (!event.repeat) game.pressJump();
         return true;
       }
       if (event.key === 'Escape') {
@@ -635,130 +701,138 @@
       }
       return false;
     };
-  }
-
-  function rectanglesOverlap(left, right) {
-    return left.x < right.x + right.width && left.x + left.width > right.x && left.y < right.y + right.height && left.y + left.height > right.y;
+    gameKeyUpHandler = (event) => {
+      if (event.key === ' ' || event.key === 'ArrowUp') {
+        game.releaseJump();
+        return true;
+      }
+      return false;
+    };
   }
 
   function startMines() {
-    const size = 9;
-    const mineCount = 10;
-    let cells = Array.from({ length: size * size }, () => ({ mine: false, open: false, flagged: false, nearby: 0 }));
-    let initialized = false;
-    let ended = false;
+    const game = LinuxDoGameCore.createMines({ size: 9, mineCount: 10 });
+    let mineState = game.state();
     let flagMode = false;
     let elapsedSeconds = 0;
+    let timerStarted = false;
+    let ignoreClick = false;
     const ui = gameShell('扫雷', '点击翻开，右键或标记模式插旗');
-    const grid = node('div', 'mines-grid');
-    const flagButton = actionButton('标记模式：关', () => {
+    const grid = node('div', 'game-board mines-grid');
+    const buttons = [];
+    const flagButton = actionButton('标记', () => {
       flagMode = !flagMode;
-      flagButton.textContent = `标记模式：${flagMode ? '开' : '关'}`;
       flagButton.classList.toggle('active', flagMode);
+      flagButton.setAttribute('aria-pressed', String(flagMode));
     });
-    const status = node('p', 'game-status', `找出安全方格，共 ${mineCount} 个雷。`);
-    ui.body.append(grid, node('div', 'mine-controls', flagButton), status);
-
-    function initialize(safeIndex) {
-      LinuxDoGameCore.mineIndexes(size, mineCount, safeIndex).forEach((index) => { cells[index].mine = true; });
-      cells.forEach((cell, index) => {
-        cell.nearby = neighbors(index, size).filter((neighbor) => cells[neighbor].mine).length;
+    const revealButton = actionButton('展开', () => reveal(mineState.cursor));
+    revealButton.classList.add('primary-button');
+    const status = node('p', 'game-status');
+    for (let index = 0; index < 81; index += 1) {
+      const button = node('button', 'mine-cell');
+      button.type = 'button';
+      button.addEventListener('click', () => {
+        if (ignoreClick) { ignoreClick = false; return; }
+        if (flagMode) toggleFlag(index); else reveal(index);
       });
-      initialized = true;
+      button.addEventListener('contextmenu', (event) => { event.preventDefault(); toggleFlag(index); });
+      button.addEventListener('dblclick', (event) => { event.preventDefault(); chord(index); });
+      let holdTimer;
+      button.addEventListener('pointerdown', (event) => {
+        if (event.pointerType === 'mouse') return;
+        holdTimer = setTimeout(() => { ignoreClick = true; toggleFlag(index); }, 480);
+      });
+      const clearHold = () => clearTimeout(holdTimer);
+      button.addEventListener('pointerup', clearHold);
+      button.addEventListener('pointercancel', clearHold);
+      button.addEventListener('pointerleave', clearHold);
+      buttons.push(button);
+      grid.append(button);
+    }
+    ui.body.append(grid, node('div', 'mine-controls segmented-controls', [revealButton, flagButton]), directionPad(moveCursor), status);
+    observeGameSize(ui, grid, 'square', render);
+
+    function startTimer() {
+      if (timerStarted) return;
+      timerStarted = true;
       gameTimer = setInterval(() => {
-        if (!ended && !gameRuntime.state().paused) {
+        if (!mineState.finished && !gameRuntime.state().paused) {
           elapsedSeconds += 1;
-          updateMineStatus();
+          renderStatus();
         }
       }, 1000);
     }
 
-    function interact(index, mark) {
-      if (ended || gameRuntime.state().paused || cells[index].open) return;
-      if (mark || flagMode) {
-        cells[index].flagged = !cells[index].flagged;
-        render();
-        return;
-      }
-      if (!initialized) initialize(index);
-      if (cells[index].flagged) return;
-      if (cells[index].mine) {
-        ended = true;
-        clearInterval(gameTimer);
-        cells.forEach((cell) => { if (cell.mine) cell.open = true; });
-        finishGame(status, '踩到雷了');
-      } else {
-        revealSafe(index);
-        const opened = cells.filter((cell) => cell.open).length;
-        setGameScore(ui, opened);
-        if (opened === size * size - mineCount) {
-          ended = true;
-          clearInterval(gameTimer);
-          finishGame(status, '完成，所有安全方格都找到了');
-        }
-      }
+    function reveal(index) {
+      if (gameRuntime.state().paused || mineState.finished) return;
+      const wasInitialized = mineState.initialized;
+      mineState = game.reveal(index);
+      if (!wasInitialized && mineState.initialized) startTimer();
+      render(mineState.events);
+      completeMines();
+    }
+
+    function toggleFlag(index) {
+      if (gameRuntime.state().paused || mineState.finished) return;
+      mineState = game.toggleFlag(index);
       render();
     }
 
-    function updateMineStatus() {
-      if (ended) return;
-      const flags = cells.filter((cell) => cell.flagged).length;
-      status.textContent = `剩余旗帜 ${Math.max(0, mineCount - flags)} · ${elapsedSeconds} 秒`;
-    }
-
-    function revealSafe(start) {
-      const queue = [start];
-      const seen = new Set();
-      while (queue.length) {
-        const index = queue.shift();
-        if (seen.has(index) || cells[index].flagged || cells[index].mine) continue;
-        seen.add(index);
-        cells[index].open = true;
-        if (cells[index].nearby === 0) queue.push(...neighbors(index, size));
-      }
-    }
-
-    function render() {
-      grid.replaceChildren(...cells.map((cell, index) => {
-        const button = node('button', `mine-cell${cell.open ? ' open' : ''}${cell.mine && cell.open ? ' mine' : ''}`);
-        button.type = 'button';
-        button.textContent = cell.open ? (cell.mine ? '×' : cell.nearby || '') : cell.flagged ? '!' : '';
-        button.dataset.nearby = String(cell.nearby);
-        button.addEventListener('click', () => interact(index, false));
-        button.addEventListener('contextmenu', (event) => {
-          event.preventDefault();
-          interact(index, true);
-        });
-        button.addEventListener('dblclick', () => chord(index));
-        return button;
-      }));
-      updateMineStatus();
-    }
-
     function chord(index) {
-      const cell = cells[index];
-      if (!cell.open || !cell.nearby || ended) return;
-      const nearby = neighbors(index, size);
-      if (nearby.filter((neighbor) => cells[neighbor].flagged).length !== cell.nearby) return;
-      nearby.forEach((neighbor) => { if (!cells[neighbor].flagged) interact(neighbor, false); });
+      if (gameRuntime.state().paused || mineState.finished) return;
+      mineState = game.chord(index);
+      render(mineState.events);
+      completeMines();
+    }
+
+    function moveCursor(direction) {
+      const movement = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[direction];
+      if (!movement) return;
+      mineState = game.moveCursor(movement[0], movement[1]);
+      render();
+      buttons[mineState.cursor]?.focus({ preventScroll: true });
+    }
+
+    function render(events = []) {
+      const revealed = new Map();
+      events.filter((event) => event.type === 'reveal').forEach((event) => {
+        event.indexes.forEach((index, order) => revealed.set(index, order));
+      });
+      mineState.cells.forEach((cell, index) => {
+        const button = buttons[index];
+        button.className = `mine-cell${cell.open ? ' open' : ''}${cell.mine && cell.open ? ' mine' : ''}${cell.wrong ? ' wrong' : ''}${index === mineState.triggered ? ' triggered' : ''}${index === mineState.cursor ? ' cursor' : ''}`;
+        button.textContent = cell.open ? (cell.mine ? '×' : cell.nearby || '') : cell.flagged ? '⚑' : '';
+        button.dataset.nearby = String(cell.nearby);
+        button.setAttribute('aria-label', cell.open ? (cell.mine ? '地雷' : cell.nearby ? `周围 ${cell.nearby} 个地雷` : '空白') : cell.flagged ? '已标记' : '未展开');
+        if (revealed.has(index) && !prefersReducedMotion()) {
+          button.classList.remove('revealing');
+          button.style.animationDelay = `${Math.min(180, revealed.get(index) * 12)}ms`;
+          requestAnimationFrame(() => button.classList.add('revealing'));
+        }
+      });
+      setGameScore(ui, mineState.opened);
+      renderStatus();
+    }
+
+    function renderStatus() {
+      if (!mineState.finished) status.textContent = `剩余旗帜 ${mineState.remainingFlags} · ${elapsedSeconds} 秒`;
+    }
+
+    function completeMines() {
+      if (!mineState.finished) return;
+      clearInterval(gameTimer);
+      finishGame(ui, mineState.won ? '全部安全区域已展开' : '踩到地雷', `${elapsedSeconds} 秒 · 已展开 ${mineState.opened}`);
     }
 
     render();
-    gameKeyHandler = (event) => event.key === 'Escape' ? (closeGameOverlay(), true) : false;
-  }
-
-  function neighbors(index, size) {
-    const x = index % size;
-    const y = Math.floor(index / size);
-    const result = [];
-    for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
-      for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
-        const nextX = x + offsetX;
-        const nextY = y + offsetY;
-        if ((offsetX || offsetY) && nextX >= 0 && nextY >= 0 && nextX < size && nextY < size) result.push(nextY * size + nextX);
-      }
-    }
-    return result;
+    gameKeyHandler = (event) => {
+      const direction = directionForKey(event.key);
+      if (direction) { moveCursor(direction); return true; }
+      if (event.key === 'Enter' || event.key === ' ') { reveal(mineState.cursor); return true; }
+      if (event.key.toLowerCase() === 'f') { toggleFlag(mineState.cursor); return true; }
+      if (event.key === 'Escape') { closeGameOverlay(); return true; }
+      return false;
+    };
   }
 
   function directionPad(handler, horizontalOnly = false) {
@@ -773,10 +847,156 @@
   }
 
   function handleDirectionKey(event, handler) {
-    const direction = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }[event.key];
+    const direction = directionForKey(event.key);
     if (!direction) return event.key === 'Escape' ? (closeGameOverlay(), true) : false;
     handler(direction);
     return true;
+  }
+
+  function directionForKey(key) {
+    return { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down', ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right' }[key];
+  }
+
+  function continuousDirectionKey(event, input, pressed) {
+    const direction = directionForKey(event.key);
+    if (direction === 'left' || direction === 'right') {
+      if (pressed) input.press(direction); else input.release(direction);
+      return true;
+    }
+    if (pressed && event.key === 'Escape') { closeGameOverlay(); return true; }
+    return false;
+  }
+
+  function holdControls(input, leftAction, rightAction) {
+    const controls = node('div', 'hold-controls');
+    controls.append(
+      holdButton('←', () => input.press(leftAction), () => input.release(leftAction), 'hold-control'),
+      holdButton('→', () => input.press(rightAction), () => input.release(rightAction), 'hold-control')
+    );
+    return controls;
+  }
+
+  function holdButton(label, onPress, onRelease, className) {
+    const button = node('button', className || '', label);
+    button.type = 'button';
+    const press = (event) => {
+      event.preventDefault();
+      button.setPointerCapture?.(event.pointerId);
+      onPress();
+    };
+    const release = (event) => {
+      event?.preventDefault();
+      onRelease();
+    };
+    button.addEventListener('pointerdown', press);
+    button.addEventListener('pointerup', release);
+    button.addEventListener('pointercancel', release);
+    button.addEventListener('lostpointercapture', release);
+    return button;
+  }
+
+  function observeGameSize(ui, stage, kind, onResize) {
+    gameResizeCleanup?.();
+    let frame;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const toolbar = ui.panel.querySelector('.game-toolbar');
+        const siblings = [...ui.body.children].filter((item) => item !== stage && !item.classList.contains('game-state-layer'));
+        const reserved = siblings.reduce((height, item) => height + item.getBoundingClientRect().height, 0) + Math.max(0, siblings.length) * 8;
+        const availableWidth = Math.max(180, ui.body.clientWidth);
+        const availableHeight = Math.max(170, ui.panel.clientHeight - (toolbar?.offsetHeight || 0) - reserved - 42);
+        let width;
+        let height;
+        if (kind === 'square') {
+          width = height = Math.min(440, availableWidth, availableHeight);
+        } else {
+          const ratio = kind === 'racer' ? (availableWidth < 520 ? 0.8 : 1.6) : (availableWidth < 520 ? 4 / 3 : 16 / 9);
+          width = Math.min(kind === 'racer' ? 640 : 720, availableWidth);
+          height = width / ratio;
+          if (height > availableHeight) {
+            height = availableHeight;
+            width = Math.min(availableWidth, height * ratio);
+          }
+        }
+        stage.style.width = `${Math.max(kind === 'square' ? 160 : 180, Math.floor(width))}px`;
+        stage.style.height = `${Math.max(160, Math.floor(height))}px`;
+        ui.panel.classList.toggle('game-compact', ui.panel.clientWidth < 430 || ui.panel.clientHeight < 570);
+        onResize?.();
+      });
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(ui.panel);
+    observer.observe(ui.body);
+    update();
+    gameResizeCleanup = () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  }
+
+  function prepareCanvas(canvas) {
+    const width = Math.max(1, Math.round(canvas.clientWidth));
+    const height = Math.max(1, Math.round(canvas.clientHeight));
+    const ratio = Math.max(1, window.devicePixelRatio || 1);
+    const pixelWidth = Math.round(width * ratio);
+    const pixelHeight = Math.round(height * ratio);
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
+    const context = canvas.getContext('2d');
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    return context;
+  }
+
+  function canvasColor(variable, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(variable).trim() || fallback;
+  }
+
+  function roundedRect(context, x, y, width, height, radius) {
+    const value = Math.min(radius, width / 2, height / 2);
+    context.beginPath();
+    context.moveTo(x + value, y);
+    context.arcTo(x + width, y, x + width, y + height, value);
+    context.arcTo(x + width, y + height, x, y + height, value);
+    context.arcTo(x, y + height, x, y, value);
+    context.arcTo(x, y, x + width, y, value);
+    context.closePath();
+  }
+
+  function drawCar(context, car, width, height, color, player) {
+    const carWidth = car.width * width;
+    const carHeight = car.height * height;
+    const x = car.x * width - carWidth / 2;
+    const y = car.y * height;
+    context.fillStyle = color;
+    roundedRect(context, x, y, carWidth, carHeight, Math.max(3, carWidth * 0.18));
+    context.fill();
+    context.fillStyle = player ? canvasColor('--vscode-button-foreground', '#ffffff') : canvasColor('--vscode-editor-background', '#252525');
+    roundedRect(context, x + carWidth * 0.18, y + carHeight * 0.18, carWidth * 0.64, carHeight * 0.28, 2);
+    context.fill();
+    context.fillStyle = canvasColor('--vscode-editor-background', '#202020');
+    context.fillRect(x - carWidth * 0.05, y + carHeight * 0.22, carWidth * 0.1, carHeight * 0.22);
+    context.fillRect(x + carWidth * 0.95, y + carHeight * 0.22, carWidth * 0.1, carHeight * 0.22);
+    context.fillRect(x - carWidth * 0.05, y + carHeight * 0.66, carWidth * 0.1, carHeight * 0.22);
+    context.fillRect(x + carWidth * 0.95, y + carHeight * 0.66, carWidth * 0.1, carHeight * 0.22);
+  }
+
+  function drawRunner(context, state, width, height) {
+    const player = state.player;
+    const x = player.x * width;
+    const y = player.y * height;
+    const playerWidth = player.width * width;
+    const playerHeight = player.height * height;
+    const runPhase = Math.floor(state.elapsed * 12) % 2;
+    context.fillStyle = canvasColor('--vscode-button-background', '#2f7cc0');
+    roundedRect(context, x, y, playerWidth, playerHeight * 0.72, Math.max(2, playerWidth * 0.15));
+    context.fill();
+    context.fillRect(x + (runPhase ? playerWidth * 0.12 : playerWidth * 0.52), y + playerHeight * 0.66, playerWidth * 0.30, playerHeight * 0.34);
+    context.fillStyle = canvasColor('--vscode-button-foreground', '#ffffff');
+    context.fillRect(x + playerWidth * 0.66, y + playerHeight * 0.18, Math.max(2, playerWidth * 0.1), Math.max(2, playerWidth * 0.1));
+  }
+
+  function prefersReducedMotion() {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   }
 
   function renderLoading() {
