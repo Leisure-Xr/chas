@@ -3,6 +3,10 @@
 const SITE_ORIGIN = 'https://linux.do';
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 12 * 1024 * 1024;
+const MIN_REQUEST_INTERVAL_MS = 1_500;
+const DEFAULT_CACHE_TTL_MS = 90_000;
+const STALE_CACHE_MAX_AGE_MS = 30 * 60_000;
+const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
 const CLEARANCE_SECRET = 'linuxdoGuest.cloudflare.clearance';
 const GUEST_COOKIE_SECRET = 'linuxdoGuest.cloudflare.guestCookies';
 const USER_AGENT_SECRET = 'linuxdoGuest.cloudflare.userAgent';
@@ -26,9 +30,30 @@ class CloudflareError extends Error {
   }
 }
 
+class RateLimitError extends Error {
+  constructor(status, retryAt) {
+    const seconds = Math.max(1, Math.ceil((Number(retryAt) - Date.now()) / 1000));
+    super(`站点暂时限制请求（HTTP ${status}），插件已暂停联网，请约 ${seconds} 秒后再试。`);
+    this.name = 'RateLimitError';
+    this.status = status;
+    this.retryAt = Number(retryAt);
+  }
+}
+
 class GuestRequestSession {
-  constructor(secrets) {
+  constructor(secrets, options = {}) {
     this.secrets = secrets;
+    this.fetchResponse = options.fetchResponse || fetchGuestResponse;
+    this.now = options.now || (() => Date.now());
+    this.sleep = options.sleep || delay;
+    this.minRequestIntervalMs = Number.isFinite(options.minRequestIntervalMs)
+      ? Math.max(0, options.minRequestIntervalMs)
+      : MIN_REQUEST_INTERVAL_MS;
+    this.requestQueue = Promise.resolve();
+    this.inFlight = new Map();
+    this.cache = new Map();
+    this.lastRequestAt = 0;
+    this.cooldownUntil = 0;
   }
 
   get isRunning() {
@@ -52,11 +77,72 @@ class GuestRequestSession {
     };
   }
 
-  async request(rawPath) {
+  async request(rawPath, options = {}) {
     const url = assertLinuxDoRequestUrl(rawPath);
+    const key = url.toString();
+    const now = this.now();
+    const cached = this.cache.get(key);
+    const ttlMs = Number.isFinite(options.cacheTtlMs)
+      ? Math.max(0, options.cacheTtlMs)
+      : cacheTtlForUrl(url);
+
+    if (!options.force && cached && now - cached.storedAt <= ttlMs) {
+      return cached.data;
+    }
+    if (this.inFlight.has(key)) {
+      return this.inFlight.get(key);
+    }
+
+    const request = this.enqueue(() => this.performRequest(url, key, cached, ttlMs));
+    this.inFlight.set(key, request);
+    request.finally(() => {
+      if (this.inFlight.get(key) === request) this.inFlight.delete(key);
+    }).catch(() => {});
+    return request;
+  }
+
+  enqueue(task) {
+    const request = this.requestQueue.then(task, task);
+    this.requestQueue = request.then(() => undefined, () => undefined);
+    return request;
+  }
+
+  async performRequest(url, key, cached) {
+    let now = this.now();
+    if (now < this.cooldownUntil) {
+      if (isUsableStaleCache(cached, now)) return cached.data;
+      throw new RateLimitError(429, this.cooldownUntil);
+    }
+
+    const waitMs = Math.max(0, this.lastRequestAt + this.minRequestIntervalMs - now);
+    if (waitMs > 0) await this.sleep(waitMs);
+    now = this.now();
+    this.lastRequestAt = now;
+
     const verification = await this.getStoredVerification();
-    const response = await fetchGuestResponse(url, verification);
-    return parseJsonResponse(response, Boolean(verification.cookieHeader && verification.userAgent));
+    const hasVerification = Boolean(verification.cookieHeader && verification.userAgent);
+    const response = await this.fetchResponse(url, verification);
+    if (response.status === 403 || response.status === 429) {
+      const fallbackMs = response.status === 429 ? DEFAULT_RATE_LIMIT_COOLDOWN_MS : 45_000;
+      const cooldownMs = retryAfterMilliseconds(response.retryAfter, now, fallbackMs);
+      this.cooldownUntil = Math.max(this.cooldownUntil, now + cooldownMs);
+      if (isUsableStaleCache(cached, now)) return cached.data;
+      if (response.status === 429) throw new RateLimitError(429, this.cooldownUntil);
+      throw new CloudflareError(hasVerification, hasVerification
+        ? `Cloudflare 拒绝或暂时限制了请求。插件已暂停联网 ${Math.ceil(cooldownMs / 1000)} 秒；请等待后再试，持续出现 403 时再更新游客参数。`
+        : undefined);
+    }
+
+    const data = parseJsonResponse(response, hasVerification);
+    this.cache.set(key, { data, storedAt: now });
+    while (this.cache.size > 80) this.cache.delete(this.cache.keys().next().value);
+    return data;
+  }
+
+  resetRequestState() {
+    this.cache.clear();
+    this.cooldownUntil = 0;
+    this.lastRequestAt = 0;
   }
 
   async saveManualVerification({ cookieHeader, userAgent, validate = true }) {
@@ -69,8 +155,9 @@ class GuestRequestSession {
       throw new Error('User-Agent 格式不正确。');
     }
 
+    let validatedData;
     if (validate) {
-      const response = await fetchGuestResponse(new URL('/latest.json', SITE_ORIGIN), {
+      const response = await this.fetchResponse(new URL('/latest.json', SITE_ORIGIN), {
         cookieHeader: filteredCookies,
         userAgent: normalizedUserAgent
       });
@@ -78,17 +165,47 @@ class GuestRequestSession {
       if (!Array.isArray(data.topic_list?.topics)) {
         throw new Error('参数测试返回的数据不完整。');
       }
+      validatedData = data;
     }
 
     await this.secrets.store(GUEST_COOKIE_SECRET, filteredCookies);
     await this.secrets.delete(CLEARANCE_SECRET);
     await this.secrets.store(USER_AGENT_SECRET, normalizedUserAgent);
+    this.resetRequestState();
+    if (validatedData) {
+      const storedAt = this.now();
+      this.lastRequestAt = storedAt;
+      this.cache.set(new URL('/latest.json', SITE_ORIGIN).toString(), { data: validatedData, storedAt });
+    }
     return { cookieHeader: filteredCookies, userAgent: normalizedUserAgent };
   }
 
   async stop() {
-    // Manual mode owns no browser process or temporary profile.
+    this.resetRequestState();
   }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function cacheTtlForUrl(url) {
+  if (url.pathname === '/categories.json') return 10 * 60_000;
+  if (url.pathname === '/search.json') return 60_000;
+  if (/^\/t\/.+\.json$/.test(url.pathname) || /^\/t\/\d+\/posts\.json$/.test(url.pathname)) return 5 * 60_000;
+  return DEFAULT_CACHE_TTL_MS;
+}
+
+function isUsableStaleCache(cached, now) {
+  return Boolean(cached && now - cached.storedAt <= STALE_CACHE_MAX_AGE_MS);
+}
+
+function retryAfterMilliseconds(value, now, fallback) {
+  const raw = String(value || '').trim();
+  if (/^\d+$/.test(raw)) return Math.max(1_000, Number(raw) * 1000);
+  const timestamp = Date.parse(raw);
+  if (Number.isFinite(timestamp) && timestamp > now) return timestamp - now;
+  return fallback;
 }
 
 async function fetchGuestResponse(url, verification = {}) {
@@ -117,6 +234,7 @@ async function fetchGuestResponse(url, verification = {}) {
     return {
       status: response.status,
       contentLength,
+      retryAfter: response.headers.get('retry-after') || '',
       text: await readLimitedText(response, MAX_RESPONSE_BYTES)
     };
   } catch (error) {
@@ -156,7 +274,7 @@ function parseJsonResponse(response, hasClearance) {
   if (response.networkError) throw new Error('无法连接 LINUX DO，请检查网络、代理或 DNS 设置。');
   if (response.status === 403) {
     throw new CloudflareError(hasClearance, hasClearance
-      ? 'Cloudflare 仍拒绝这组参数。请在获取参数的同一个浏览器中重新验证，并从 Network 请求复制完整 Cookie 与 User-Agent。'
+      ? 'Cloudflare 拒绝了请求，可能是游客参数已失效或站点临时限流。请先稍候再试；持续出现 403 时，再从同一浏览器的 Network 请求复制完整 Cookie 与 User-Agent。'
       : undefined);
   }
   if (response.status === 429) throw new Error('站点请求过于频繁（HTTP 429），请稍后再试。');
@@ -224,19 +342,25 @@ function isLinuxDoUrl(rawUrl) {
 module.exports = {
   CLEARANCE_SECRET,
   CloudflareError,
+  DEFAULT_CACHE_TTL_MS,
+  DEFAULT_RATE_LIMIT_COOLDOWN_MS,
   GUEST_COOKIE_NAMES,
   GUEST_COOKIE_SECRET,
   GuestRequestSession,
   MAX_RESPONSE_BYTES,
+  MIN_REQUEST_INTERVAL_MS,
+  RateLimitError,
   REQUEST_TIMEOUT_MS,
   SITE_ORIGIN,
   USER_AGENT_SECRET,
   assertLinuxDoRequestUrl,
   cookieHeaderFromPairs,
+  cacheTtlForUrl,
   defaultUserAgent,
   fetchGuestResponse,
   isLinuxDoUrl,
   parseCookieHeader,
   parseJsonResponse,
+  retryAfterMilliseconds,
   readLimitedText
 };

@@ -27,16 +27,16 @@ class LinuxDoApi {
     this.browserSession = browserSession;
   }
 
-  async request(path) {
+  async request(path, options) {
     const url = new URL(path, SITE_ORIGIN);
     if (url.origin !== SITE_ORIGIN) {
       throw new Error('拒绝访问非 LINUX DO 接口。');
     }
 
-    return this.browserSession.request(url);
+    return this.browserSession.request(url, options);
   }
 
-  async list(kind, categoryId) {
+  async list(kind, categoryId, options) {
     let path;
     if (kind === 'top') {
       path = '/top.json?period=weekly';
@@ -45,12 +45,12 @@ class LinuxDoApi {
     } else {
       path = '/latest.json';
     }
-    const data = await this.request(path);
+    const data = await this.request(path, options);
     return normalizeTopicList(data, kind);
   }
 
-  async categories() {
-    const data = await this.request('/categories.json');
+  async categories(options) {
+    const data = await this.request('/categories.json', options);
     return (data.category_list?.categories || []).map((category) => ({
       id: category.id,
       name: category.name,
@@ -60,18 +60,18 @@ class LinuxDoApi {
     }));
   }
 
-  async search(query) {
-    const data = await this.request(`/search.json?q=${encodeURIComponent(query)}`);
+  async search(query, options) {
+    const data = await this.request(`/search.json?q=${encodeURIComponent(query)}`, options);
     return normalizeTopicList({ topic_list: { topics: data.topics || [] }, users: data.users || [] }, 'search');
   }
 
-  async topic(id, slug) {
+  async topic(id, slug, options) {
     const safeId = Number(id);
     if (!Number.isInteger(safeId) || safeId <= 0) {
       throw new Error('主题编号无效。');
     }
     const safeSlug = typeof slug === 'string' && /^[a-zA-Z0-9_-]+$/.test(slug) ? slug : 'topic';
-    const data = await this.request(`/t/${safeSlug}/${safeId}.json`);
+    const data = await this.request(`/t/${safeSlug}/${safeId}.json`, options);
     const posts = (data.post_stream?.posts || []).map(normalizePost);
     const loadedPostIds = new Set(posts.map((post) => post.id));
     const remainingPostIds = (data.post_stream?.stream || [])
@@ -93,7 +93,7 @@ class LinuxDoApi {
     };
   }
 
-  async topicPosts(topicId, postIds) {
+  async topicPosts(topicId, postIds, options) {
     const safeTopicId = Number(topicId);
     if (!Number.isInteger(safeTopicId) || safeTopicId <= 0) {
       throw new Error('主题编号无效。');
@@ -103,14 +103,14 @@ class LinuxDoApi {
       .slice(0, 20);
     if (!safePostIds.length) return [];
     const query = safePostIds.map((postId) => `post_ids%5B%5D=${postId}`).join('&');
-    const data = await this.request(`/t/${safeTopicId}/posts.json?${query}`);
+    const data = await this.request(`/t/${safeTopicId}/posts.json?${query}`, options);
     return (data.post_stream?.posts || data.posts || []).map(normalizePost);
   }
 
-  async topicListPage(morePath, kind) {
+  async topicListPage(morePath, kind, options) {
     const safePath = normalizeMoreTopicsPath(morePath);
     if (!safePath) throw new Error('主题分页地址无效。');
-    const data = await this.request(safePath);
+    const data = await this.request(safePath, options);
     return normalizeTopicList(data, kind);
   }
 }
@@ -303,7 +303,7 @@ class GuestReaderPanel {
         await this.openExternal(message.url);
         break;
       case 'cloudflareSetup':
-        await configureCloudflare(this.context, this.browserSession, () => this.refresh());
+        await configureCloudflare(this.context, this.browserSession, () => this.refresh(false));
         break;
       case 'shareCurrent':
         await this.shareCurrentTopic();
@@ -317,9 +317,9 @@ class GuestReaderPanel {
     }
   }
 
-  async refresh() {
+  async refresh(force = true) {
     if (!this.currentAction) return this.navigate(this.initialView);
-    return this.loadAction(this.currentAction, true);
+    return this.loadAction(this.currentAction, true, { force });
   }
 
   async openAction(action, recordHistory = true) {
@@ -361,13 +361,13 @@ class GuestReaderPanel {
     vscode.window.showInformationMessage(`临时分享码已复制，将于 ${expiresAt} 失效。`);
   }
 
-  async loadAction(action, resetListCursor) {
+  async loadAction(action, resetListCursor, requestOptions) {
     if (resetListCursor) action.topicListCursor = undefined;
-    if (action.type === 'topic') return this.loadTopic(action.id, action.slug);
-    if (action.type === 'category') return this.loadList('category', action.id, action.name);
-    if (action.type === 'search') return this.loadSearch(action.query);
-    if (action.view === 'categories') return this.loadCategories();
-    return this.loadList(action.view === 'top' ? 'top' : 'latest');
+    if (action.type === 'topic') return this.loadTopic(action.id, action.slug, requestOptions);
+    if (action.type === 'category') return this.loadList('category', action.id, action.name, requestOptions);
+    if (action.type === 'search') return this.loadSearch(action.query, requestOptions);
+    if (action.view === 'categories') return this.loadCategories(requestOptions);
+    return this.loadList(action.view === 'top' ? 'top' : 'latest', undefined, undefined, requestOptions);
   }
 
   async goBack() {
@@ -442,10 +442,10 @@ class GuestReaderPanel {
     }
   }
 
-  loadList(kind, categoryId, categoryName) {
+  loadList(kind, categoryId, categoryName, requestOptions) {
     const action = this.currentAction;
     return this.runLoad(
-      () => this.api.list(kind, categoryId),
+      () => this.api.list(kind, categoryId, requestOptions),
       'topicList',
       { kind, categoryName },
       (data) => {
@@ -454,14 +454,14 @@ class GuestReaderPanel {
     );
   }
 
-  loadCategories() {
-    return this.runLoad(() => this.api.categories(), 'categories');
+  loadCategories(requestOptions) {
+    return this.runLoad(() => this.api.categories(requestOptions), 'categories');
   }
 
-  loadTopic(id, slug) {
+  loadTopic(id, slug, requestOptions) {
     const action = this.currentAction;
     return this.runLoad(
-      () => this.api.topic(id, slug),
+      () => this.api.topic(id, slug, requestOptions),
       'topic',
       {},
       (data) => {
@@ -473,12 +473,12 @@ class GuestReaderPanel {
     );
   }
 
-  loadSearch(query) {
+  loadSearch(query, requestOptions) {
     if (!query) {
       this.post({ type: 'error', message: '请输入搜索关键词。' });
       return;
     }
-    return this.runLoad(() => this.api.search(query), 'topicList', { kind: 'search', query });
+    return this.runLoad(() => this.api.search(query, requestOptions), 'topicList', { kind: 'search', query });
   }
 
   async openExternal(rawUrl) {
@@ -743,7 +743,7 @@ function activate(context) {
       provider.refresh();
       GuestReaderPanel.current?.refresh();
     }),
-    vscode.commands.registerCommand('linuxdoGuest.setCloudflareClearance', () => configureCloudflare(context, browserSession, () => GuestReaderPanel.current?.refresh())),
+    vscode.commands.registerCommand('linuxdoGuest.setCloudflareClearance', () => configureCloudflare(context, browserSession, () => GuestReaderPanel.current?.refresh(false))),
     vscode.commands.registerCommand('linuxdoGuest.clearCloudflareClearance', () => clearCloudflare(context, browserSession)),
     vscode.commands.registerCommand('linuxdoGuest.shareCurrentTopic', () => GuestReaderPanel.current?.shareCurrentTopic() || vscode.window.showInformationMessage('请先打开一个主题。')),
     vscode.commands.registerCommand('linuxdoGuest.openShareCode', () => openShareCode(context, browserSession)),

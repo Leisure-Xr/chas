@@ -1240,7 +1240,7 @@
       if (!topicState.loading) {
         loadMoreObserver = new IntersectionObserver((entries) => {
           if (entries.some((entry) => entry.isIntersecting)) requestMorePosts();
-        }, { rootMargin: '600px 0px' });
+        }, { rootMargin: '120px 0px' });
         loadMoreObserver.observe(footer);
       }
     } else {
@@ -1303,7 +1303,7 @@
       if (!topicListState.loading) {
         topicListObserver = new IntersectionObserver((entries) => {
           if (entries.some((entry) => entry.isIntersecting)) requestMoreTopics();
-        }, { rootMargin: '800px 0px' });
+        }, { rootMargin: '160px 0px' });
         topicListObserver.observe(footer);
       }
     } else {

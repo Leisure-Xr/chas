@@ -4,20 +4,20 @@
 
 ## 下载
 
-- [VS Code 0.11.0](dist/linuxdo-guest-browser-vscode-0.11.0.vsix)
-- [PyCharm 0.7.0](dist/linuxdo-guest-browser-pycharm-0.7.0.zip)
+- [VS Code 0.12.0](dist/linuxdo-guest-browser-vscode-0.12.0.vsix)
+- [PyCharm 0.8.0](dist/linuxdo-guest-browser-pycharm-0.8.0.zip)
 
 ### VS Code
 
 打开扩展面板，选择右上角菜单中的 `Install from VSIX...`，然后选择 VSIX 文件。
 
-VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。验证设置页只支持手动填写 Cookie 与 User-Agent，不会启动、控制或读取 Chrome、Edge、Brave 等外部浏览器。参数会从你复制的 Request Headers 中解析，并通过 `/latest.json` 测试后才会保存；完整的 Windows DevTools 获取步骤和示意图见 [VS Code 说明](vscode/README.md)。
+VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。请求经过单并发队列、最小间隔和短期内存缓存，403/429 后会停止联网一段时间，避免连续刷新加重站点限制。验证设置页只支持手动填写 Cookie 与 User-Agent，不会启动、控制或读取 Chrome、Edge、Brave 等外部浏览器。参数会从你复制的 Request Headers 中解析，并通过 `/latest.json` 测试后才会保存；完整的 Windows DevTools 获取步骤和示意图见 [VS Code 说明](vscode/README.md)。
 
 ### PyCharm
 
 打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。
 
-PyCharm 版使用内嵌 JCEF 浏览器，保留网页原生滚动和浏览历史。工具栏与 VS Code 版统一，提供最新、热门、分类、搜索、分享和刷新。启动清理 Cookie 期间点击导航也会保留最后一次请求，不再固定跳回最新页。
+PyCharm 版使用内嵌 JCEF 浏览器，默认采用接近 IDE 文档与代码示例的演示布局，可随时切回原网页。工具栏提供最新、热门、分类、搜索、分享、刷新和浏览历史；最近 60 条公开页面历史保存在本机，可从历史菜单打开或全部清除。启动清理 Cookie 期间点击导航也会保留最后一次请求，不再固定跳回最新页。
 
 ### 休息提醒与小游戏
 
@@ -59,7 +59,8 @@ cd pycharm
 - 不要求或保存论坛账号、密码和登录令牌。
 - VS Code 仅保存游客验证白名单 Cookie，使用 SecretStorage 加密存储。
 - PyCharm 会清理其 JCEF 配置中的 `linux.do` Cookie，不影响系统浏览器。
-- 只持久化休息提醒开关和五款游戏的最高分整数，不记录游戏过程或使用时长。
+- PyCharm 只额外保存演示模式开关，以及最近 60 条公开页面的标题、URL 和访问时间；历史菜单可一键清除。
+- 游戏只保存休息提醒开关和五款游戏的最高分整数，不记录游戏过程或使用时长。
 - 不包含分析、遥测或广告代码。
 
 本项目与 LINUX DO 官方无隶属关系。使用时请遵守站点服务条款和访问频率限制。

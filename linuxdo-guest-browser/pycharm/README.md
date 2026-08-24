@@ -3,12 +3,18 @@
 A small PyCharm tool-window plugin for reading [linux.do](https://linux.do/) without
 an account.
 
-The tool window follows the VS Code extension's compact reader layout. It includes
-back and forward navigation, latest/top/category shortcuts, public topic search,
-refresh, temporary topic sharing, and a compact/original page density toggle. The
-last navigation requested while the guest session is being initialized is preserved.
-The toolbar adapts to the tool-window width; low-frequency actions move into the
-`...` menu on narrow windows.
+The tool window defaults to a responsive demo layout that presents public lists and
+topics like IDE documentation and code samples, with a file tab, line-number gutter,
+monospaced metadata, and light/dark theme support. The original site layout remains
+available from the `</>` toggle. It includes back and forward navigation,
+latest/top/category shortcuts, public topic search, refresh, temporary topic sharing,
+and a visible history menu. The last navigation requested while the guest session is
+being initialized is preserved. The toolbar adapts to the tool-window width;
+low-frequency actions move into the `...` menu on narrow windows.
+
+The history menu keeps up to 60 recent public pages across IDE restarts. Each entry
+contains only its public `linux.do` URL, page title, and visit time. Entries can be
+opened directly, and the complete local history can be cleared from the same menu.
 
 An optional break reminder is available from the toolbar and is disabled by default.
 When enabled, it waits a random 31-60 minutes before showing a compact in-page break
@@ -32,8 +38,10 @@ encrypted, and are not an access-control mechanism.
 - The browser starts by deleting cookies for `linux.do`.
 - Login, signup, session, OAuth, and off-site main-frame navigation are blocked.
 - Closing the project disposes the browser and deletes `linux.do` cookies again.
-- The plugin has no credential fields or analytics. It only persists the break-reminder
-  preference and one integer best score per game through PyCharm's properties service.
+- The plugin has no credential fields or analytics. It persists the demo-mode and
+  break-reminder preferences, one integer best score per game, and up to 60 public
+  history entries through PyCharm's properties service. History never contains
+  cookies or login state and can be cleared from its toolbar menu.
 
 The embedded browser uses PyCharm's shared JCEF cookie manager. This plugin therefore
 also clears any existing `linux.do` session in that PyCharm JCEF profile. It does not
@@ -57,7 +65,7 @@ PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 The installable ZIP is written to:
 
 ```text
-build/distributions/linuxdo-guest-browser-pycharm-0.7.0.zip
+build/distributions/linuxdo-guest-browser-pycharm-0.8.0.zip
 ```
 
 Install it through **Settings > Plugins > gear menu > Install Plugin from Disk**,

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.7.0.zip}"
+PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.8.0.zip}"
 
 "$PROJECT_DIR/../shared/check-game-core.sh"
 
@@ -21,7 +21,10 @@ unzip -Z1 "$PLUGIN_JAR" > "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'META-INF/plugin.xml' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'break-overlay.js' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'game-core.js' "$TEMP_DIR/jar-list.txt"
+grep -Fxq 'reader-mode.css' "$TEMP_DIR/jar-list.txt"
+grep -Fxq 'reader-mode.js' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'studio/lexiao/linuxdo/LinuxDoToolWindowFactory.class' "$TEMP_DIR/jar-list.txt"
+grep -Fxq 'studio/lexiao/linuxdo/ReaderHistory.class' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'studio/lexiao/linuxdo/ShareCode.class' "$TEMP_DIR/jar-list.txt"
 
 echo "Package verification passed: $PACKAGE"
