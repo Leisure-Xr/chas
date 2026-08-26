@@ -1,4 +1,4 @@
-# LINUX DO Guest Browser
+# LINUX DO 游客阅读器
 
 在 VS Code 和 PyCharm 中以游客身份浏览 [LINUX DO](https://linux.do/)。无需论坛账号，不保存登录凭据。
 
