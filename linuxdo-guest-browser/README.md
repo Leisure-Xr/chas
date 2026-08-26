@@ -4,8 +4,15 @@
 
 ## 下载
 
-- [VS Code 0.14.0](dist/linuxdo-guest-browser-vscode-0.14.0.vsix)
-- [PyCharm 0.10.0](dist/linuxdo-guest-browser-pycharm-0.10.0.zip)
+当前稳定包已经随对应的 Git tag 提交，直接下载即可：
+
+| IDE | 版本 / tag | 安装包 | SHA-256 |
+| --- | --- | --- | --- |
+| VS Code | [`vscode-v0.14.0`](https://github.com/Leisure-Xr/chas/tree/vscode-v0.14.0) | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/vscode-v0.14.0/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.14.0.vsix) | `f0412659150731df192639f0a4627f51188e82ffd300d143854e2826ffd96c71` |
+| PyCharm | [`pycharm-v0.10.0`](https://github.com/Leisure-Xr/chas/tree/pycharm-v0.10.0) | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/pycharm-v0.10.0/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.10.0.zip) | `180e8c2a1dfb36b3618d8721c3e486cf95ba3ad671507e568342adab5ffeee42` |
+
+两个 tag 都指向同一个经过测试的提交；安装包位于该 tag 下的 `linuxdo-guest-browser/dist/`。下载后可用
+`certutil -hashfile <文件> SHA256`（Windows）或 `shasum -a 256 <文件>`（macOS/Linux）核对完整性。
 
 ### VS Code
 

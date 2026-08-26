@@ -2,6 +2,12 @@
 
 在 VS Code 中浏览 `linux.do` 的公开内容，无需登录。
 
+## 下载已发布版本
+
+- [VS Code 0.14.0 VSIX](https://github.com/Leisure-Xr/chas/raw/vscode-v0.14.0/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.14.0.vsix)
+- 对应源码：[tag `vscode-v0.14.0`](https://github.com/Leisure-Xr/chas/tree/vscode-v0.14.0)
+- SHA-256：`f0412659150731df192639f0a4627f51188e82ffd300d143854e2826ffd96c71`
+
 ## 功能
 
 - 查看最新主题、热门主题和站点分类

@@ -3,6 +3,12 @@
 A small PyCharm tool-window plugin for reading [linux.do](https://linux.do/) without
 an account.
 
+## Download the published build
+
+- [PyCharm 0.10.0 ZIP](https://github.com/Leisure-Xr/chas/raw/pycharm-v0.10.0/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.10.0.zip)
+- Source for this build: [tag `pycharm-v0.10.0`](https://github.com/Leisure-Xr/chas/tree/pycharm-v0.10.0)
+- SHA-256: `180e8c2a1dfb36b3618d8721c3e486cf95ba3ad671507e568342adab5ffeee42`
+
 The tool window defaults to a responsive demo layout that presents public lists and
 topics like IDE documentation and code samples, with a file tab, line-number gutter,
 monospaced metadata, and light/dark theme support. The original site layout remains
