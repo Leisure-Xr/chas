@@ -38,9 +38,12 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.AbstractButton;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPasswordField;
 import javax.swing.JPopupMenu;
 import javax.swing.JToggleButton;
 import javax.swing.SwingConstants;
@@ -67,6 +70,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -152,6 +156,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private volatile String currentPageTitle = "LINUX DO 公开主题";
         private JBPopup historyPopup;
         private volatile boolean disposed;
+
+        private record ShareSettings(long duration, String password) {}
 
         private GuestBrowserPanel() {
             super(new BorderLayout());
@@ -261,11 +267,26 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             toolbar.addComponentListener(new ComponentAdapter() {
                 @Override
                 public void componentResized(ComponentEvent event) {
-                    updateResponsiveToolbar(toolbar.getWidth());
+                    updateResponsiveToolbar(availableToolbarWidth(toolbar), secondRow, navigation, searchPanel);
                 }
             });
-            SwingUtilities.invokeLater(() -> updateResponsiveToolbar(toolbar.getWidth()));
+            addComponentListener(new ComponentAdapter() {
+                @Override
+                public void componentResized(ComponentEvent event) {
+                    updateResponsiveToolbar(availableToolbarWidth(toolbar), secondRow, navigation, searchPanel);
+                }
+            });
+            SwingUtilities.invokeLater(() ->
+                    updateResponsiveToolbar(availableToolbarWidth(toolbar), secondRow, navigation, searchPanel));
             return toolbar;
+        }
+
+        private int availableToolbarWidth(JPanel toolbar) {
+            int visibleWidth = toolbar.getVisibleRect().width;
+            int panelWidth = getWidth();
+            if (visibleWidth > 0 && panelWidth > 0) return Math.min(visibleWidth, panelWidth);
+            if (panelWidth > 0) return panelWidth;
+            return Math.max(0, toolbar.getWidth());
         }
 
         private static void styleToolbarButton(AbstractButton button, String tooltip) {
@@ -275,11 +296,14 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             button.putClientProperty("JButton.buttonType", "toolBarButton");
         }
 
-        private void updateResponsiveToolbar(int width) {
+        private void updateResponsiveToolbar(int width, JPanel secondRow, JPanel navigation, JPanel searchPanel) {
             boolean wide = width >= JBUI.scale(760);
             boolean narrow = width < JBUI.scale(520);
+            boolean veryNarrow = width < JBUI.scale(360);
             brandLabel.setVisible(width >= JBUI.scale(620));
             readOnlyLabel.setVisible(width >= JBUI.scale(620));
+            forwardButton.setVisible(!veryNarrow);
+            historyButton.setVisible(!veryNarrow);
             demoButton.setVisible(wide);
             breakReminderButton.setVisible(wide);
             gameButton.setVisible(!narrow);
@@ -290,6 +314,24 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             status.setVisible(width >= JBUI.scale(820));
             gameButton.setText(wide ? "小游戏" : "游戏");
             navigationButtons.values().forEach(button -> button.setMargin(JBUI.insets(2, narrow ? 5 : 8)));
+            int compactMargin = veryNarrow ? 3 : 7;
+            backButton.setMargin(JBUI.insets(2, compactMargin));
+            forwardButton.setMargin(JBUI.insets(2, compactMargin));
+            historyButton.setMargin(JBUI.insets(2, compactMargin));
+            refreshButton.setMargin(JBUI.insets(2, compactMargin));
+            overflowButton.setMargin(JBUI.insets(2, compactMargin));
+
+            secondRow.removeAll();
+            secondRow.setLayout(new BorderLayout(narrow ? 0 : JBUI.scale(8), narrow ? JBUI.scale(2) : 0));
+            if (narrow) {
+                secondRow.add(navigation, BorderLayout.NORTH);
+                secondRow.add(searchPanel, BorderLayout.CENTER);
+            } else {
+                secondRow.add(navigation, BorderLayout.WEST);
+                secondRow.add(searchPanel, BorderLayout.CENTER);
+                secondRow.add(status, BorderLayout.EAST);
+            }
+            secondRow.revalidate();
             revalidate();
             repaint();
         }
@@ -630,41 +672,122 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 status.setText("请先打开一个主题");
                 return;
             }
-            String[] choices = {"10 分钟", "1 小时", "24 小时", "7 天"};
-            Object selected = JOptionPane.showInputDialog(this, "选择分享码有效期", "分享当前主题",
-                    JOptionPane.PLAIN_MESSAGE, null, choices, choices[1]);
-            if (selected == null) return;
-            long duration = switch (selected.toString()) {
-                case "10 分钟" -> TimeUnit.MINUTES.toMillis(10);
-                case "24 小时" -> TimeUnit.HOURS.toMillis(24);
-                case "7 天" -> TimeUnit.DAYS.toMillis(7);
-                default -> TimeUnit.HOURS.toMillis(1);
-            };
+            ShareSettings settings = promptShareSettings();
+            if (settings == null) return;
             long now = System.currentTimeMillis();
-            String code = ShareCode.create(topic, duration, now);
+            String code = ShareCode.create(topic, settings.password(), settings.duration(), now);
             CopyPasteManager.getInstance().setContents(new StringSelection(code));
             String expiry = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-                    .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(now + duration));
-            status.setText("分享码已复制，" + expiry + " 失效");
+                    .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(now + settings.duration()));
+            status.setText("加密分享内容已复制，" + expiry + " 失效");
             JOptionPane.showMessageDialog(
                     this,
-                    "分享码已复制到剪贴板。\n\n把完整的 LDGS1 分享码发给对方；对方在 VS Code 或 PyCharm 插件中选择\n“打开临时分享码”，粘贴后即可打开同一个公开主题。\n\n失效时间：" + expiry,
-                    "临时分享码已生成",
+                    "加密分享内容已复制到剪贴板。\n\n"
+                            + "把分享内容发给对方，并通过另一渠道告知刚才设置的分享密码。\n"
+                            + "密码不会写入分享内容或保存在插件中。\n\n失效时间：" + expiry,
+                    "加密分享已生成",
                     JOptionPane.INFORMATION_MESSAGE
             );
         }
 
+        private ShareSettings promptShareSettings() {
+            String[] choices = {"10 分钟", "1 小时", "24 小时", "7 天"};
+            JComboBox<String> duration = new JComboBox<>(choices);
+            duration.setSelectedIndex(1);
+            JPasswordField password = new JPasswordField(28);
+            JPasswordField confirmation = new JPasswordField(28);
+            char echoCharacter = password.getEchoChar();
+            JCheckBox showPassword = new JCheckBox("显示密码");
+            JButton generate = new JButton("生成 20 位强密码");
+
+            showPassword.addActionListener(event -> {
+                char echo = showPassword.isSelected() ? 0 : echoCharacter;
+                password.setEchoChar(echo);
+                confirmation.setEchoChar(echo);
+            });
+            generate.addActionListener(event -> {
+                String generated = ShareCode.generatePassword();
+                password.setText(generated);
+                confirmation.setText(generated);
+                if (!showPassword.isSelected()) showPassword.doClick();
+                password.selectAll();
+                password.requestFocusInWindow();
+            });
+
+            JPanel form = new JPanel();
+            form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
+            form.add(new JLabel("有效期"));
+            form.add(duration);
+            form.add(Box.createVerticalStrut(JBUI.scale(8)));
+            form.add(new JLabel("分享密码（至少 12 个字符）"));
+            form.add(password);
+            form.add(Box.createVerticalStrut(JBUI.scale(6)));
+            form.add(new JLabel("确认密码"));
+            form.add(confirmation);
+            JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEADING, JBUI.scale(6), JBUI.scale(6)));
+            controls.add(showPassword);
+            controls.add(generate);
+            form.add(controls);
+            form.add(new JLabel("<html><small>密码不会保存。生成强密码后，请先复制或保存，再点击确定。</small></html>"));
+
+            while (true) {
+                int answer = JOptionPane.showConfirmDialog(this, form, "设置加密分享",
+                        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (answer != JOptionPane.OK_OPTION) return null;
+                char[] passwordChars = password.getPassword();
+                char[] confirmationChars = confirmation.getPassword();
+                boolean matches = Arrays.equals(passwordChars, confirmationChars);
+                String value = new String(passwordChars);
+                Arrays.fill(passwordChars, '\0');
+                Arrays.fill(confirmationChars, '\0');
+                if (!matches) {
+                    JOptionPane.showMessageDialog(this, "两次输入的分享密码不一致。", "无法生成分享", JOptionPane.ERROR_MESSAGE);
+                    continue;
+                }
+                try {
+                    ShareCode.validatePassword(value);
+                } catch (IllegalArgumentException error) {
+                    JOptionPane.showMessageDialog(this, error.getMessage(), "无法生成分享", JOptionPane.ERROR_MESSAGE);
+                    continue;
+                }
+                long durationMillis = switch (String.valueOf(duration.getSelectedItem())) {
+                    case "10 分钟" -> TimeUnit.MINUTES.toMillis(10);
+                    case "24 小时" -> TimeUnit.HOURS.toMillis(24);
+                    case "7 天" -> TimeUnit.DAYS.toMillis(7);
+                    default -> TimeUnit.HOURS.toMillis(1);
+                };
+                return new ShareSettings(durationMillis, value);
+            }
+        }
+
         private void openShareCode() {
             String clipboard = CopyPasteManager.getInstance().getContents(DataFlavor.stringFlavor);
-            String initialValue = clipboard != null && clipboard.trim().startsWith("LDGS1.") ? clipboard.trim() : "";
-            Object input = JOptionPane.showInputDialog(this, "粘贴对方发来的 LDGS1 临时分享码。\n插件会校验完整性和有效期，然后打开其中的公开主题。", "打开临时分享码",
+            String initialValue = clipboard != null && clipboard.trim().startsWith("LDGS2.") ? clipboard.trim() : "";
+            Object input = JOptionPane.showInputDialog(this,
+                    "第 1/2 步：粘贴对方发来的加密分享内容。\n内部格式标识无需手动填写或理解。", "打开加密分享",
                     JOptionPane.PLAIN_MESSAGE, null, null, initialValue);
             if (input == null) return;
+            if (input.toString().trim().startsWith("LDGS1.")) {
+                JOptionPane.showMessageDialog(this,
+                        "旧版分享内容没有密码加密，已停止支持。请让发送方使用新版插件重新生成。",
+                        "无法打开分享", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            JPasswordField passwordField = new JPasswordField(34);
+            JPanel passwordPanel = new JPanel(new BorderLayout(0, JBUI.scale(8)));
+            passwordPanel.add(new JLabel("<html>第 2/2 步：输入发送方通过另一渠道提供的分享密码。<br>密码只用于本次解密，不会保存。</html>"), BorderLayout.NORTH);
+            passwordPanel.add(passwordField, BorderLayout.CENTER);
+            int passwordAnswer = JOptionPane.showConfirmDialog(this, passwordPanel, "输入分享密码",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            if (passwordAnswer != JOptionPane.OK_OPTION) return;
+            char[] passwordChars = passwordField.getPassword();
+            String password = new String(passwordChars);
+            Arrays.fill(passwordChars, '\0');
             try {
-                ShareCode.Decoded decoded = ShareCode.parse(input.toString(), System.currentTimeMillis());
+                ShareCode.Decoded decoded = ShareCode.parse(input.toString(), password, System.currentTimeMillis());
                 navigateTo(decoded.topic().url());
             } catch (IllegalArgumentException error) {
-                JOptionPane.showMessageDialog(this, error.getMessage(), "无法打开分享码", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, error.getMessage(), "无法打开分享", JOptionPane.ERROR_MESSAGE);
             }
         }
 
@@ -672,12 +795,15 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             JOptionPane.showMessageDialog(
                     this,
                     "1. 打开一个公开主题，点击工具栏“分享”。\n"
-                            + "2. 选择 10 分钟、1 小时、24 小时或 7 天，分享码会自动复制。\n"
-                            + "3. 把完整的 LDGS1 分享码发给对方。\n"
-                            + "4. 对方在 VS Code 或 PyCharm 插件中选择“打开临时分享码”并粘贴。\n\n"
-                            + "分享码不是加密内容：中间段只是 Base64URL 编码，末尾是截短的 SHA-256 校验和。\n"
-                            + "插件不进行解密，也没有盐或秘密密钥。生成时间与过期时间写在载荷中；\n"
-                            + "到期后插件会拒绝导入，但已经打开或另行保存的公开 URL 无法被撤回。",
+                            + "2. 选择有效期，填写并确认至少 12 个字符的密码；也可生成 20 位强密码。\n"
+                            + "3. 插件把加密分享内容复制到剪贴板；把它发给对方，并通过另一渠道告知密码。\n"
+                            + "4. 对方选择“打开临时分享码”，粘贴分享内容并输入相同密码。\n\n"
+                            + "主题、标题、生成时间和过期时间均使用 AES-256-GCM 加密。密码经随机盐和\n"
+                            + "600,000 次 PBKDF2-HMAC-SHA256 派生密钥；密码不进入分享内容，也不会保存。\n"
+                            + "只有分享内容而没有密码，即使知道算法和源码也无法直接还原主题。\n\n"
+                            + "请使用不易猜测的密码并通过另一渠道发送。如果中间人同时获得分享内容和密码，\n"
+                            + "或密码过于简单，纯客户端插件无法继续保密。到期后插件拒绝导入，\n"
+                            + "但已经打开或另行保存的公开 URL 无法撤回。",
                     "临时分享码使用说明",
                     JOptionPane.INFORMATION_MESSAGE
             );

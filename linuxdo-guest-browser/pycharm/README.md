@@ -9,8 +9,10 @@ monospaced metadata, and light/dark theme support. The original site layout rema
 available from the `</>` toggle. It includes back and forward navigation,
 latest/top/category shortcuts, public topic search, refresh, temporary topic sharing,
 and a visible history popup. The last navigation requested while the guest session is
-being initialized is preserved. The toolbar adapts to the tool-window width;
-low-frequency actions move into the `...` menu on narrow windows.
+being initialized is preserved. The toolbar adapts to the tool-window width: below
+about 520 px, navigation and search use separate rows; below about 360 px, the top
+row always keeps Back, Refresh, and `...`, while history, games, sharing, import,
+help, and session reset remain available from that menu.
 
 The responsive history popup keeps up to 60 recent public pages across IDE restarts.
 Each row shows its page title, public `linux.do` URL, and visit time. The popup can
@@ -31,20 +33,23 @@ is no audio, particle effect, vibration, or screen shake. Road Dodge uses one
 continuous road with press-and-hold steering instead of discrete lanes. Reminders can
 be snoozed for ten minutes or closed to continue reading.
 
-The Share toolbar button creates an expiring code for the current public topic. The
-Open Share Code button accepts a code from the clipboard or an input dialog. Codes
-expire after 10 minutes, 1 hour, 24 hours, or 7 days and contain no cookies, user
-agent, search state, scroll position, or reading history. They are checksummed, not
-encrypted, and are not an access-control mechanism.
+The Share toolbar button encrypts the current public topic with a password chosen by
+the user. The compact form includes four expiry presets, password confirmation, and
+a 20-character strong-password generator. The receiving plugin asks only for the
+encrypted share content and the same password. Passwords are never stored. Shares
+contain no cookies, user agent, search state, scroll position, or reading history.
 
 ## 临时分享码教程
 
 1. 在工具窗口中打开一个公开主题，点击“分享”。
-2. 选择 10 分钟、1 小时、24 小时或 7 天；插件会把 `LDGS1` 分享码复制到剪贴板。
-3. 把完整分享码发给对方。对方在 VS Code 或 PyCharm 插件中点击“打开分享码”并粘贴。
-4. 窄窗口可在 `...` 菜单中找到“临时分享码使用说明”。生成和导入对话框也会提示下一步。
+2. 选择有效期，填写并确认至少 12 个字符的密码；也可以生成 20 位强密码。
+3. 插件复制加密分享内容。把它发给对方，并通过另一渠道告知密码。
+4. 对方点击“打开分享码”，粘贴分享内容并输入相同密码。
+5. 窄窗口可在 `...` 菜单中找到“临时分享码使用说明”。
 
-格式为 `LDGS1.<Base64URL 载荷>.<SHA-256 校验和>`。载荷只包含版本、主题编号、slug、标题、生成时间和过期时间。Base64URL 是编码而不是加密，所以插件没有解密步骤；末尾 16 个十六进制字符是 SHA-256 的前 8 字节，只用于检测损坏或修改。分享码不使用盐或秘密密钥，因为写进两个公开插件的固定秘密可以被提取，无法提供真正的保密性。到期后插件拒绝导入，但不能撤回已经打开或另行保存的公开 URL。
+主题、标题、生成时间和过期时间均使用 AES-256-GCM 加密。密码先做 NFKC 规范化，再经随机 16 字节盐和 600,000 次 PBKDF2-HMAC-SHA256 派生 256 位密钥；每次分享还会生成独立的 12 字节 nonce。密码不写入分享内容或插件存储。只有分享内容而没有密码，即使知道算法和源码也无法直接还原主题。
+
+请使用不易猜测的密码，并与加密分享内容分渠道发送。同时取得分享内容和密码的人仍可解密，弱密码也可能被离线猜测。内部格式标识无需手动处理，旧版未加密分享内容会被拒绝。到期后插件拒绝导入，但不能撤回已经打开或另行保存的公开 URL。
 
 ## Privacy behavior
 
@@ -78,7 +83,7 @@ PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 The installable ZIP is written to:
 
 ```text
-build/distributions/linuxdo-guest-browser-pycharm-0.9.0.zip
+build/distributions/linuxdo-guest-browser-pycharm-0.10.0.zip
 ```
 
 Install it through **Settings > Plugins > gear menu > Install Plugin from Disk**,

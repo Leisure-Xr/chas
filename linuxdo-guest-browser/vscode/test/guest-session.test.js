@@ -7,6 +7,7 @@ const {
   GuestRequestSession,
   MAX_RESPONSE_BYTES,
   RateLimitError,
+  SupersededRequestError,
   assertLinuxDoRequestUrl,
   cookieHeaderFromPairs,
   parseCookieHeader,
@@ -103,7 +104,7 @@ test('guest session coalesces duplicate requests and serves a fresh cache entry'
   assert.equal(calls, 1);
 });
 
-test('guest session serializes different URLs and enforces the minimum interval', async () => {
+test('guest session allows a two-request burst and refills at the configured rate', async () => {
   let now = 10_000;
   const waits = [];
   const calls = [];
@@ -113,16 +114,51 @@ test('guest session serializes different URLs and enforces the minimum interval'
       waits.push(milliseconds);
       now += milliseconds;
     },
-    minRequestIntervalMs: 1_500,
+    requestBurstCapacity: 2,
+    requestRefillIntervalMs: 2_200,
     fetchResponse: async (url) => {
       calls.push(url.pathname);
       return { status: 200, contentLength: 2, text: '{}' };
     }
   });
 
-  await Promise.all([session.request('/latest.json'), session.request('/top.json')]);
-  assert.deepEqual(calls, ['/latest.json', '/top.json']);
-  assert.deepEqual(waits, [1_500]);
+  await Promise.all([
+    session.request('/latest.json'),
+    session.request('/top.json'),
+    session.request('/categories.json'),
+    session.request('/search.json?q=test')
+  ]);
+  assert.deepEqual(calls, ['/latest.json', '/top.json', '/categories.json', '/search.json']);
+  assert.deepEqual(waits, [2_200, 2_200]);
+});
+
+test('frequency comparison covers 800, 1500 and 2200 millisecond refill rates', async () => {
+  assert.deepEqual(await Promise.all([800, 1_500, 2_200].map(simulateFiveRequests)), [2_400, 4_500, 6_600]);
+});
+
+test('new navigation cancels an obsolete queued navigation before it reaches the site', async () => {
+  let releaseFirst;
+  const calls = [];
+  const firstResponse = new Promise((resolve) => { releaseFirst = resolve; });
+  const session = new GuestRequestSession(memorySecrets(), {
+    requestRefillIntervalMs: 0,
+    fetchResponse: async (url) => {
+      calls.push(url.pathname);
+      if (url.pathname === '/latest.json') return firstResponse;
+      return { status: 200, contentLength: 2, text: '{}' };
+    }
+  });
+
+  const first = session.request('/latest.json', { requestLane: 'navigation' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const obsolete = session.request('/top.json', { requestLane: 'navigation' });
+  const newest = session.request('/categories.json', { requestLane: 'navigation' });
+  releaseFirst({ status: 200, contentLength: 2, text: '{}' });
+
+  await first;
+  await assert.rejects(obsolete, SupersededRequestError);
+  await newest;
+  assert.deepEqual(calls, ['/latest.json', '/categories.json']);
 });
 
 test('guest session enters cooldown after rate limiting without retrying', async () => {
@@ -163,6 +199,47 @@ test('guest session falls back to a recent stale cache entry during cooldown', a
   assert.deepEqual(await session.request('/latest.json'), { ok: true });
   assert.equal(calls, 2);
 });
+
+test('a 403 after a recent success is treated as temporary rate limiting', async () => {
+  let now = 40_000;
+  let calls = 0;
+  const session = new GuestRequestSession(memorySecrets(), {
+    now: () => now,
+    requestRefillIntervalMs: 0,
+    fetchResponse: async () => {
+      calls += 1;
+      return calls === 1
+        ? { status: 200, contentLength: 11, text: '{"ok":true}' }
+        : { status: 403, contentLength: 0, text: '' };
+    }
+  });
+
+  await session.request('/latest.json');
+  now += 1_000;
+  await assert.rejects(
+    () => session.request('/top.json'),
+    (error) => error instanceof RateLimitError && error.status === 403
+  );
+  now += 5_000;
+  await assert.rejects(
+    () => session.request('/categories.json'),
+    (error) => error instanceof RateLimitError && error.status === 403
+  );
+  assert.equal(calls, 2);
+});
+
+async function simulateFiveRequests(refillInterval) {
+  let now = 100_000;
+  const session = new GuestRequestSession(memorySecrets(), {
+    now: () => now,
+    sleep: async (milliseconds) => { now += milliseconds; },
+    requestBurstCapacity: 2,
+    requestRefillIntervalMs: refillInterval,
+    fetchResponse: async () => ({ status: 200, contentLength: 2, text: '{}' })
+  });
+  await Promise.all(Array.from({ length: 5 }, (_, index) => session.request(`/latest.json?page=${index}`)));
+  return now - 100_000;
+}
 
 function memorySecrets() {
   const values = new Map();

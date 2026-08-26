@@ -11,7 +11,7 @@ const {
   USER_AGENT_SECRET,
   isLinuxDoUrl
 } = require('./guest-session');
-const { createShareCode, parseShareCode } = require('./share-code');
+const { createShareCode, generatePassword, parseShareCode, validatePassword } = require('./share-code');
 const {
   addHistoryEntry,
   createHistoryEntry,
@@ -346,6 +346,7 @@ class GuestReaderPanel {
   }
 
   async openAction(action, recordHistory = true) {
+    this.browserSession.cancelPendingRequests(['navigation', 'topic-more', 'list-more']);
     if (recordHistory && this.currentAction && !sameAction(this.currentAction, action)) {
       this.history.push(this.currentAction);
       if (this.history.length > 50) this.history.shift();
@@ -374,15 +375,23 @@ class GuestReaderPanel {
       return;
     }
     const duration = await vscode.window.showQuickPick(SHARE_DURATIONS, {
-      title: '选择分享码有效期',
+      title: '选择加密分享有效期',
       placeHolder: '默认 1 小时'
     });
     if (!duration) return;
-    const code = createShareCode(action, duration.milliseconds);
+    const password = await promptSharePassword();
+    if (password === undefined) return;
+    let code;
+    try {
+      code = createShareCode(action, password, duration.milliseconds);
+    } catch (error) {
+      vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+      return;
+    }
     await vscode.env.clipboard.writeText(code);
     const expiresAt = new Date(Date.now() + duration.milliseconds).toLocaleString('zh-CN', { hour12: false });
     const choice = await vscode.window.showInformationMessage(
-      `临时分享码已复制，将于 ${expiresAt} 失效。把分享码发送给对方，对方在插件中执行“打开临时分享码”并粘贴即可。`,
+      `加密分享内容已复制，将于 ${expiresAt} 失效。请通过另一渠道把分享密码告诉对方；插件不会保存密码。`,
       '查看分享教程'
     );
     if (choice) await showShareHelp();
@@ -446,6 +455,7 @@ class GuestReaderPanel {
   async goBack() {
     const previous = this.history.pop();
     if (!previous) return;
+    this.browserSession.cancelPendingRequests(['navigation', 'topic-more', 'list-more']);
     this.currentAction = previous;
     this.moreSequence += 1;
     this.listMoreSequence += 1;
@@ -466,7 +476,10 @@ class GuestReaderPanel {
     if (!postIds.length) return;
     const current = ++this.moreSequence;
     try {
-      const posts = await this.api.topicPosts(safeTopicId, postIds);
+      const posts = await this.api.topicPosts(safeTopicId, postIds, {
+        requestLane: 'topic-more',
+        cancelPendingLanes: ['topic-more']
+      });
       if (current === this.moreSequence) {
         this.post({ type: 'morePosts', topicId: safeTopicId, posts, requestedPostIds: postIds });
       }
@@ -483,7 +496,10 @@ class GuestReaderPanel {
     const current = ++this.listMoreSequence;
     try {
       const kind = action.type === 'category' ? 'category' : action.view === 'top' ? 'top' : 'latest';
-      const data = await this.api.topicListPage(action.topicListCursor, kind);
+      const data = await this.api.topicListPage(action.topicListCursor, kind, {
+        requestLane: 'list-more',
+        cancelPendingLanes: ['list-more']
+      });
       if (current === this.listMoreSequence && this.currentAction?.entryId === action.entryId) {
         action.topicListCursor = data.morePath;
         this.post({ type: 'moreTopics', topics: data.topics, hasMore: Boolean(data.morePath) });
@@ -518,7 +534,7 @@ class GuestReaderPanel {
   loadList(kind, categoryId, categoryName, requestOptions) {
     const action = this.currentAction;
     return this.runLoad(
-      () => this.api.list(kind, categoryId, requestOptions),
+      () => this.api.list(kind, categoryId, navigationRequestOptions(requestOptions)),
       'topicList',
       { kind, categoryName },
       (data) => {
@@ -537,7 +553,7 @@ class GuestReaderPanel {
 
   loadCategories(requestOptions) {
     const action = this.currentAction;
-    return this.runLoad(() => this.api.categories(requestOptions), 'categories', {}, () => {
+    return this.runLoad(() => this.api.categories(navigationRequestOptions(requestOptions)), 'categories', {}, () => {
       if (this.currentAction?.entryId === action?.entryId) this.recordVisit(action, '浏览分类');
     });
   }
@@ -545,7 +561,7 @@ class GuestReaderPanel {
   loadTopic(id, slug, requestOptions) {
     const action = this.currentAction;
     return this.runLoad(
-      () => this.api.topic(id, slug, requestOptions),
+      () => this.api.topic(id, slug, navigationRequestOptions(requestOptions)),
       'topic',
       {},
       (data) => {
@@ -564,7 +580,7 @@ class GuestReaderPanel {
       return;
     }
     const action = this.currentAction;
-    return this.runLoad(() => this.api.search(query, requestOptions), 'topicList', { kind: 'search', query }, () => {
+    return this.runLoad(() => this.api.search(query, navigationRequestOptions(requestOptions)), 'topicList', { kind: 'search', query }, () => {
       if (this.currentAction?.entryId === action?.entryId) this.recordVisit(action, `搜索：${query}`);
     });
   }
@@ -640,6 +656,14 @@ function sameAction(left, right) {
     left?.id === right?.id &&
     left?.slug === right?.slug &&
     left?.query === right?.query;
+}
+
+function navigationRequestOptions(options) {
+  return {
+    ...(options || {}),
+    requestLane: 'navigation',
+    cancelPendingLanes: ['navigation', 'topic-more', 'list-more']
+  };
 }
 
 class GuestTreeProvider {
@@ -792,14 +816,26 @@ async function clearCloudflare(context, browserSession) {
 async function openShareCode(context, browserSession) {
   const clipboard = await vscode.env.clipboard.readText();
   const code = await vscode.window.showInputBox({
-    title: '打开 LINUX DO 临时分享码',
-    prompt: '粘贴对方发来的 LDGS1 分享码。插件会校验完整性和有效期，然后打开其中的公开主题。',
-    value: clipboard.trim().startsWith('LDGS1.') ? clipboard.trim() : '',
+    title: '打开 LINUX DO 加密分享（第 1/2 步）',
+    prompt: '粘贴对方发来的加密分享内容。内部格式标识无需手动填写或理解。',
+    value: clipboard.trim().startsWith('LDGS2.') ? clipboard.trim() : '',
     ignoreFocusOut: true
   });
   if (code === undefined) return;
+  if (code.trim().startsWith('LDGS1.')) {
+    vscode.window.showErrorMessage('旧版分享内容没有密码加密，已停止支持。请让发送方使用新版插件重新生成。');
+    return;
+  }
+  const password = await vscode.window.showInputBox({
+    title: '打开 LINUX DO 加密分享（第 2/2 步）',
+    prompt: '输入发送方通过另一渠道提供的分享密码。密码只用于本次解密，不会保存。',
+    password: true,
+    ignoreFocusOut: true,
+    validateInput: passwordValidationMessage
+  });
+  if (password === undefined) return;
   try {
-    const topic = parseShareCode(code);
+    const topic = parseShareCode(code, password);
     const panel = GuestReaderPanel.createOrShow(context, browserSession, 'latest');
     panel.openSharedTopic(topic);
   } catch (error) {
@@ -814,14 +850,62 @@ async function showShareHelp() {
       modal: true,
       detail: [
         '1. 打开一个公开主题，点击工具栏“分享”或执行“LINUX DO: 分享当前主题”。',
-        '2. 选择 10 分钟、1 小时、24 小时或 7 天；分享码会自动复制到剪贴板。',
-        '3. 把完整的 LDGS1 分享码发给对方。',
-        '4. 对方在 VS Code 或 PyCharm 插件中选择“打开临时分享码”，粘贴后即可打开主题。',
+        '2. 选择 10 分钟、1 小时、24 小时或 7 天，并填写至少 12 个字符的分享密码；也可生成 20 位强密码。',
+        '3. 插件把加密分享内容复制到剪贴板。把它发给对方，并通过另一渠道告知分享密码。',
+        '4. 对方选择“打开临时分享码”，粘贴分享内容并输入相同密码即可。',
         '',
-        '它不是加密：中间段只是 Base64URL 编码，末尾是截短的 SHA-256 校验和。插件不进行解密，也没有盐或秘密密钥。生成时间和过期时间写在载荷中；到期后插件拒绝导入，但已经打开或另行保存的公开 URL 无法被撤回。'
+        '主题、标题、生成时间和过期时间都使用 AES-256-GCM 加密。密码经随机盐和 600,000 次 PBKDF2-HMAC-SHA256 派生密钥；盐用于防预计算，密码不写入分享内容，也不会保存。只有分享内容而没有密码，即使知道算法和源码也无法直接还原主题。',
+        '',
+        '请使用不易猜测的密码并通过另一渠道发送。如果中间人同时取得分享内容和密码，或密码过于简单，纯客户端插件无法继续保密。到期后插件拒绝导入，但已打开或另行保存的公开 URL 无法撤回。'
       ].join('\n')
     }
   );
+}
+
+async function promptSharePassword() {
+  const mode = await vscode.window.showQuickPick([
+    { label: '自己填写密码', description: '至少 12 个字符', value: 'manual' },
+    { label: '生成 20 位强密码', description: '生成后请先保存或通过另一渠道发送', value: 'generated' }
+  ], {
+    title: '设置分享密码',
+    placeHolder: '密码不会写入分享内容或保存'
+  });
+  if (!mode) return undefined;
+  if (mode.value === 'generated') {
+    return vscode.window.showInputBox({
+      title: '保存生成的分享密码',
+      prompt: '请先复制或保存这个密码，再按 Enter 生成加密分享内容。',
+      value: generatePassword(),
+      ignoreFocusOut: true,
+      validateInput: passwordValidationMessage
+    });
+  }
+
+  const password = await vscode.window.showInputBox({
+    title: '输入分享密码',
+    prompt: '至少 12 个字符。请使用不易猜测且未在其他网站使用的密码。',
+    password: true,
+    ignoreFocusOut: true,
+    validateInput: passwordValidationMessage
+  });
+  if (password === undefined) return undefined;
+  const confirmation = await vscode.window.showInputBox({
+    title: '确认分享密码',
+    prompt: '再次输入相同密码。',
+    password: true,
+    ignoreFocusOut: true,
+    validateInput: (value) => value !== password ? '两次输入的分享密码不一致。' : passwordValidationMessage(value)
+  });
+  return confirmation === undefined ? undefined : password;
+}
+
+function passwordValidationMessage(value) {
+  try {
+    validatePassword(value);
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }
 
 function randomNonce() {
