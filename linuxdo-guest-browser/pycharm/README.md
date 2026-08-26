@@ -1,48 +1,19 @@
-# LINUX DO Guest Browser for PyCharm
+# PyCharm 版 LINUX DO 游客阅读器
 
-A small PyCharm tool-window plugin for reading [linux.do](https://linux.do/) without
-an account.
+这是一个 PyCharm 工具窗口插件，用于无需账号浏览 [linux.do](https://linux.do/) 的公开内容。
 
-## Download the published build
+## 下载已发布版本
 
-- [GitHub Release 0.1.0 download page](https://github.com/Leisure-Xr/chas/releases/tag/0.1.0): download `linuxdo-guest-browser-pycharm-0.10.0.zip`
-- SHA-256: `180e8c2a1dfb36b3618d8721c3e486cf95ba3ad671507e568342adab5ffeee42`
+- [GitHub Release 0.1.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.1.0)：下载附件 `linuxdo-guest-browser-pycharm-0.10.0.zip`
+- SHA-256：`180e8c2a1dfb36b3618d8721c3e486cf95ba3ad671507e568342adab5ffeee42`
 
-The tool window defaults to a responsive demo layout that presents public lists and
-topics like IDE documentation and code samples, with a file tab, line-number gutter,
-monospaced metadata, and light/dark theme support. The original site layout remains
-available from the `</>` toggle. It includes back and forward navigation,
-latest/top/category shortcuts, public topic search, refresh, temporary topic sharing,
-and a visible history popup. The last navigation requested while the guest session is
-being initialized is preserved. The toolbar adapts to the tool-window width: below
-about 520 px, navigation and search use separate rows; below about 360 px, the top
-row always keeps Back, Refresh, and `...`, while history, games, sharing, import,
-help, and session reset remain available from that menu.
+工具窗口默认使用自适应的演示布局，将公开列表和主题呈现为类似 IDE 文档与代码示例的界面，包含文件标签、行号栏、等宽元数据以及浅色/深色主题支持。通过 `</>` 切换仍可查看原始站点布局。插件支持后退、前进、最新、热门、分类快捷入口、公开主题搜索、刷新、临时主题分享和历史记录弹窗。游客会话初始化期间最后一次导航请求会保留。工具栏会根据工具窗口宽度自适应：低于约 520 px 时导航和搜索分行；低于约 360 px 时，顶栏保留返回、刷新和 `...`，历史、游戏、分享、导入、帮助和会话重置放进该菜单。
 
-The responsive history popup keeps up to 60 recent public pages across IDE restarts.
-Each row shows its page title, public `linux.do` URL, and visit time. The popup can
-filter by title or URL, reopen a page, copy its URL, or clear the complete local
-history. Topic floor URLs are collapsed into one canonical topic entry; Cloudflare
-challenge URLs are discarded, and common site suffixes are removed from titles. A
-title that arrives after JCEF finishes loading updates the existing entry without
-changing its visit time. Existing saved history is cleaned on the next plugin start.
+自适应历史记录弹窗会在 IDE 重启后继续保留最近 60 条公开页面。每行显示页面标题、公开的 `linux.do` URL 和访问时间。弹窗支持按标题或 URL 搜索、重新打开页面、复制 URL 或清空本地历史。同一主题的楼层 URL 会合并为一条规范主题记录；Cloudflare 挑战地址会被丢弃，常见站点标题后缀会自动移除。JCEF 加载完成后才到达的标题会更新已有记录，但不会改变访问时间。已有历史会在插件下次启动时自动清理。
 
-An optional break reminder is available from the toolbar and is disabled by default.
-When enabled, it waits a random 31-60 minutes before showing a compact in-page break
-overlay. The overlay includes 2048, Snake, Road Dodge, Pixel Jump, and Minesweeper;
-each game supports a countdown, pause/restart, keyboard and on-screen controls,
-automatic pause on focus loss, increasing difficulty, and a local best score. The
-game board is fitted from the tool window's live width and height, uses high-DPI
-canvas rendering, and keeps the current round when the tool window is resized. There
-is no audio, particle effect, vibration, or screen shake. Road Dodge uses one
-continuous road with press-and-hold steering instead of discrete lanes. Reminders can
-be snoozed for ten minutes or closed to continue reading.
+工具栏提供可选的休息提醒，默认关闭。开启后会随机等待 31–60 分钟，再显示紧凑的页面内休息面板。面板包含 2048、贪吃蛇、单道路赛车、像素跳跃和扫雷；每款游戏都支持倒计时、暂停/重开、键盘与屏幕控制、失焦自动暂停、难度递增和本地最高分。游戏棋盘会根据工具窗口实时宽高适配，Canvas 使用高 DPI 渲染，调整工具窗口大小不会重置当前对局。不加入音效、粒子、震动或屏幕抖动。单道路赛车使用一条连续道路和按住转向，不使用离散车道。提醒可以延后十分钟，也可以关闭后继续阅读。
 
-The Share toolbar button encrypts the current public topic with a password chosen by
-the user. The compact form includes four expiry presets, password confirmation, and
-a 20-character strong-password generator. The receiving plugin asks only for the
-encrypted share content and the same password. Passwords are never stored. Shares
-contain no cookies, user agent, search state, scroll position, or reading history.
+工具栏的“分享”按钮会使用用户设置的密码加密当前公开主题。分享窗口提供四种有效期、密码确认和 20 位强密码生成器。接收方插件只需填写加密分享内容和相同密码。密码不会保存；分享内容不包含 Cookie、User-Agent、搜索状态、滚动位置或阅读历史。
 
 ## 临时分享码教程
 
@@ -56,51 +27,40 @@ contain no cookies, user agent, search state, scroll position, or reading histor
 
 请使用不易猜测的密码，并与加密分享内容分渠道发送。同时取得分享内容和密码的人仍可解密，弱密码也可能被离线猜测。内部格式标识无需手动处理，旧版未加密分享内容会被拒绝。到期后插件拒绝导入，但不能撤回已经打开或另行保存的公开 URL。
 
-## Privacy behavior
+## 隐私行为
 
-- The browser starts by deleting cookies for `linux.do`.
-- Login, signup, session, OAuth, and off-site main-frame navigation are blocked.
-- Closing the project disposes the browser and deletes `linux.do` cookies again.
-- The plugin has no credential fields or analytics. It persists the demo-mode and
-  break-reminder preferences, one integer best score per game, and up to 60 public
-  history entries through PyCharm's properties service. History never contains
-  cookies or login state and can be cleared from its toolbar menu.
+- 浏览器启动时会先删除 `linux.do` 的 Cookie。
+- 登录、注册、会话、OAuth 以及站外主框架导航都会被拦截。
+- 关闭项目时会释放浏览器，并再次删除 `linux.do` Cookie。
+- 插件没有账号输入框，也不包含统计代码。通过 PyCharm 属性服务保存演示模式和休息提醒设置、每款游戏一个整数最高分以及最多 60 条公开历史。历史记录不包含 Cookie 或登录状态，可以从工具栏菜单清除。
 
-The embedded browser uses PyCharm's shared JCEF cookie manager. This plugin therefore
-also clears any existing `linux.do` session in that PyCharm JCEF profile. It does not
-touch cookies in Safari, Chrome, Firefox, or another external browser.
+内嵌浏览器使用 PyCharm 共享的 JCEF Cookie 管理器，因此插件也会清除该 PyCharm JCEF 配置中的现有 `linux.do` 会话，但不会触碰 Safari、Chrome、Firefox 或其他外部浏览器的 Cookie。
 
-## Build with the installed PyCharm SDK
+## 使用已安装的 PyCharm SDK 构建
 
-On macOS with PyCharm installed in `/Applications`:
+在 `/Applications` 安装 PyCharm 的 macOS 上运行：
 
 ```bash
 ./scripts/build-local.sh
 ./scripts/verify-package.sh
 ```
 
-For another location:
+如果 PyCharm 安装在其他位置：
 
 ```bash
 PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 ```
 
-The installable ZIP is written to:
+可安装 ZIP 会生成在：
 
 ```text
 build/distributions/linuxdo-guest-browser-pycharm-0.10.0.zip
 ```
 
-Install it through **Settings > Plugins > gear menu > Install Plugin from Disk**,
-then open **View > Tool Windows > LINUX DO**.
+通过 **Settings > Plugins > 齿轮菜单 > Install Plugin from Disk** 安装，然后打开 **View > Tool Windows > LINUX DO**。
 
-## Gradle development
+## Gradle 开发
 
-`build.gradle.kts` is also included for IDE import and normal IntelliJ Platform
-plugin development. Its first use can require network access to download the Gradle
-plugin. The local script above is the reproducible offline packaging path used for
-this project.
+仓库同时提供 `build.gradle.kts`，可用于 IDE 导入和常规 IntelliJ Platform 插件开发。首次使用可能需要联网下载 Gradle 插件；上面的本地脚本是本项目用于离线复现打包的路径。
 
-Gameplay references and their licenses are listed in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). No referenced source code or assets
-are bundled.
+游戏玩法参考项目及其许可证列在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 中。本插件不会打包这些项目的源代码或素材。
