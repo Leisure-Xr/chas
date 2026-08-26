@@ -5,8 +5,7 @@ an account.
 
 ## Download the published build
 
-- [PyCharm 0.10.0 ZIP](https://github.com/Leisure-Xr/chas/raw/pycharm-v0.10.0/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.10.0.zip)
-- Source for this build: [tag `pycharm-v0.10.0`](https://github.com/Leisure-Xr/chas/tree/pycharm-v0.10.0)
+- [GitHub Release 0.1.0 download page](https://github.com/Leisure-Xr/chas/releases/tag/0.1.0): download `linuxdo-guest-browser-pycharm-0.10.0.zip`
 - SHA-256: `180e8c2a1dfb36b3618d8721c3e486cf95ba3ad671507e568342adab5ffeee42`
 
 The tool window defaults to a responsive demo layout that presents public lists and

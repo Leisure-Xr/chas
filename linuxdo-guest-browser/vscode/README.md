@@ -4,8 +4,7 @@
 
 ## 下载已发布版本
 
-- [VS Code 0.14.0 VSIX](https://github.com/Leisure-Xr/chas/raw/vscode-v0.14.0/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.14.0.vsix)
-- 对应源码：[tag `vscode-v0.14.0`](https://github.com/Leisure-Xr/chas/tree/vscode-v0.14.0)
+- [GitHub Release 0.1.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.1.0)：下载附件 `linuxdo-guest-browser-vscode-0.14.0.vsix`
 - SHA-256：`f0412659150731df192639f0a4627f51188e82ffd300d143854e2826ffd96c71`
 
 ## 功能
