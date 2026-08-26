@@ -12,9 +12,16 @@ const {
   isLinuxDoUrl
 } = require('./guest-session');
 const { createShareCode, parseShareCode } = require('./share-code');
+const {
+  addHistoryEntry,
+  createHistoryEntry,
+  normalizePublicUrl,
+  normalizeStoredHistory
+} = require('./reader-history');
 const { VerificationPanel } = require('./verification-panel');
 
 const MANUAL_GUEST_COOKIE_NAMES = GUEST_COOKIE_NAMES;
+const HISTORY_STATE_KEY = 'linuxdoGuest.readerHistory';
 const SHARE_DURATIONS = [
   { label: '1 小时', description: '默认', milliseconds: 60 * 60 * 1000 },
   { label: '10 分钟', milliseconds: 10 * 60 * 1000 },
@@ -237,6 +244,7 @@ class GuestReaderPanel {
     this.entryCounter = 0;
     this.currentAction = undefined;
     this.history = [];
+    this.browsingHistory = normalizeStoredHistory(context.globalState.get(HISTORY_STATE_KEY));
     this.panel.webview.html = this.getHtml();
     this.panel.onDidDispose(() => {
       GuestReaderPanel.current = undefined;
@@ -308,6 +316,21 @@ class GuestReaderPanel {
       case 'shareCurrent':
         await this.shareCurrentTopic();
         break;
+      case 'shareHelp':
+        await showShareHelp();
+        break;
+      case 'historyRequest':
+        this.sendHistory();
+        break;
+      case 'historyOpen':
+        await this.openHistoryEntry(message.url);
+        break;
+      case 'historyCopy':
+        await this.copyHistoryUrl(message.url);
+        break;
+      case 'historyClear':
+        await this.clearBrowsingHistory();
+        break;
       case 'loadMorePosts':
         await this.loadMorePosts(message.topicId, message.postIds);
         break;
@@ -358,7 +381,57 @@ class GuestReaderPanel {
     const code = createShareCode(action, duration.milliseconds);
     await vscode.env.clipboard.writeText(code);
     const expiresAt = new Date(Date.now() + duration.milliseconds).toLocaleString('zh-CN', { hour12: false });
-    vscode.window.showInformationMessage(`临时分享码已复制，将于 ${expiresAt} 失效。`);
+    const choice = await vscode.window.showInformationMessage(
+      `临时分享码已复制，将于 ${expiresAt} 失效。把分享码发送给对方，对方在插件中执行“打开临时分享码”并粘贴即可。`,
+      '查看分享教程'
+    );
+    if (choice) await showShareHelp();
+  }
+
+  recordVisit(action, title, url) {
+    const entry = createHistoryEntry(action, title, url);
+    if (!entry) return;
+    this.browsingHistory = addHistoryEntry(this.browsingHistory, entry);
+    void this.context.globalState.update(HISTORY_STATE_KEY, this.browsingHistory);
+    this.sendHistory();
+  }
+
+  sendHistory() {
+    this.post({
+      type: 'historyData',
+      entries: this.browsingHistory.map(({ url, title, visitedAt }) => ({ url, title, visitedAt }))
+    });
+  }
+
+  async openHistoryEntry(rawUrl) {
+    const url = normalizePublicUrl(rawUrl);
+    const entry = url && this.browsingHistory.find((candidate) => candidate.url === url);
+    if (!entry) {
+      vscode.window.showWarningMessage('这条历史记录已不存在。');
+      this.sendHistory();
+      return;
+    }
+    await this.openAction(entry.action);
+  }
+
+  async copyHistoryUrl(rawUrl) {
+    const url = normalizePublicUrl(rawUrl);
+    const entry = url && this.browsingHistory.find((candidate) => candidate.url === url);
+    if (!entry) return;
+    await vscode.env.clipboard.writeText(entry.url);
+    this.post({ type: 'historyCopied', url: entry.url });
+  }
+
+  async clearBrowsingHistory() {
+    const answer = await vscode.window.showWarningMessage(
+      '清除本机保存的全部 LINUX DO 浏览历史？',
+      { modal: true },
+      '清除全部'
+    );
+    if (answer !== '清除全部') return;
+    this.browsingHistory = [];
+    await this.context.globalState.update(HISTORY_STATE_KEY, undefined);
+    this.sendHistory();
   }
 
   async loadAction(action, resetListCursor, requestOptions) {
@@ -449,13 +522,24 @@ class GuestReaderPanel {
       'topicList',
       { kind, categoryName },
       (data) => {
-        if (this.currentAction?.entryId === action?.entryId) action.topicListCursor = data.morePath;
+        if (this.currentAction?.entryId === action?.entryId) {
+          action.topicListCursor = data.morePath;
+          const title = kind === 'top'
+            ? '本周热门'
+            : kind === 'category'
+              ? `${categoryName || '分类'} · 分类主题`
+              : '最新主题';
+          this.recordVisit(action, title);
+        }
       }
     );
   }
 
   loadCategories(requestOptions) {
-    return this.runLoad(() => this.api.categories(requestOptions), 'categories');
+    const action = this.currentAction;
+    return this.runLoad(() => this.api.categories(requestOptions), 'categories', {}, () => {
+      if (this.currentAction?.entryId === action?.entryId) this.recordVisit(action, '浏览分类');
+    });
   }
 
   loadTopic(id, slug, requestOptions) {
@@ -468,6 +552,7 @@ class GuestReaderPanel {
         if (this.currentAction?.entryId === action?.entryId) {
           action.slug = data.slug;
           action.title = data.title;
+          this.recordVisit(action, data.title, data.externalUrl);
         }
       }
     );
@@ -478,7 +563,10 @@ class GuestReaderPanel {
       this.post({ type: 'error', message: '请输入搜索关键词。' });
       return;
     }
-    return this.runLoad(() => this.api.search(query, requestOptions), 'topicList', { kind: 'search', query });
+    const action = this.currentAction;
+    return this.runLoad(() => this.api.search(query, requestOptions), 'topicList', { kind: 'search', query }, () => {
+      if (this.currentAction?.entryId === action?.entryId) this.recordVisit(action, `搜索：${query}`);
+    });
   }
 
   async openExternal(rawUrl) {
@@ -515,6 +603,7 @@ class GuestReaderPanel {
 <body>
   <header class="toolbar">
     <button id="back" type="button" class="icon-button back-button" title="返回 (Alt+左箭头)" aria-label="返回" disabled>←</button>
+    <button id="history" type="button" class="icon-button" title="浏览历史" aria-label="浏览历史">◴</button>
     <div class="brand" aria-label="LINUX DO 游客阅读器">
       <span class="brand-mark">L</span>
       <span class="brand-name">LINUX DO</span>
@@ -572,6 +661,7 @@ class GuestTreeProvider {
       navItem('最新主题', 'linuxdoGuest.openLatest', 'clock', '游客可见的最新帖子'),
       navItem('热门主题', 'linuxdoGuest.openTop', 'flame', '本周热门帖子'),
       navItem('浏览分类', 'linuxdoGuest.openCategories', 'list-tree', '查看公开分类'),
+      navItem('临时分享码教程', 'linuxdoGuest.shareHelp', 'question', '了解如何跨插件分享公开主题'),
       navItem('打开阅读器', 'linuxdoGuest.open', 'globe', '打开默认页面')
     ];
   }
@@ -703,7 +793,7 @@ async function openShareCode(context, browserSession) {
   const clipboard = await vscode.env.clipboard.readText();
   const code = await vscode.window.showInputBox({
     title: '打开 LINUX DO 临时分享码',
-    prompt: '粘贴 LDGS1 分享码；分享码只包含公开主题信息。',
+    prompt: '粘贴对方发来的 LDGS1 分享码。插件会校验完整性和有效期，然后打开其中的公开主题。',
     value: clipboard.trim().startsWith('LDGS1.') ? clipboard.trim() : '',
     ignoreFocusOut: true
   });
@@ -715,6 +805,23 @@ async function openShareCode(context, browserSession) {
   } catch (error) {
     vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
   }
+}
+
+async function showShareHelp() {
+  await vscode.window.showInformationMessage(
+    '临时分享码使用说明',
+    {
+      modal: true,
+      detail: [
+        '1. 打开一个公开主题，点击工具栏“分享”或执行“LINUX DO: 分享当前主题”。',
+        '2. 选择 10 分钟、1 小时、24 小时或 7 天；分享码会自动复制到剪贴板。',
+        '3. 把完整的 LDGS1 分享码发给对方。',
+        '4. 对方在 VS Code 或 PyCharm 插件中选择“打开临时分享码”，粘贴后即可打开主题。',
+        '',
+        '它不是加密：中间段只是 Base64URL 编码，末尾是截短的 SHA-256 校验和。插件不进行解密，也没有盐或秘密密钥。生成时间和过期时间写在载荷中；到期后插件拒绝导入，但已经打开或另行保存的公开 URL 无法被撤回。'
+      ].join('\n')
+    }
+  );
 }
 
 function randomNonce() {
@@ -747,6 +854,7 @@ function activate(context) {
     vscode.commands.registerCommand('linuxdoGuest.clearCloudflareClearance', () => clearCloudflare(context, browserSession)),
     vscode.commands.registerCommand('linuxdoGuest.shareCurrentTopic', () => GuestReaderPanel.current?.shareCurrentTopic() || vscode.window.showInformationMessage('请先打开一个主题。')),
     vscode.commands.registerCommand('linuxdoGuest.openShareCode', () => openShareCode(context, browserSession)),
+    vscode.commands.registerCommand('linuxdoGuest.shareHelp', showShareHelp),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('linuxdoGuest.breakReminder.enabled')) {
         GuestReaderPanel.current?.updateBreakReminderSetting();

@@ -6,10 +6,15 @@ import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.popup.JBPopup;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
 import com.intellij.ui.JBColor;
+import com.intellij.ui.SearchTextField;
+import com.intellij.ui.components.JBLabel;
+import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
@@ -30,6 +35,7 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
+import javax.swing.BoxLayout;
 import javax.swing.AbstractButton;
 import javax.swing.JButton;
 import javax.swing.JLabel;
@@ -41,7 +47,11 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.JOptionPane;
+import javax.swing.ScrollPaneConstants;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FlowLayout;
 import java.awt.datatransfer.DataFlavor;
@@ -59,6 +69,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -139,6 +150,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private volatile boolean guestSessionInitializing = true;
         private volatile String pendingNavigationUrl = HOME_URL;
         private volatile String currentPageTitle = "LINUX DO 公开主题";
+        private JBPopup historyPopup;
         private volatile boolean disposed;
 
         private GuestBrowserPanel() {
@@ -189,7 +201,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             demoButton.setSelected(demoMode);
             backButton.addActionListener(event -> browser.getCefBrowser().goBack());
             forwardButton.addActionListener(event -> browser.getCefBrowser().goForward());
-            historyButton.addActionListener(event -> showHistoryMenu());
+            historyButton.addActionListener(event -> showHistoryPopup());
             refreshButton.addActionListener(event -> browser.getCefBrowser().reload());
             resetButton.addActionListener(event -> startGuestSession());
             demoButton.addActionListener(event -> {
@@ -292,6 +304,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             shareItem.setEnabled(shareButton.isEnabled());
             menu.add(shareItem);
             menu.add(menuAction("打开临时分享码", openShareButton::doClick));
+            menu.add(menuAction("临时分享码使用说明", this::showShareHelp));
             menu.addSeparator();
             menu.add(menuAction("清理 Cookie 并重置会话", resetButton::doClick));
             menu.show(overflowButton, 0, overflowButton.getHeight());
@@ -331,7 +344,12 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             browser.getJBCefClient().addDisplayHandler(new CefDisplayHandlerAdapter() {
                 @Override
                 public void onTitleChange(CefBrowser cefBrowser, String title) {
-                    if (title != null && !title.isBlank()) currentPageTitle = title.replaceAll("[\\r\\n]+", " ").trim();
+                    if (title == null || title.isBlank()) return;
+                    currentPageTitle = title.replaceAll("[\\r\\n]+", " ").trim();
+                    SwingUtilities.invokeLater(() -> updateHistoryTitle(
+                            cefBrowser.getURL(),
+                            historyTitleForUrl(cefBrowser.getURL(), safeCurrentTitle())
+                    ));
                 }
             }, browser.getCefBrowser());
             browser.getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
@@ -342,6 +360,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         boolean canGoBack,
                         boolean canGoForward
                 ) {
+                    if (isLoading) currentPageTitle = "";
                     SwingUtilities.invokeLater(() -> {
                         if (disposed) {
                             return;
@@ -409,12 +428,25 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         }
 
         private String safeCurrentTitle() {
-            String title = currentPageTitle == null ? "" : currentPageTitle.replaceAll("\\s+-\\s+LINUX DO.*$", "").trim();
+            String title = currentPageTitle == null ? "" : currentPageTitle
+                    .replaceFirst("^\\([0-9]+\\)\\s*", "")
+                    .replaceAll("\\s+-\\s+(?:LINUX DO|搞七捻三)\\s*$", "")
+                    .trim();
             return title.isEmpty() ? "LINUX DO 公开主题" : title.substring(0, Math.min(200, title.length()));
         }
 
+        private String historyTitleForUrl(String url, String title) {
+            if (samePage(url, HOME_URL)) return "最新主题";
+            if (samePage(url, TOP_URL)) return "本周热门";
+            if (samePage(url, CATEGORIES_URL)) return "浏览分类";
+            if (url != null && url.startsWith("https://linux.do/search")) return "搜索结果";
+            String normalized = title == null ? "" : title.trim();
+            if (normalized.equalsIgnoreCase("LINUX DO") || normalized.equals("搞七捻三")) return "LINUX DO 公开页面";
+            return normalized;
+        }
+
         private void recordHistory(String url, String title) {
-            ReaderHistory.Entry entry = ReaderHistory.create(url, title, System.currentTimeMillis());
+            ReaderHistory.Entry entry = ReaderHistory.create(url, historyTitleForUrl(url, title), System.currentTimeMillis());
             if (entry == null) return;
             List<ReaderHistory.Entry> updated = ReaderHistory.add(browsingHistory, entry);
             browsingHistory.clear();
@@ -423,28 +455,157 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             historyButton.setEnabled(true);
         }
 
-        private void showHistoryMenu() {
-            JPopupMenu menu = new JPopupMenu();
-            if (browsingHistory.isEmpty()) {
-                JMenuItem empty = new JMenuItem("暂无浏览历史");
-                empty.setEnabled(false);
-                menu.add(empty);
-            } else {
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
-                        .withZone(ZoneId.systemDefault());
-                browsingHistory.stream().limit(15).forEach(entry -> {
-                    String title = entry.title().length() > 42 ? entry.title().substring(0, 42) + "..." : entry.title();
-                    JMenuItem item = menuAction(
-                            formatter.format(Instant.ofEpochMilli(entry.visitedAt())) + "  " + title,
-                            () -> navigateTo(entry.url())
-                    );
-                    item.setToolTipText(entry.url());
-                    menu.add(item);
-                });
-                menu.addSeparator();
-                menu.add(menuAction("清除全部历史记录", this::clearHistory));
+        private void updateHistoryTitle(String url, String title) {
+            List<ReaderHistory.Entry> updated = ReaderHistory.updateTitle(browsingHistory, url, title);
+            if (updated.equals(browsingHistory)) return;
+            browsingHistory.clear();
+            browsingHistory.addAll(updated);
+            properties.setValue(HISTORY_PROPERTY, ReaderHistory.serialize(browsingHistory));
+        }
+
+        private void showHistoryPopup() {
+            if (historyPopup != null && historyPopup.isVisible()) {
+                historyPopup.cancel();
+                return;
             }
-            menu.show(historyButton, 0, historyButton.getHeight());
+
+            SearchTextField filter = new SearchTextField(false);
+            filter.getTextEditor().getEmptyText().setText("搜索标题或 URL");
+            JPanel rows = new JPanel();
+            rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
+            JBScrollPane scrollPane = new JBScrollPane(rows);
+            scrollPane.setBorder(JBUI.Borders.customLine(JBColor.border(), 1, 0, 1, 0));
+            scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+            scrollPane.getVerticalScrollBar().setUnitIncrement(JBUI.scale(18));
+
+            JBLabel count = new JBLabel();
+            count.setForeground(JBColor.GRAY);
+            JButton clear = new JButton("清除全部");
+            styleToolbarButton(clear, "清除本机保存的全部浏览历史");
+            clear.setEnabled(!browsingHistory.isEmpty());
+            clear.addActionListener(event -> clearHistory());
+            JPanel footer = new JPanel(new BorderLayout());
+            footer.setBorder(JBUI.Borders.emptyTop(8));
+            footer.add(count, BorderLayout.WEST);
+            footer.add(clear, BorderLayout.EAST);
+
+            JPanel panel = new JPanel(new BorderLayout(0, JBUI.scale(10)));
+            panel.setBorder(JBUI.Borders.empty(6, 10, 8, 10));
+            panel.add(filter, BorderLayout.NORTH);
+            panel.add(scrollPane, BorderLayout.CENTER);
+            panel.add(footer, BorderLayout.SOUTH);
+
+            Runnable refreshRows = () -> populateHistoryRows(rows, count, filter.getText());
+            filter.getTextEditor().getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent event) {
+                    refreshRows.run();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent event) {
+                    refreshRows.run();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent event) {
+                    refreshRows.run();
+                }
+            });
+            refreshRows.run();
+
+            int popupWidth = Math.min(JBUI.scale(720), Math.max(JBUI.scale(300), getWidth() - JBUI.scale(24)));
+            int popupHeight = Math.min(JBUI.scale(560), Math.max(JBUI.scale(280), getHeight() - JBUI.scale(120)));
+            panel.setPreferredSize(new Dimension(popupWidth, popupHeight));
+            historyPopup = JBPopupFactory.getInstance()
+                    .createComponentPopupBuilder(panel, filter.getTextEditor())
+                    .setTitle("浏览历史")
+                    .setResizable(true)
+                    .setMovable(true)
+                    .setRequestFocus(true)
+                    .setCancelOnClickOutside(true)
+                    .setCancelOnOtherWindowOpen(true)
+                    .createPopup();
+            historyPopup.showUnderneathOf(historyButton);
+        }
+
+        private void populateHistoryRows(JPanel rows, JBLabel count, String rawQuery) {
+            String query = rawQuery == null ? "" : rawQuery.trim().toLowerCase(Locale.ROOT);
+            List<ReaderHistory.Entry> filtered = browsingHistory.stream()
+                    .filter(entry -> query.isEmpty() || (entry.title() + " " + entry.url()).toLowerCase(Locale.ROOT).contains(query))
+                    .toList();
+            rows.removeAll();
+            if (filtered.isEmpty()) {
+                JBLabel empty = new JBLabel(browsingHistory.isEmpty() ? "暂无浏览历史" : "没有匹配的历史记录", SwingConstants.CENTER);
+                empty.setForeground(JBColor.GRAY);
+                empty.setBorder(JBUI.Borders.empty(36, 8));
+                empty.setAlignmentX(CENTER_ALIGNMENT);
+                rows.add(empty);
+            } else {
+                filtered.forEach(entry -> rows.add(createHistoryRow(entry)));
+            }
+            count.setText(query.isEmpty()
+                    ? browsingHistory.size() + " 条记录"
+                    : filtered.size() + " / " + browsingHistory.size() + " 条");
+            rows.revalidate();
+            rows.repaint();
+        }
+
+        private JPanel createHistoryRow(ReaderHistory.Entry entry) {
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm")
+                    .withZone(ZoneId.systemDefault());
+            JBLabel title = new JBLabel(clip(entry.title(), 76));
+            title.setFont(title.getFont().deriveFont(Font.BOLD));
+            title.setToolTipText(entry.title());
+            JBLabel url = new JBLabel(clip(entry.url(), 92));
+            url.setForeground(JBColor.namedColor("Link.activeForeground", new JBColor(0x2474A8, 0x589DF6)));
+            url.setFont(url.getFont().deriveFont(Math.max(10f, url.getFont().getSize2D() - 1f)));
+            url.setToolTipText(entry.url());
+            JBLabel time = new JBLabel(formatter.format(Instant.ofEpochMilli(entry.visitedAt())));
+            time.setForeground(JBColor.GRAY);
+            time.setFont(time.getFont().deriveFont(Math.max(10f, time.getFont().getSize2D() - 1f)));
+
+            JPanel text = new JPanel();
+            text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
+            title.setAlignmentX(LEFT_ALIGNMENT);
+            url.setAlignmentX(LEFT_ALIGNMENT);
+            time.setAlignmentX(LEFT_ALIGNMENT);
+            text.add(title);
+            text.add(Box.createVerticalStrut(JBUI.scale(3)));
+            text.add(url);
+            text.add(Box.createVerticalStrut(JBUI.scale(2)));
+            text.add(time);
+
+            JButton open = new JButton("打开");
+            styleToolbarButton(open, "重新打开此页面");
+            open.addActionListener(event -> {
+                if (historyPopup != null) historyPopup.cancel();
+                navigateTo(entry.url());
+            });
+            JButton copy = iconButton(AllIcons.Actions.Copy, "复制 URL");
+            styleToolbarButton(copy, "复制 URL");
+            copy.addActionListener(event -> {
+                CopyPasteManager.getInstance().setContents(new StringSelection(entry.url()));
+                status.setText("URL 已复制");
+            });
+            JPanel actions = new JPanel(new FlowLayout(FlowLayout.TRAILING, 2, 0));
+            actions.add(open);
+            actions.add(copy);
+
+            JPanel row = new JPanel(new BorderLayout(JBUI.scale(8), 0));
+            row.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
+                    JBUI.Borders.empty(8, 4)
+            ));
+            row.add(text, BorderLayout.CENTER);
+            row.add(actions, BorderLayout.EAST);
+            row.setMaximumSize(new Dimension(Integer.MAX_VALUE, JBUI.scale(76)));
+            return row;
+        }
+
+        private static String clip(String value, int maxLength) {
+            if (value == null || value.length() <= maxLength) return value == null ? "" : value;
+            return value.substring(0, Math.max(1, maxLength - 1)) + "…";
         }
 
         private void clearHistory() {
@@ -460,6 +621,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             properties.unsetValue(HISTORY_PROPERTY);
             historyButton.setEnabled(false);
             status.setText("浏览历史已清除");
+            if (historyPopup != null) historyPopup.cancel();
         }
 
         private void shareCurrentTopic() {
@@ -484,12 +646,18 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             String expiry = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
                     .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(now + duration));
             status.setText("分享码已复制，" + expiry + " 失效");
+            JOptionPane.showMessageDialog(
+                    this,
+                    "分享码已复制到剪贴板。\n\n把完整的 LDGS1 分享码发给对方；对方在 VS Code 或 PyCharm 插件中选择\n“打开临时分享码”，粘贴后即可打开同一个公开主题。\n\n失效时间：" + expiry,
+                    "临时分享码已生成",
+                    JOptionPane.INFORMATION_MESSAGE
+            );
         }
 
         private void openShareCode() {
             String clipboard = CopyPasteManager.getInstance().getContents(DataFlavor.stringFlavor);
             String initialValue = clipboard != null && clipboard.trim().startsWith("LDGS1.") ? clipboard.trim() : "";
-            Object input = JOptionPane.showInputDialog(this, "粘贴 LDGS1 临时分享码", "打开临时分享码",
+            Object input = JOptionPane.showInputDialog(this, "粘贴对方发来的 LDGS1 临时分享码。\n插件会校验完整性和有效期，然后打开其中的公开主题。", "打开临时分享码",
                     JOptionPane.PLAIN_MESSAGE, null, null, initialValue);
             if (input == null) return;
             try {
@@ -498,6 +666,21 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             } catch (IllegalArgumentException error) {
                 JOptionPane.showMessageDialog(this, error.getMessage(), "无法打开分享码", JOptionPane.ERROR_MESSAGE);
             }
+        }
+
+        private void showShareHelp() {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "1. 打开一个公开主题，点击工具栏“分享”。\n"
+                            + "2. 选择 10 分钟、1 小时、24 小时或 7 天，分享码会自动复制。\n"
+                            + "3. 把完整的 LDGS1 分享码发给对方。\n"
+                            + "4. 对方在 VS Code 或 PyCharm 插件中选择“打开临时分享码”并粘贴。\n\n"
+                            + "分享码不是加密内容：中间段只是 Base64URL 编码，末尾是截短的 SHA-256 校验和。\n"
+                            + "插件不进行解密，也没有盐或秘密密钥。生成时间与过期时间写在载荷中；\n"
+                            + "到期后插件会拒绝导入，但已经打开或另行保存的公开 URL 无法被撤回。",
+                    "临时分享码使用说明",
+                    JOptionPane.INFORMATION_MESSAGE
+            );
         }
 
         private void applyPageStyle(CefBrowser cefBrowser) {
@@ -858,6 +1041,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         @Override
         public void dispose() {
             stopBreakTimer();
+            if (historyPopup != null) historyPopup.cancel();
             breakOverlayVisible = false;
             removeBreakOverlay();
             disposed = true;

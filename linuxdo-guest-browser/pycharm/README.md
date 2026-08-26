@@ -8,13 +8,17 @@ topics like IDE documentation and code samples, with a file tab, line-number gut
 monospaced metadata, and light/dark theme support. The original site layout remains
 available from the `</>` toggle. It includes back and forward navigation,
 latest/top/category shortcuts, public topic search, refresh, temporary topic sharing,
-and a visible history menu. The last navigation requested while the guest session is
+and a visible history popup. The last navigation requested while the guest session is
 being initialized is preserved. The toolbar adapts to the tool-window width;
 low-frequency actions move into the `...` menu on narrow windows.
 
-The history menu keeps up to 60 recent public pages across IDE restarts. Each entry
-contains only its public `linux.do` URL, page title, and visit time. Entries can be
-opened directly, and the complete local history can be cleared from the same menu.
+The responsive history popup keeps up to 60 recent public pages across IDE restarts.
+Each row shows its page title, public `linux.do` URL, and visit time. The popup can
+filter by title or URL, reopen a page, copy its URL, or clear the complete local
+history. Topic floor URLs are collapsed into one canonical topic entry; Cloudflare
+challenge URLs are discarded, and common site suffixes are removed from titles. A
+title that arrives after JCEF finishes loading updates the existing entry without
+changing its visit time. Existing saved history is cleaned on the next plugin start.
 
 An optional break reminder is available from the toolbar and is disabled by default.
 When enabled, it waits a random 31-60 minutes before showing a compact in-page break
@@ -32,6 +36,15 @@ Open Share Code button accepts a code from the clipboard or an input dialog. Cod
 expire after 10 minutes, 1 hour, 24 hours, or 7 days and contain no cookies, user
 agent, search state, scroll position, or reading history. They are checksummed, not
 encrypted, and are not an access-control mechanism.
+
+## 临时分享码教程
+
+1. 在工具窗口中打开一个公开主题，点击“分享”。
+2. 选择 10 分钟、1 小时、24 小时或 7 天；插件会把 `LDGS1` 分享码复制到剪贴板。
+3. 把完整分享码发给对方。对方在 VS Code 或 PyCharm 插件中点击“打开分享码”并粘贴。
+4. 窄窗口可在 `...` 菜单中找到“临时分享码使用说明”。生成和导入对话框也会提示下一步。
+
+格式为 `LDGS1.<Base64URL 载荷>.<SHA-256 校验和>`。载荷只包含版本、主题编号、slug、标题、生成时间和过期时间。Base64URL 是编码而不是加密，所以插件没有解密步骤；末尾 16 个十六进制字符是 SHA-256 的前 8 字节，只用于检测损坏或修改。分享码不使用盐或秘密密钥，因为写进两个公开插件的固定秘密可以被提取，无法提供真正的保密性。到期后插件拒绝导入，但不能撤回已经打开或另行保存的公开 URL。
 
 ## Privacy behavior
 
@@ -65,7 +78,7 @@ PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 The installable ZIP is written to:
 
 ```text
-build/distributions/linuxdo-guest-browser-pycharm-0.8.0.zip
+build/distributions/linuxdo-guest-browser-pycharm-0.9.0.zip
 ```
 
 Install it through **Settings > Plugins > gear menu > Install Plugin from Disk**,

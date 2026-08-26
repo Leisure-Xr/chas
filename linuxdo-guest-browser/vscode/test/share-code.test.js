@@ -7,10 +7,15 @@ const { createShareCode, parseShareCode } = require('../src/share-code');
 const TOPIC = { id: 12345, slug: 'hello-linux-do', title: '公开主题' };
 const NOW = 1_800_000_000_000;
 
-test('share code has a stable cross-platform fixture', () => {
+const CROSS_PLATFORM_FIXTURE = 'LDGS1.dj0xJmlkPTEyMzQ1JnNsdWc9aGVsbG8tbGludXgtZG8mdGl0bGU9JUU1JTg1JUFDJUU1JUJDJTgwJUU0JUI4JUJCJUU5JUEyJTk4JmlhdD0xODAwMDAwMDAwMDAwJmV4cD0xODAwMDAzNjAwMDAw.e8e9aca9e05466c1';
+
+test('VS Code share code is byte-compatible with the PyCharm producer', () => {
   const code = createShareCode(TOPIC, 60 * 60 * 1000, NOW);
-  assert.equal(code, 'LDGS1.dj0xJmlkPTEyMzQ1JnNsdWc9aGVsbG8tbGludXgtZG8mdGl0bGU9JUU1JTg1JUFDJUU1JUJDJTgwJUU0JUI4JUJCJUU5JUEyJTk4JmlhdD0xODAwMDAwMDAwMDAwJmV4cD0xODAwMDAzNjAwMDAw.e8e9aca9e05466c1');
-  assert.deepEqual(parseShareCode(code, NOW + 1), {
+  assert.equal(code, CROSS_PLATFORM_FIXTURE);
+});
+
+test('VS Code opens the stable share code produced by PyCharm', () => {
+  assert.deepEqual(parseShareCode(CROSS_PLATFORM_FIXTURE, NOW + 1), {
     ...TOPIC,
     createdAt: NOW,
     expiresAt: NOW + 60 * 60 * 1000,

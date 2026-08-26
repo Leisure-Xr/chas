@@ -6,6 +6,7 @@
   const searchForm = document.getElementById('search-form');
   const searchInput = document.getElementById('search-input');
   const backButton = document.getElementById('back');
+  const historyButton = document.getElementById('history');
   const breakReminderButton = document.getElementById('break-reminder');
   const shareTopicButton = document.getElementById('share-topic');
   const openGameButton = document.getElementById('open-game');
@@ -31,7 +32,10 @@
   let gameInputReset;
   let gameResizeCleanup;
   let gameCleanup = [];
+  let historyEntries = [];
+  let historyFeedbackTimer;
   const pageCache = new Map();
+  const historyOverlay = createHistoryOverlay();
   const gameOverlay = createGameOverlay();
   const gameRuntime = LinuxDoGameCore.createRuntime({
     bestScores: savedState.gameBestScores || {},
@@ -65,6 +69,7 @@
 
   refreshButton.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
   backButton.addEventListener('click', () => navigate({ type: 'back' }));
+  historyButton.addEventListener('click', showHistory);
   breakReminderButton.addEventListener('click', () => {
     setBreakReminderEnabled(!breakReminderEnabled);
     vscode.postMessage({ type: 'setBreakReminder', enabled: breakReminderEnabled });
@@ -81,6 +86,11 @@
   densityButton.classList.toggle('active', document.body.classList.contains('compact'));
 
   window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !historyOverlay.hidden) {
+      event.preventDefault();
+      closeHistory();
+      return;
+    }
     if (!gameOverlay.hidden && gameKeyHandler?.(event)) {
       event.preventDefault();
       return;
@@ -159,6 +169,13 @@
   window.addEventListener('message', (event) => {
     const message = event.data;
     switch (message.type) {
+      case 'historyData':
+        historyEntries = Array.isArray(message.entries) ? message.entries : [];
+        renderHistoryEntries();
+        break;
+      case 'historyCopied':
+        showHistoryFeedback('URL 已复制');
+        break;
       case 'loading':
         renderLoading();
         break;
@@ -207,6 +224,110 @@
         break;
     }
   });
+
+  function createHistoryOverlay() {
+    const overlay = node('div', 'reader-overlay history-overlay');
+    overlay.hidden = true;
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', '浏览历史');
+
+    const panel = node('section', 'history-panel');
+    const heading = node('header', 'history-heading', [
+      node('div', '', [node('h1', '', '浏览历史'), node('p', '', '最近访问的公开页面保存在本机')]),
+      iconAction('×', '关闭历史记录', closeHistory)
+    ]);
+    const search = document.createElement('input');
+    search.id = 'history-search';
+    search.className = 'history-search';
+    search.type = 'search';
+    search.maxLength = 100;
+    search.placeholder = '搜索标题或 URL';
+    search.setAttribute('aria-label', '搜索历史记录');
+    search.addEventListener('input', renderHistoryEntries);
+
+    const list = node('div', 'history-list');
+    list.id = 'history-list';
+    const count = node('span', 'history-count', '0 条记录');
+    count.id = 'history-count';
+    const feedback = node('span', 'history-feedback');
+    feedback.id = 'history-feedback';
+    const clearButton = node('button', 'secondary-button history-clear', '清除全部');
+    clearButton.id = 'history-clear';
+    clearButton.type = 'button';
+    clearButton.addEventListener('click', () => vscode.postMessage({ type: 'historyClear' }));
+    const footer = node('footer', 'history-footer', [count, feedback, clearButton]);
+
+    panel.append(heading, search, list, footer);
+    overlay.append(panel);
+    overlay.addEventListener('pointerdown', (event) => {
+      if (event.target === overlay) closeHistory();
+    });
+    document.body.append(overlay);
+    return overlay;
+  }
+
+  function showHistory() {
+    historyOverlay.hidden = false;
+    vscode.postMessage({ type: 'historyRequest' });
+    requestAnimationFrame(() => historyOverlay.querySelector('#history-search')?.focus());
+  }
+
+  function closeHistory() {
+    historyOverlay.hidden = true;
+    historyButton.focus();
+  }
+
+  function renderHistoryEntries() {
+    const list = historyOverlay.querySelector('#history-list');
+    if (!list) return;
+    const query = String(historyOverlay.querySelector('#history-search')?.value || '').trim().toLocaleLowerCase('zh-CN');
+    const filtered = historyEntries.filter((entry) => !query || `${entry.title} ${entry.url}`.toLocaleLowerCase('zh-CN').includes(query));
+    list.replaceChildren();
+
+    if (!filtered.length) {
+      list.append(node('div', 'history-empty', historyEntries.length ? '没有匹配的历史记录' : '暂无浏览历史'));
+    } else {
+      filtered.forEach((entry) => {
+        const titleButton = node('button', 'history-entry-main');
+        titleButton.type = 'button';
+        titleButton.title = `打开 ${entry.title}`;
+        titleButton.append(
+          node('strong', 'history-entry-title', entry.title || '公开页面'),
+          node('span', 'history-entry-url', entry.url),
+          node('time', 'history-entry-time', formatHistoryTime(entry.visitedAt))
+        );
+        titleButton.addEventListener('click', () => {
+          historyOverlay.hidden = true;
+          navigate({ type: 'historyOpen', url: entry.url });
+        });
+        const copyButton = iconAction('⧉', '复制 URL', () => vscode.postMessage({ type: 'historyCopy', url: entry.url }));
+        copyButton.classList.add('history-copy');
+        list.append(node('article', 'history-entry', [titleButton, copyButton]));
+      });
+    }
+
+    const count = historyOverlay.querySelector('#history-count');
+    if (count) count.textContent = query ? `${filtered.length} / ${historyEntries.length} 条` : `${historyEntries.length} 条记录`;
+    const clearButton = historyOverlay.querySelector('#history-clear');
+    if (clearButton) clearButton.disabled = historyEntries.length === 0;
+  }
+
+  function showHistoryFeedback(message) {
+    const feedback = historyOverlay.querySelector('#history-feedback');
+    if (!feedback) return;
+    feedback.textContent = message;
+    clearTimeout(historyFeedbackTimer);
+    historyFeedbackTimer = setTimeout(() => { feedback.textContent = ''; }, 1800);
+  }
+
+  function formatHistoryTime(value) {
+    const date = new Date(Number(value));
+    if (Number.isNaN(date.valueOf())) return '';
+    return new Intl.DateTimeFormat('zh-CN', {
+      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
+    }).format(date);
+  }
 
   function setBreakReminderEnabled(enabled) {
     breakReminderEnabled = enabled;

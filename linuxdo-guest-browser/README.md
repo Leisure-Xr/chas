@@ -4,20 +4,20 @@
 
 ## 下载
 
-- [VS Code 0.12.0](dist/linuxdo-guest-browser-vscode-0.12.0.vsix)
-- [PyCharm 0.8.0](dist/linuxdo-guest-browser-pycharm-0.8.0.zip)
+- [VS Code 0.13.0](dist/linuxdo-guest-browser-vscode-0.13.0.vsix)
+- [PyCharm 0.9.0](dist/linuxdo-guest-browser-pycharm-0.9.0.zip)
 
 ### VS Code
 
 打开扩展面板，选择右上角菜单中的 `Install from VSIX...`，然后选择 VSIX 文件。
 
-VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。请求经过单并发队列、最小间隔和短期内存缓存，403/429 后会停止联网一段时间，避免连续刷新加重站点限制。验证设置页只支持手动填写 Cookie 与 User-Agent，不会启动、控制或读取 Chrome、Edge、Brave 等外部浏览器。参数会从你复制的 Request Headers 中解析，并通过 `/latest.json` 测试后才会保存；完整的 Windows DevTools 获取步骤和示意图见 [VS Code 说明](vscode/README.md)。
+VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。请求经过单并发队列、最小间隔和短期内存缓存，403/429 后会停止联网一段时间，避免连续刷新加重站点限制。最近 60 条成功打开的公开页面会记录标题、URL 和访问时间，可搜索、重新打开、复制 URL 或全部清除；同一主题的不同楼层会合并，Cloudflare 挑战地址不会写入历史。验证设置页只支持手动填写 Cookie 与 User-Agent，不会启动、控制或读取 Chrome、Edge、Brave 等外部浏览器。参数会从你复制的 Request Headers 中解析，并通过 `/latest.json` 测试后才会保存；完整的 Windows DevTools 获取步骤和示意图见 [VS Code 说明](vscode/README.md)。
 
 ### PyCharm
 
 打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。
 
-PyCharm 版使用内嵌 JCEF 浏览器，默认采用接近 IDE 文档与代码示例的演示布局，可随时切回原网页。工具栏提供最新、热门、分类、搜索、分享、刷新和浏览历史；最近 60 条公开页面历史保存在本机，可从历史菜单打开或全部清除。启动清理 Cookie 期间点击导航也会保留最后一次请求，不再固定跳回最新页。
+PyCharm 版使用内嵌 JCEF 浏览器，默认采用接近 IDE 文档与代码示例的演示布局，可随时切回原网页。工具栏提供最新、热门、分类、搜索、分享、刷新和浏览历史；自适应历史弹窗显示最近 60 条公开页面的标题、URL 与访问时间，支持搜索、打开、复制 URL 和全部清除。旧历史会自动合并同一主题的楼层记录、移除 Cloudflare 挑战项并清理站点标题后缀。启动清理 Cookie 期间点击导航也会保留最后一次请求，不再固定跳回最新页。
 
 ### 休息提醒与小游戏
 
@@ -25,7 +25,11 @@ PyCharm 版使用内嵌 JCEF 浏览器，默认采用接近 IDE 文档与代码�
 
 ### 限时分享
 
-主题工具栏可生成 10 分钟、1 小时、24 小时或 7 天有效的 `LDGS1` 分享码，另一个插件用户粘贴后即可打开同一公开主题。分享码仅包含主题编号、slug、标题和时间，不包含 Cookie、UA、列表状态或阅读历史。校验和用于发现误粘贴和篡改，不是加密或访问控制。
+1. 在任一插件中打开一个公开主题，点击“分享”，选择 10 分钟、1 小时、24 小时或 7 天。
+2. 插件把 `LDGS1` 分享码复制到剪贴板；把完整分享码发给对方。
+3. 对方在 VS Code 或 PyCharm 插件中选择“打开临时分享码”，粘贴后即可打开同一公开主题。
+
+分享码仅包含版本、主题编号、slug、标题、生成时间和过期时间，不包含 Cookie、UA、列表状态或阅读历史。格式为 `LDGS1.<Base64URL 载荷>.<SHA-256 校验和>`：Base64URL 只是编码，不是加密；插件不会“解密”。末尾 16 个十六进制字符是 SHA-256 的前 8 字节，用于发现损坏或修改，不使用盐或秘密密钥。固定盐或把密钥写进公开插件也无法提供保密性，因为任何人都能从插件中取出它。到期后插件拒绝导入，但不能撤回已经打开或另行保存的公开 URL。
 
 ## 源码
 
@@ -59,7 +63,7 @@ cd pycharm
 - 不要求或保存论坛账号、密码和登录令牌。
 - VS Code 仅保存游客验证白名单 Cookie，使用 SecretStorage 加密存储。
 - PyCharm 会清理其 JCEF 配置中的 `linux.do` Cookie，不影响系统浏览器。
-- PyCharm 只额外保存演示模式开关，以及最近 60 条公开页面的标题、URL 和访问时间；历史菜单可一键清除。
+- 两个插件最多保存最近 60 条公开页面的标题、URL 和访问时间；历史界面可复制 URL 或一键清除。
 - 游戏只保存休息提醒开关和五款游戏的最高分整数，不记录游戏过程或使用时长。
 - 不包含分析、遥测或广告代码。
 
