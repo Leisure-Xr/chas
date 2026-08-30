@@ -4,8 +4,8 @@
 
 ## 下载已发布版本
 
-- [GitHub Release 0.1.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.1.0)：下载附件 `linuxdo-guest-browser-vscode-0.14.0.vsix`
-- SHA-256：`f0412659150731df192639f0a4627f51188e82ffd300d143854e2826ffd96c71`
+- [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)：下载附件 `linuxdo-guest-browser-vscode-0.15.0.vsix`
+- SHA-256 校验值请以 GitHub Release 0.2.0 的发布说明和根目录 README 为准。
 
 ## 功能
 
@@ -18,7 +18,7 @@
 - 保存最近 60 条公开页面历史，显示标题、URL 和访问时间，可搜索、重新打开、复制 URL 或全部清除
 - 在 VS Code 内阅读帖子
 - 使用返回按钮或 `Alt+左箭头` 回到上一个列表、分类或搜索结果
-- 公开接口使用单并发队列、两次短突发的自适应请求节奏和短期内存缓存，降低 403/429 限流概率
+- 公开接口可选智能、流畅、均衡和稳妥四档请求节奏；正常导航优先于手动续载和自动续载
 - 返回时保留此前已加载的主题、帖子和滚动位置
 - 首页、热门和分类列表滚动到底自动续页
 - 长主题滚动到底自动续载，每批最多加载 20 条帖子
@@ -34,55 +34,77 @@ VS Code 版本不会启动、控制或读取任何外部浏览器。Cloudflare �
 
 1. 在浏览器打开 `https://linux.do/latest`，完成 Cloudflare 验证；不要在隐私模式和普通窗口之间切换。
 2. 按 `F12`（部分电脑需要 `Fn+F12`），打开 **Network / 网络**，勾选 Preserve log / 保留日志，然后刷新页面。
-3. 推荐选择名称为 **`latest.json`**、类型为 `fetch`、响应类型为 `application/json` 的请求。不要选择图片、脚本、分析请求，也不要把 `/categories.json` 的标头与 `/latest.json` 的 Cookie 混用。
-4. 打开 **Headers / 标头 → Request Headers / 请求标头**。复制完整的 `cookie:` 和 `user-agent:` 两行；若浏览器支持，右键请求选择 **Copy → Copy request headers**，可一次复制整个请求标头块。
-5. 在 VS Code 执行 `LINUX DO: 设置 Cloudflare 验证`，把整个标头块粘贴到“请求标头”框，点击 **解析标头**。检查两个输入框，再点击 **保存并测试**。
-6. 测试会请求公开的 `/latest.json`；成功后才保存参数。若站点暂时返回 403，可确认参数来自同一浏览器后点击 **仅保存**，稍后回阅读器刷新重试。
+3. 在筛选框输入 `latest.json`，选择 URL 精确为 **`https://linux.do/latest.json`**、类型为 `fetch` 或 `xhr`、响应类型为 `application/json` 的请求。不要选择名称为 `latest` 的 Document，也不要选择图片、脚本或分析请求。
+4. 推荐右键该请求，选择 **Copy / 复制 → Copy as cURL**。也可以打开 **Headers / 标头 → Request Headers / 请求标头**，选择 **Copy request headers / 复制请求标头**。要复制整个请求，不要只从不同位置拼出 Cookie 与 User-Agent。
+5. 在 VS Code 执行 `LINUX DO: 设置 Cloudflare 验证`，把内容粘贴到 **Request Headers 或 Copy as cURL**。来源浏览器可保持“自动识别”，也可明确选择 Chrome、Edge、Brave 或 Chromium。
+6. 点击 **保存并测试一次**。插件只解析 cURL，绝不会执行它；测试只发送一次精确的 `/latest.json` 请求，成功后才替换旧档案。测试失败不会覆盖此前有效档案。
+7. 只有在确认档案完整、但站点当时无法测试时才使用 **仅保存为未验证**。未验证档案不代表 Cloudflare 已接受它。
 
 ![Network 面板选择 latest.json](https://raw.githubusercontent.com/Leisure-Xr/chas/main/linuxdo-guest-browser/vscode/media/docs/cf-network-request.png)
 
-![Request Headers 中复制 Cookie 与 User-Agent](https://raw.githubusercontent.com/Leisure-Xr/chas/main/linuxdo-guest-browser/vscode/media/docs/cf-request-headers.png)
+![复制 latest.json 的完整 Request Headers 或 Copy as cURL](https://raw.githubusercontent.com/Leisure-Xr/chas/main/linuxdo-guest-browser/vscode/media/docs/cf-request-headers.png)
 
 ### 为什么不同接口的标头不一样
 
-`/latest.json`、`/categories.json`、主题 JSON 和主文档请求的 `Accept`、`Referer`、`sec-fetch-*`、缓存头可能不同，这是正常的。插件不要求你手动填写这些易变化的头，只需要同一次验证中的 `cookie` 与 `user-agent`；插件会自己生成公开 GET 请求的普通头。必须从 **Request Headers** 复制，不要从 Response Headers 复制，也不要从两个浏览器或两个时间点拼接。
+浏览器会根据请求类型自动生成不同标头。Cloudflare 可能同时比较 Cookie、User-Agent、客户端提示和浏览器指纹，因此不能把 `/latest` 文档请求与 `/latest.json` 接口请求混用。
+
+| 项目 | `/latest` 主文档 | `/latest.json` XHR/fetch | 插件如何处理 |
+| --- | --- | --- | --- |
+| 用途 | 加载网页 HTML | 获取公开主题 JSON | 验证固定使用 `/latest.json` |
+| `Accept` | 通常包含 `text/html` | 通常为 `application/json` | 按公开 JSON 请求生成 |
+| `sec-fetch-mode` / `dest` | 常见为 `navigate` / `document` | 常见为 `cors` / `empty` | 不保存这些随请求变化的字段 |
+| `Referer` | 可能没有或来自上一页 | 通常来自 `linux.do` 页面 | 插件为公开接口生成同源来源 |
+| `Cookie`、`User-Agent` | 可能看似相同，但不证明是同一接口 | 必须来自验证完成后的同一次请求 | 作为一个原子档案保存 |
+| `sec-ch-ua*`、`Accept-Language` | 由当前浏览器环境生成 | 与 UA、平台和浏览器版本相关 | 只保存允许的客户端提示，并检查版本与平台一致性 |
+
+必须复制 **Request Headers**，不要复制 Response Headers。最稳妥的是直接复制同一次 `/latest.json` 的完整 cURL；不要跨浏览器、跨时间、跨请求拼接参数。即便档案完全一致，Node.js 仍无法复制 Chrome 的 TLS/HTTP2 指纹；若 Cloudflare 严格绑定指纹，插件会明确提示“不兼容”，不会伪装成 60 秒限流。
 
 ### 手动填写与清除
 
-- Cookie 输入框支持完整 Cookie 或仅 `cf_clearance=...`；解析时只保留 `cf_clearance`、`__cf_bm`、`__cfuvid`、`_cfuvid`、`_bypass_cache` 和未登录的 `_forum_session`。
-- `_t`、`auth_token`、`remember_user_token`、Stripe 字段永远不会写入 SecretStorage；检测到登录令牌时会丢弃 `_forum_session`。
-- 已保存值只显示“已保存”，不会回显原文；输入框留空表示保留原值。
-- **清除 Cookie**、**清除 User-Agent**、**全部清除** 会立即删除对应 SecretStorage 参数；阅读器刷新后会重新显示 Cloudflare 提示。
-- 参数只在 VS Code 的 SecretStorage 中保存，不创建临时浏览器配置目录，也不会读取日常浏览器数据。
+- 备用输入框允许同时手动填写完整 Cookie 和 User-Agent；修改任一项时必须同时填写另一项，禁止把新 Cookie 与旧 UA 静默拼接。
+- 只保留 `cf_clearance`、Cloudflare 辅助字段、`_bypass_cache` 和未登录的 `_forum_session`。Stripe、分析和无关跟踪字段会被丢弃。
+- 检测到 `_t`、`auth_token`、`remember_user_token`、Authorization、CSRF 或论坛 API 凭据时，会拒绝整组导入，而不是尝试删除后继续使用。
+- 已保存值只显示不含秘密的浏览器、版本、平台、Cookie 名称和验证状态摘要，不会回显 Cookie 或完整 User-Agent。
+- **清除 Cookie**、**清除 User-Agent** 和 **全部清除** 都会停用并删除整个原子档案，防止留下无法证明同源的半份参数。
+- 档案只在 VS Code SecretStorage 中保存，不创建临时浏览器目录，也不会读取或控制日常浏览器。
 
 ## 使用
 
 安装扩展后，点击活动栏中的 LINUX DO 图标，选择“最新主题”“热门主题”或“浏览分类”。也可以打开命令面板，执行 `LINUX DO: 打开游客阅读器`。
 
-阅读器工具栏中的时钟按钮用于开启或关闭休息提醒，方格按钮可以随时打开小游戏。也可以在 VS Code 设置中搜索 `LINUX DO 休息提醒` 修改开关。提醒开启后会随机等待 31–60 分钟；选择“10 分钟后提醒”只会执行一次短暂延后。
+阅读器工具栏中的时钟按钮用于开启或关闭休息提醒，方格按钮可以随时打开小游戏。分享按钮右侧的链接按钮用于“打开加密分享”，也可在活动栏中选择同名入口。也可以在 VS Code 设置中搜索 `LINUX DO 休息提醒` 修改开关。提醒开启后会随机等待 31–60 分钟；选择“10 分钟后提醒”只会执行一次短暂延后。
 
 工具栏中的历史按钮会打开不影响当前阅读状态的历史层。它最多保存 60 条成功加载的公开页面，显示页面标题、完整 URL 和访问时间；可以搜索标题或 URL、重新打开页面、单独复制 URL，也可以确认后清空全部历史。同一主题的楼层 URL 会归一化为一条记录，Cloudflare 挑战地址和登录地址不会入库，常见站点标题后缀会自动清理。历史只保存在 VS Code 的本地全局状态中，不包含 Cookie、UA、帖子内容或滚动位置。
 
-## 临时分享码教程
+## 加密分享教程
 
 1. 先在阅读器中打开一个公开主题。
 2. 点击工具栏分享按钮，或执行命令 `LINUX DO: 分享当前主题`。
-3. 选择 10 分钟、1 小时、24 小时或 7 天，填写并确认至少 12 个字符的密码；也可生成 20 位强密码。
-4. 插件自动复制加密分享内容。把它发给对方，并通过另一渠道告诉对方分享密码。
-5. 对方选择“打开临时分享码”，粘贴分享内容并输入相同密码。
-6. 也可执行 `LINUX DO: 临时分享码使用说明`，随时查看插件内教程。
+3. 选择 10 分钟、1 小时、24 小时或 7 天，填写并确认至少 12 个字符的密码；也可生成 20 位强密码，并用输入框右侧按钮复制或重新生成。
+4. 插件自动复制加密分享内容；生成后可反复点击“复制分享内容”或“复制密码”。把两者通过不同渠道发送。
+5. 对方选择工具栏或活动栏中的“打开加密分享”，粘贴分享内容并输入相同密码。
+6. 也可执行 `LINUX DO: 加密分享使用说明`，随时查看插件内教程。
 
 主题编号、slug、标题、生成时间 `iat` 和过期时间 `exp` 全部位于 AES-256-GCM 密文中。密码先做 NFKC 规范化，再经每次随机生成的 16 字节盐和 600,000 次 PBKDF2-HMAC-SHA256 派生 256 位密钥；每次分享还会生成独立的 12 字节 nonce 和 128 位认证标签。密码不写入分享内容，也不会保存。分享内容不包含 Cookie、User-Agent、搜索条件、阅读历史或滚动位置。
 
 只拿到加密分享内容的中间人，即使知道算法和完整源码，也无法直接还原主题或过期时间。盐是公开的防预计算参数，不是密码。请使用不易猜测的密码，并与加密分享内容分渠道发送；如果中间人同时取得两者，或密码过于简单，纯客户端插件无法继续保密。内部格式标识由插件生成，无需手动填写或理解。旧版未加密分享内容会被拒绝。到期后插件拒绝导入，但已经打开或另行保存的公开 URL 无法撤回。
 
-小游戏参考成熟开源项目的玩法与交互并采用独立实现，不下载外部代码、音效或素材；详情见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。棋盘和 Canvas 会根据编辑器可用宽高实时调整，缩放窗口不会重置当前局。2048 支持滑动合并和每局一次撤销，贪吃蛇支持快速转向缓冲，公路闪避在单条连续道路内按住转向，像素跳跃支持长短跳，扫雷支持首击安全、长按标记和键盘操作。插件只保存每款游戏的最高分整数，不保存进行中的游戏。
+小游戏参考成熟开源项目的玩法与交互并采用独立实现，不下载外部代码、音效或素材；详情见 [第三方项目与许可证](https://github.com/Leisure-Xr/chas/blob/main/linuxdo-guest-browser/vscode/THIRD_PARTY_NOTICES.md)。棋盘和 Canvas 会根据编辑器可用宽高实时调整，缩放窗口不会重置当前局。2048 支持滑动合并和每局一次撤销，贪吃蛇支持快速转向缓冲，公路闪避在单条连续道路内按住转向，像素跳跃支持长短跳，扫雷支持首击安全、长按标记和键盘操作。插件只保存每款游戏的最高分整数，不保存进行中的游戏。
 
 此扩展通过站点公开的 Discourse JSON 接口读取游客可见内容。站点临时不可用、限制公开接口或要求人机验证时，扩展会显示相应错误。
 
-为避免快速切换页面或连续滚动触发站点限制，所有接口请求会合并相同 URL、按顺序发送。调度器允许首次列表和紧接着打开主题形成最多两次短突发，此后约每 2.2 秒补充一次请求额度；持续速率约 27 次/分钟。快速切换“最新/热门/分类”或重复触发续页时，尚未发送的旧请求会取消，不再白白消耗站点额度。本地确定性测试同时覆盖 0.8 秒、1.5 秒和 2.2 秒三组频率；当前节奏让 5 个连续请求约 6.6 秒完成，接近旧固定间隔的总等待，但前两次交互更快、持续压力更低。
+请求节奏可在设置中修改，或执行 `LINUX DO: 设置请求节奏`。插件始终单并发，并使用平滑令牌桶，不再设置“60 秒最多若干次”的本地硬窗口：
 
-最新/热门列表缓存约 90 秒，搜索缓存约 60 秒，分类和主题缓存更久；缓存只存在于当前扩展进程内。手动刷新会请求新数据，但仍遵守请求节奏。遇到 403 或 429 后插件会进入冷却期并临时降低后续频率，连续成功后再逐步恢复；若已有不超过 30 分钟的缓存，则先显示缓存内容。本会话已经成功加载过页面后出现的 403 会先按临时限流处理，不会立刻要求重填参数；首次请求即持续 403 时，再检查 Cookie 与 User-Agent。不要连续点击刷新。
+| 档位 | 容量 | 恢复速度 | 适用场景 |
+| --- | --- | --- | --- |
+| 智能 | 从均衡开始 | 根据明确限流在稳妥、均衡、流畅间恢复 | 默认推荐 |
+| 流畅 | 2 个令牌 | 每 4 秒恢复 1 个 | 站点响应稳定时 |
+| 均衡 | 2 个令牌 | 每 5 秒恢复 1 个 | 普通浏览 |
+| 稳妥 | 1 个令牌 | 每 8 秒恢复 1 个 | 已出现明确限流后 |
+
+本地节奏只显示预计排队时间，不作为错误。导航优先于手动续载，手动续载优先于自动续载；尚未发送的旧导航会立即取消。只有 HTTP 429、`Retry-After`、Discourse 限流码、RateLimit 预算或明确的限流正文才进入服务器冷却，并预留服务器预算的 20%。Cloudflare challenge 会直接要求更新档案；无标记 403 不再猜测为限流，而是提示参数失效或 TLS/HTTP2 指纹不兼容。
+
+列表和分页缓存 5 分钟，搜索 2 分钟，分类 30 分钟，主题首包 30 分钟，帖子续载 60 分钟；缓存仅在当前扩展进程中保留，最多 80 条，断网或服务器冷却时可回退最长 6 小时的陈旧缓存。自动续载仍要求新的向下滚动意图，初始短页面和每批追加后的底部不会连锁请求；“加载更多”始终可手动使用，但不会绕过服务器冷却。
 
 ## 本地开发
 

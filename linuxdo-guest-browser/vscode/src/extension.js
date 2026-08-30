@@ -4,13 +4,16 @@ const vscode = require('vscode');
 const {
   GuestRequestSession,
   CloudflareError,
+  RateLimitError,
   CLEARANCE_SECRET,
   GUEST_COOKIE_NAMES,
   GUEST_COOKIE_SECRET,
   SITE_ORIGIN,
   USER_AGENT_SECRET,
+  REQUEST_PROFILE_SECRET,
   isLinuxDoUrl
 } = require('./guest-session');
+const { createRequestProfile, parseCapturedRequest } = require('./request-profile');
 const { createShareCode, generatePassword, parseShareCode, validatePassword } = require('./share-code');
 const {
   addHistoryEntry,
@@ -27,6 +30,12 @@ const SHARE_DURATIONS = [
   { label: '10 分钟', milliseconds: 10 * 60 * 1000 },
   { label: '24 小时', milliseconds: 24 * 60 * 60 * 1000 },
   { label: '7 天', milliseconds: 7 * 24 * 60 * 60 * 1000 }
+];
+const REQUEST_MODE_OPTIONS = [
+  { label: '智能', value: 'smart', description: '默认从均衡开始，根据明确限流自动降速和恢复。' },
+  { label: '流畅', value: 'fluent', description: '最多短突发 2 次，之后每 4 秒平滑恢复 1 次。' },
+  { label: '均衡', value: 'balanced', description: '最多短突发 2 次，之后每 5 秒平滑恢复 1 次。' },
+  { label: '稳妥', value: 'careful', description: '不短突发，每 8 秒平滑恢复 1 次。' }
 ];
 
 class LinuxDoApi {
@@ -241,12 +250,14 @@ class GuestReaderPanel {
     this.sequence = 0;
     this.moreSequence = 0;
     this.listMoreSequence = 0;
+    this.retryTimer = undefined;
     this.entryCounter = 0;
     this.currentAction = undefined;
     this.history = [];
     this.browsingHistory = normalizeStoredHistory(context.globalState.get(HISTORY_STATE_KEY));
     this.panel.webview.html = this.getHtml();
     this.panel.onDidDispose(() => {
+      this.cancelScheduledRetry();
       GuestReaderPanel.current = undefined;
       void this.browserSession.stop();
     }, null, context.subscriptions);
@@ -316,6 +327,9 @@ class GuestReaderPanel {
       case 'shareCurrent':
         await this.shareCurrentTopic();
         break;
+      case 'openShare':
+        await openShareCode(this.context, this.browserSession);
+        break;
       case 'shareHelp':
         await showShareHelp();
         break;
@@ -332,10 +346,10 @@ class GuestReaderPanel {
         await this.clearBrowsingHistory();
         break;
       case 'loadMorePosts':
-        await this.loadMorePosts(message.topicId, message.postIds);
+        await this.loadMorePosts(message.topicId, message.postIds, message.source);
         break;
       case 'loadMoreTopics':
-        await this.loadMoreTopics();
+        await this.loadMoreTopics(message.source);
         break;
     }
   }
@@ -346,7 +360,8 @@ class GuestReaderPanel {
   }
 
   async openAction(action, recordHistory = true) {
-    this.browserSession.cancelPendingRequests(['navigation', 'topic-more', 'list-more']);
+    this.cancelScheduledRetry();
+    this.browserSession.cancelPendingRequests(['navigation', 'topic-more', 'list-more', 'manual-more']);
     if (recordHistory && this.currentAction && !sameAction(this.currentAction, action)) {
       this.history.push(this.currentAction);
       if (this.history.length > 50) this.history.shift();
@@ -371,7 +386,7 @@ class GuestReaderPanel {
   async shareCurrentTopic() {
     const action = this.currentAction;
     if (action?.type !== 'topic' || !action.title) {
-      vscode.window.showInformationMessage('请先打开一个主题，再生成临时分享码。');
+      vscode.window.showInformationMessage('请先打开一个主题，再生成加密分享内容。');
       return;
     }
     const duration = await vscode.window.showQuickPick(SHARE_DURATIONS, {
@@ -388,13 +403,31 @@ class GuestReaderPanel {
       vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
       return;
     }
-    await vscode.env.clipboard.writeText(code);
     const expiresAt = new Date(Date.now() + duration.milliseconds).toLocaleString('zh-CN', { hour12: false });
-    const choice = await vscode.window.showInformationMessage(
-      `加密分享内容已复制，将于 ${expiresAt} 失效。请通过另一渠道把分享密码告诉对方；插件不会保存密码。`,
-      '查看分享教程'
-    );
-    if (choice) await showShareHelp();
+    await vscode.env.clipboard.writeText(code);
+    for (;;) {
+      const choice = await vscode.window.showInformationMessage(
+        `加密分享内容已复制，将于 ${expiresAt} 失效。密码不会保存，请通过另一渠道发送。`,
+        '复制分享内容',
+        '复制密码',
+        '查看分享教程',
+        '完成'
+      );
+      if (choice === '复制分享内容') {
+        await vscode.env.clipboard.writeText(code);
+        continue;
+      }
+      if (choice === '复制密码') {
+        await vscode.env.clipboard.writeText(password);
+        vscode.window.showInformationMessage('分享密码已复制。');
+        continue;
+      }
+      if (choice === '查看分享教程') {
+        await showShareHelp();
+        continue;
+      }
+      break;
+    }
   }
 
   recordVisit(action, title, url) {
@@ -455,7 +488,8 @@ class GuestReaderPanel {
   async goBack() {
     const previous = this.history.pop();
     if (!previous) return;
-    this.browserSession.cancelPendingRequests(['navigation', 'topic-more', 'list-more']);
+    this.browserSession.cancelPendingRequests(['navigation', 'topic-more', 'list-more', 'manual-more']);
+    this.cancelScheduledRetry();
     this.currentAction = previous;
     this.moreSequence += 1;
     this.listMoreSequence += 1;
@@ -467,7 +501,7 @@ class GuestReaderPanel {
     if (!restored) await this.loadAction(this.currentAction, true);
   }
 
-  async loadMorePosts(topicId, rawPostIds) {
+  async loadMorePosts(topicId, rawPostIds, source) {
     const safeTopicId = Number(topicId);
     if (this.currentAction?.type !== 'topic' || this.currentAction.id !== safeTopicId) return;
     const postIds = [...new Set(Array.isArray(rawPostIds) ? rawPostIds.map(Number) : [])]
@@ -477,8 +511,9 @@ class GuestReaderPanel {
     const current = ++this.moreSequence;
     try {
       const posts = await this.api.topicPosts(safeTopicId, postIds, {
-        requestLane: 'topic-more',
-        cancelPendingLanes: ['topic-more']
+        requestLane: source === 'auto' ? 'topic-more' : 'manual-more',
+        continuation: true,
+        cancelPendingLanes: ['topic-more', 'manual-more']
       });
       if (current === this.moreSequence) {
         this.post({ type: 'morePosts', topicId: safeTopicId, posts, requestedPostIds: postIds });
@@ -490,15 +525,16 @@ class GuestReaderPanel {
     }
   }
 
-  async loadMoreTopics() {
+  async loadMoreTopics(source) {
     const action = this.currentAction;
     if (!action || action.type === 'topic' || action.type === 'search' || !action.topicListCursor) return;
     const current = ++this.listMoreSequence;
     try {
       const kind = action.type === 'category' ? 'category' : action.view === 'top' ? 'top' : 'latest';
       const data = await this.api.topicListPage(action.topicListCursor, kind, {
-        requestLane: 'list-more',
-        cancelPendingLanes: ['list-more']
+        requestLane: source === 'auto' ? 'list-more' : 'manual-more',
+        continuation: true,
+        cancelPendingLanes: ['list-more', 'manual-more']
       });
       if (current === this.listMoreSequence && this.currentAction?.entryId === action.entryId) {
         action.topicListCursor = data.morePath;
@@ -518,17 +554,36 @@ class GuestReaderPanel {
       const data = await loader();
       if (current === this.sequence) {
         onSuccess?.(data);
-        this.post({ type: resultType, data, ...meta });
+        if (this.currentAction?.entryId) this.currentAction.hasRenderedResult = true;
+        this.post({ type: resultType, data, entryId: this.currentAction?.entryId, cacheInfo: this.browserSession.consumeLastResponseInfo(), ...meta });
       }
     } catch (error) {
       if (current === this.sequence) {
         if (error instanceof CloudflareError) {
           this.post({ type: 'cloudflareRequired', message: error.message, hasClearance: error.hasClearance });
         } else {
-          this.post({ type: 'error', message: friendlyError(error) });
+          this.post({ type: 'error', message: friendlyError(error), retryAt: error instanceof RateLimitError ? error.retryAt : undefined });
+          if (error instanceof RateLimitError && this.currentAction && !this.currentAction.hasRenderedResult && !this.currentAction.autoRetryUsed) {
+            this.currentAction.autoRetryUsed = true;
+            this.scheduleOneRetry(this.currentAction, error.retryAt);
+          }
         }
       }
     }
+  }
+
+  cancelScheduledRetry() {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+  }
+
+  scheduleOneRetry(action, retryAt) {
+    const delay = Math.max(1_000, Number(retryAt) - Date.now());
+    this.cancelScheduledRetry();
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      if (this.currentAction?.entryId === action.entryId) void this.loadAction(action, true, { force: true });
+    }, delay);
   }
 
   loadList(kind, categoryId, categoryName, requestOptions) {
@@ -605,6 +660,7 @@ class GuestReaderPanel {
     const webview = this.panel.webview;
     const nonce = randomNonce();
     const gameCoreUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'game-core.js'));
+    const gameUiUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'game-ui.js'));
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'main.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'styles.css'));
     return `<!doctype html>
@@ -636,14 +692,17 @@ class GuestReaderPanel {
     </form>
     <button id="break-reminder" type="button" class="icon-button" title="开启休息提醒" aria-label="开启休息提醒" aria-pressed="false">◷</button>
     <button id="share-topic" type="button" class="icon-button" title="分享当前主题" aria-label="分享当前主题">↗</button>
+    <button id="open-share" type="button" class="icon-button" title="打开加密分享" aria-label="打开加密分享">⌁</button>
     <button id="open-game" type="button" class="icon-button game-button" title="打开休息小游戏" aria-label="打开休息小游戏">▦</button>
     <button id="density" type="button" class="icon-button" title="切换显示密度" aria-label="切换显示密度">≡</button>
+    <button id="more-tools" type="button" class="icon-button" title="更多阅读设置" aria-label="更多阅读设置" aria-expanded="false">⋯</button>
     <button id="refresh" type="button" class="icon-button" title="刷新" aria-label="刷新">↻</button>
   </header>
   <main id="content" tabindex="-1">
     <div class="loading"><span class="spinner"></span><span>正在连接 LINUX DO…</span></div>
   </main>
   <script nonce="${nonce}" src="${gameCoreUri}"></script>
+  <script nonce="${nonce}" src="${gameUiUri}"></script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
@@ -662,8 +721,23 @@ function navigationRequestOptions(options) {
   return {
     ...(options || {}),
     requestLane: 'navigation',
-    cancelPendingLanes: ['navigation', 'topic-more', 'list-more']
+    cancelPendingLanes: ['navigation', 'topic-more', 'list-more', 'manual-more']
   };
+}
+
+async function configureRequestMode(browserSession) {
+  const selected = await vscode.window.showQuickPick(REQUEST_MODE_OPTIONS, {
+    title: '设置 LINUX DO 请求节奏',
+    placeHolder: '智能模式会根据明确的站点限流自动调整'
+  });
+  if (!selected) return;
+  await vscode.workspace.getConfiguration('linuxdoGuest').update(
+    'requestMode',
+    selected.value,
+    vscode.ConfigurationTarget.Global
+  );
+  browserSession.setRequestMode(selected.value);
+  vscode.window.showInformationMessage(`请求节奏已设置为：${selected.label}。`);
 }
 
 class GuestTreeProvider {
@@ -685,7 +759,9 @@ class GuestTreeProvider {
       navItem('最新主题', 'linuxdoGuest.openLatest', 'clock', '游客可见的最新帖子'),
       navItem('热门主题', 'linuxdoGuest.openTop', 'flame', '本周热门帖子'),
       navItem('浏览分类', 'linuxdoGuest.openCategories', 'list-tree', '查看公开分类'),
-      navItem('临时分享码教程', 'linuxdoGuest.shareHelp', 'question', '了解如何跨插件分享公开主题'),
+      navItem('打开加密分享', 'linuxdoGuest.openShareCode', 'link-external', '粘贴分享内容和密码打开主题'),
+      navItem('设置请求节奏', 'linuxdoGuest.setRequestMode', 'dashboard', '调整游客请求节奏'),
+      navItem('加密分享教程', 'linuxdoGuest.shareHelp', 'question', '了解如何跨插件分享公开主题'),
       navItem('打开阅读器', 'linuxdoGuest.open', 'globe', '打开默认页面')
     ];
   }
@@ -712,44 +788,55 @@ async function configureCloudflare(context, browserSession, onSaved) {
 }
 
 function createVerificationHandlers(context, browserSession, onSaved) {
-  const currentCookie = async () => {
-    const saved = await context.secrets.get(GUEST_COOKIE_SECRET);
-    if (saved) return saved;
-    const legacy = await context.secrets.get(CLEARANCE_SECRET);
-    return legacy ? `cf_clearance=${legacy}` : '';
-  };
   return {
-    getState: async () => ({
-      hasCookie: Boolean(await currentCookie()),
-      hasUserAgent: Boolean(await context.secrets.get(USER_AGENT_SECRET))
-    }),
-    save: async ({ cookie, userAgent, validate }) => {
-      const cookieHeader = cookie.trim()
-        ? filterGuestCookieHeader(cookie, MANUAL_GUEST_COOKIE_NAMES)
-        : await currentCookie();
-      const expectedUserAgent = userAgent.trim() || await context.secrets.get(USER_AGENT_SECRET) || '';
-      const cookieError = validateGuestCookieInput(cookieHeader);
-      if (cookieError) throw new Error(cookieError);
-      const userAgentError = validateUserAgent(expectedUserAgent);
-      if (userAgentError) throw new Error(userAgentError);
+    getState: async () => {
+      const profile = await browserSession.getStoredVerification();
+      return {
+        hasCookie: Boolean(profile.cookieHeader),
+        hasUserAgent: Boolean(profile.userAgent),
+        profileSummary: await browserSession.getStoredProfileSummary()
+      };
+    },
+    save: async ({ capture, cookie, userAgent, sourceHint, validate }) => {
+      const captured = String(capture || '').trim();
+      const enteredCookie = String(cookie || '').trim();
+      const enteredUserAgent = String(userAgent || '').trim();
+      let candidate;
+      if (captured) {
+        candidate = parseCapturedRequest(captured, sourceHint);
+      } else if (enteredCookie || enteredUserAgent) {
+        if (!enteredCookie || !enteredUserAgent) {
+          throw new Error('参数混用：修改 Cookie 或 User-Agent 时必须同时填写另一项，并确保来自同一次 /latest.json 请求。');
+        }
+        candidate = createRequestProfile({
+          cookieHeader: enteredCookie,
+          userAgent: enteredUserAgent,
+          source: `manual:${String(sourceHint || 'auto')}`
+        });
+      } else {
+        const existing = await browserSession.getStoredVerification();
+        if (!existing.cookieHeader || !existing.userAgent) throw new Error('请粘贴完整请求档案，或同时填写 Cookie 与 User-Agent。');
+        candidate = existing;
+      }
       await vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: validate ? '正在测试 Cloudflare 游客参数' : '正在保存 Cloudflare 游客参数',
+        title: validate ? '正在对 /latest.json 发起一次参数测试' : '正在保存未验证的游客请求档案',
         cancellable: false
       }, () => browserSession.saveManualVerification({
-        cookieHeader,
-        userAgent: expectedUserAgent,
+        cookieHeader: candidate.cookieHeader,
+        userAgent: candidate.userAgent,
+        clientHints: candidate.clientHints,
+        source: candidate.source,
         validate: Boolean(validate)
       }));
       await onSaved?.();
     },
     clear: async (target) => {
       await browserSession.stop();
-      if (target === 'cookie' || target === 'all') {
-        await context.secrets.delete(CLEARANCE_SECRET);
-        await context.secrets.delete(GUEST_COOKIE_SECRET);
-      }
-      if (target === 'userAgent' || target === 'all') await context.secrets.delete(USER_AGENT_SECRET);
+      await context.secrets.delete(REQUEST_PROFILE_SECRET);
+      await context.secrets.delete(CLEARANCE_SECRET);
+      await context.secrets.delete(GUEST_COOKIE_SECRET);
+      await context.secrets.delete(USER_AGENT_SECRET);
       await onSaved?.();
     }
   };
@@ -807,6 +894,7 @@ function validateUserAgent(value) {
 
 async function clearCloudflare(context, browserSession) {
   await browserSession.stop();
+  await context.secrets.delete(REQUEST_PROFILE_SECRET);
   await context.secrets.delete(CLEARANCE_SECRET);
   await context.secrets.delete(GUEST_COOKIE_SECRET);
   await context.secrets.delete(USER_AGENT_SECRET);
@@ -845,14 +933,14 @@ async function openShareCode(context, browserSession) {
 
 async function showShareHelp() {
   await vscode.window.showInformationMessage(
-    '临时分享码使用说明',
+    '加密分享使用说明',
     {
       modal: true,
       detail: [
         '1. 打开一个公开主题，点击工具栏“分享”或执行“LINUX DO: 分享当前主题”。',
         '2. 选择 10 分钟、1 小时、24 小时或 7 天，并填写至少 12 个字符的分享密码；也可生成 20 位强密码。',
         '3. 插件把加密分享内容复制到剪贴板。把它发给对方，并通过另一渠道告知分享密码。',
-        '4. 对方选择“打开临时分享码”，粘贴分享内容并输入相同密码即可。',
+        '4. 对方选择“打开加密分享”，粘贴分享内容并输入相同密码即可。',
         '',
         '主题、标题、生成时间和过期时间都使用 AES-256-GCM 加密。密码经随机盐和 600,000 次 PBKDF2-HMAC-SHA256 派生密钥；盐用于防预计算，密码不写入分享内容，也不会保存。只有分享内容而没有密码，即使知道算法和源码也无法直接还原主题。',
         '',
@@ -872,13 +960,7 @@ async function promptSharePassword() {
   });
   if (!mode) return undefined;
   if (mode.value === 'generated') {
-    return vscode.window.showInputBox({
-      title: '保存生成的分享密码',
-      prompt: '请先复制或保存这个密码，再按 Enter 生成加密分享内容。',
-      value: generatePassword(),
-      ignoreFocusOut: true,
-      validateInput: passwordValidationMessage
-    });
+    return promptGeneratedSharePassword();
   }
 
   const password = await vscode.window.showInputBox({
@@ -897,6 +979,56 @@ async function promptSharePassword() {
     validateInput: (value) => value !== password ? '两次输入的分享密码不一致。' : passwordValidationMessage(value)
   });
   return confirmation === undefined ? undefined : password;
+}
+
+function promptGeneratedSharePassword() {
+  return new Promise((resolve) => {
+    const input = vscode.window.createInputBox();
+    const copyButton = {
+      iconPath: new vscode.ThemeIcon('copy'),
+      tooltip: '复制密码'
+    };
+    const regenerateButton = {
+      iconPath: new vscode.ThemeIcon('refresh'),
+      tooltip: '重新生成'
+    };
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      input.dispose();
+      resolve(value);
+    };
+
+    input.title = '生成分享密码';
+    input.prompt = '请先点击“复制密码”保存，再按 Enter 使用；也可重新生成。';
+    input.value = generatePassword();
+    input.ignoreFocusOut = true;
+    input.buttons = [copyButton, regenerateButton];
+    input.onDidTriggerButton(async (button) => {
+      if (button === regenerateButton) {
+        input.value = generatePassword();
+        input.validationMessage = '已生成新密码，请复制后再继续。';
+        return;
+      }
+      try {
+        await vscode.env.clipboard.writeText(input.value);
+        input.validationMessage = '密码已复制到剪贴板。';
+      } catch {
+        input.validationMessage = '无法写入剪贴板，请手动选择并复制密码。';
+      }
+    });
+    input.onDidAccept(() => {
+      const message = passwordValidationMessage(input.value);
+      if (message) {
+        input.validationMessage = message;
+        return;
+      }
+      finish(input.value);
+    });
+    input.onDidHide(() => finish(undefined));
+    input.show();
+  });
 }
 
 function passwordValidationMessage(value) {
@@ -919,7 +1051,10 @@ function randomNonce() {
 
 function activate(context) {
   const provider = new GuestTreeProvider();
-  const browserSession = new GuestRequestSession(context.secrets);
+  const browserSession = new GuestRequestSession(context.secrets, {
+    requestMode: vscode.workspace.getConfiguration('linuxdoGuest').get('requestMode', 'smart'),
+    onQueueWait: ({ waitMs, reason }) => GuestReaderPanel.current?.post({ type: 'queueWait', waitMs, reason })
+  });
   activeBrowserSession = browserSession;
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('linuxdoGuest.explorer', provider),
@@ -936,12 +1071,16 @@ function activate(context) {
     }),
     vscode.commands.registerCommand('linuxdoGuest.setCloudflareClearance', () => configureCloudflare(context, browserSession, () => GuestReaderPanel.current?.refresh(false))),
     vscode.commands.registerCommand('linuxdoGuest.clearCloudflareClearance', () => clearCloudflare(context, browserSession)),
+    vscode.commands.registerCommand('linuxdoGuest.setRequestMode', () => configureRequestMode(browserSession)),
     vscode.commands.registerCommand('linuxdoGuest.shareCurrentTopic', () => GuestReaderPanel.current?.shareCurrentTopic() || vscode.window.showInformationMessage('请先打开一个主题。')),
     vscode.commands.registerCommand('linuxdoGuest.openShareCode', () => openShareCode(context, browserSession)),
     vscode.commands.registerCommand('linuxdoGuest.shareHelp', showShareHelp),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('linuxdoGuest.breakReminder.enabled')) {
         GuestReaderPanel.current?.updateBreakReminderSetting();
+      }
+      if (event.affectsConfiguration('linuxdoGuest.requestMode')) {
+        browserSession.setRequestMode(vscode.workspace.getConfiguration('linuxdoGuest').get('requestMode', 'smart'));
       }
     }),
     provider.changeEmitter,

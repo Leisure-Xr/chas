@@ -9,8 +9,10 @@
   const historyButton = document.getElementById('history');
   const breakReminderButton = document.getElementById('break-reminder');
   const shareTopicButton = document.getElementById('share-topic');
+  const openShareButton = document.getElementById('open-share');
   const openGameButton = document.getElementById('open-game');
   const densityButton = document.getElementById('density');
+  const moreToolsButton = document.getElementById('more-tools');
   const refreshButton = document.getElementById('refresh');
   let savedState = vscode.getState() || {};
   let topicState;
@@ -18,43 +20,16 @@
   let topicListState;
   let topicListObserver;
   let currentEntryId;
+  let displayedEntryId;
   let currentPageCacheable = false;
   let breakReminderEnabled = false;
   let breakTimer;
-  let gameTimer;
-  let gameFrame;
-  let gameCountdownCancel;
-  let gamePauseButton;
-  let gamePauseLayer;
-  let activeGame;
-  let gameKeyHandler;
-  let gameKeyUpHandler;
-  let gameInputReset;
-  let gameResizeCleanup;
-  let gameCleanup = [];
+  let gameController;
   let historyEntries = [];
   let historyFeedbackTimer;
+  let rateLimitTimer;
   const pageCache = new Map();
   const historyOverlay = createHistoryOverlay();
-  const gameOverlay = createGameOverlay();
-  const gameRuntime = LinuxDoGameCore.createRuntime({
-    bestScores: savedState.gameBestScores || {},
-    onBestScore: () => {
-      savedState = { ...savedState, gameBestScores: gameRuntime.bestScores() };
-      vscode.setState(savedState);
-    },
-    onPause: (paused) => {
-      if (paused) gameInputReset?.();
-      if (gamePauseButton) {
-        gamePauseButton.textContent = paused ? '▶' : 'Ⅱ';
-        gamePauseButton.title = paused ? '继续' : '暂停';
-        gamePauseButton.setAttribute('aria-label', paused ? '继续' : '暂停');
-      }
-      if (gamePauseLayer) gamePauseLayer.hidden = !paused;
-    }
-  });
-  savedState = { ...savedState, gameBestScores: gameRuntime.bestScores() };
-  vscode.setState(savedState);
 
   document.body.classList.toggle('compact', savedState.compact !== false);
 
@@ -76,6 +51,7 @@
   });
   openGameButton.addEventListener('click', () => showGameMenu(false));
   shareTopicButton.addEventListener('click', () => vscode.postMessage({ type: 'shareCurrent' }));
+  openShareButton.addEventListener('click', () => vscode.postMessage({ type: 'openShare' }));
   densityButton.addEventListener('click', () => {
     const compact = !document.body.classList.contains('compact');
     document.body.classList.toggle('compact', compact);
@@ -84,6 +60,45 @@
     vscode.setState(savedState);
   });
   densityButton.classList.toggle('active', document.body.classList.contains('compact'));
+  moreToolsButton.addEventListener('click', () => showMoreTools());
+
+  function showMoreTools() {
+    const existing = document.getElementById('more-tools-menu');
+    if (existing) {
+      existing.remove();
+      moreToolsButton.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    const menu = node('div', 'more-tools-menu');
+    menu.id = 'more-tools-menu';
+    menu.setAttribute('role', 'menu');
+    const reminder = node('button', 'more-tools-item', breakReminderEnabled ? '关闭休息提醒' : '开启休息提醒');
+    reminder.type = 'button';
+    reminder.setAttribute('role', 'menuitem');
+    reminder.addEventListener('click', () => {
+      breakReminderButton.click();
+      menu.remove();
+      moreToolsButton.setAttribute('aria-expanded', 'false');
+    });
+    const density = node('button', 'more-tools-item', document.body.classList.contains('compact') ? '切换为舒展显示' : '切换为紧凑显示');
+    density.type = 'button';
+    density.setAttribute('role', 'menuitem');
+    density.addEventListener('click', () => {
+      densityButton.click();
+      menu.remove();
+      moreToolsButton.setAttribute('aria-expanded', 'false');
+    });
+    menu.append(reminder, density);
+    document.body.append(menu);
+    moreToolsButton.setAttribute('aria-expanded', 'true');
+    const close = (event) => {
+      if (event.target === moreToolsButton || menu.contains(event.target)) return;
+      menu.remove();
+      moreToolsButton.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('pointerdown', close, true);
+    };
+    requestAnimationFrame(() => document.addEventListener('pointerdown', close, true));
+  }
 
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !historyOverlay.hidden) {
@@ -91,30 +106,12 @@
       closeHistory();
       return;
     }
-    if (!gameOverlay.hidden && gameKeyHandler?.(event)) {
-      event.preventDefault();
-      return;
-    }
     if (event.altKey && event.key === 'ArrowLeft' && !backButton.disabled) {
       event.preventDefault();
       navigate({ type: 'back' });
     }
   });
-  window.addEventListener('keyup', (event) => {
-    if (!gameOverlay.hidden && gameKeyUpHandler?.(event)) event.preventDefault();
-  });
-  window.addEventListener('blur', () => {
-    if (!gameOverlay.hidden && activeGame && !gameRuntime.state().finished) {
-      gameInputReset?.();
-      gameRuntime.setPaused(true);
-    }
-  });
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && !gameOverlay.hidden && activeGame) {
-      gameInputReset?.();
-      gameRuntime.setPaused(true);
-    }
-  });
+  window.addEventListener('scroll', recordMoreScrollIntent, { passive: true });
 
   content.addEventListener('click', (event) => {
     const loadMoreTopicsButton = event.target.closest('[data-load-more-topics]');
@@ -179,8 +176,11 @@
       case 'loading':
         renderLoading();
         break;
+      case 'queueWait':
+        renderQueueWait(message.waitMs, message.reason);
+        break;
       case 'error':
-        renderError(message.message);
+        renderError(message.message, message.retryAt);
         break;
       case 'cloudflareRequired':
         renderCloudflare(message);
@@ -205,10 +205,10 @@
         renderTopicList(message.data, message);
         break;
       case 'categories':
-        renderCategories(message.data);
+        renderCategories(message.data, message);
         break;
       case 'topic':
-        renderTopic(message.data);
+        renderTopic(message.data, message);
         break;
       case 'morePosts':
         appendMorePosts(message);
@@ -346,782 +346,49 @@
     breakTimer = setTimeout(() => showGameMenu(true), delay || randomDelay);
   }
 
-  function createGameOverlay() {
-    const overlay = node('div', 'break-overlay');
-    overlay.hidden = true;
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-label', '休息小游戏');
-    overlay.append(node('section', 'break-panel'));
-    document.body.append(overlay);
-    return overlay;
-  }
-
   function showGameMenu(fromReminder) {
-    stopGame();
     clearTimeout(breakTimer);
-    const panel = gameOverlay.querySelector('.break-panel');
-    panel.classList.remove('is-game', 'game-compact');
-    delete panel.dataset.game;
-    const games = ['2048', 'snake', 'racer', 'jumper', 'mines'];
+    if (gameController) gameController.destroy();
+    const games = ["2048", "snake", "racer", "jumper", "mines"];
     const recommended = games[Math.floor(Math.random() * games.length)];
-    const heading = node('div', 'break-heading', [
-      node('div', '', [
-        node('h1', '', fromReminder ? '休息一下' : '小游戏'),
-        node('p', '', fromReminder ? '离开帖子几分钟，活动一下眼睛和手指。' : '选一个轻量小游戏，随时可以回到阅读。')
-      ]),
-      iconAction('×', '继续阅读', closeGameOverlay)
-    ]);
-    const choices = node('div', 'game-choices');
-    choices.append(
-      gameChoice('2048', '合并数字', '方向键移动方块', recommended === '2048'),
-      gameChoice('snake', '贪吃蛇', '吃到方块并避开自己', recommended === 'snake'),
-      gameChoice('racer', '公路闪避', '在单一道路内自由转向', recommended === 'racer'),
-      gameChoice('jumper', '像素跳跃', '奔跑并跳过障碍', recommended === 'jumper'),
-      gameChoice('mines', '扫雷', '找出安全方格', recommended === 'mines')
-    );
-    const actions = node('div', 'break-actions');
-    if (fromReminder) {
-      actions.append(actionButton('10 分钟后提醒', () => {
-        gameOverlay.hidden = true;
-        scheduleBreak(10 * 60 * 1000);
-      }));
-    }
-    actions.append(actionButton('继续阅读', closeGameOverlay));
-    panel.replaceChildren(heading, choices, actions);
-    gameOverlay.hidden = false;
-    panel.querySelector('.game-choice')?.focus();
-  }
-
-  function gameChoice(kind, title, description, recommended) {
-    const button = node('button', 'game-choice');
-    button.type = 'button';
-    button.append(
-      node('span', 'game-choice-icon', { '2048': '20', snake: 'S', racer: 'R', jumper: 'J', mines: 'M' }[kind]),
-      node('span', 'game-choice-copy', [
-        node('strong', '', title),
-        node('small', '', description)
-      ])
-    );
-    if (recommended) button.append(node('span', 'recommend-badge', '推荐'));
-    button.addEventListener('click', () => startGame(kind));
-    return button;
-  }
-
-  function startGame(kind) {
-    stopGame();
-    activeGame = LinuxDoGameCore.canonicalGame(kind);
-    gameRuntime.start(activeGame);
-    const launch = () => {
-      if (activeGame === 'snake') startSnake();
-      else if (activeGame === 'racer') startRacer();
-      else if (activeGame === 'jumper') startJumper();
-      else if (activeGame === 'mines') startMines();
-      else start2048();
-    };
-    const panel = gameOverlay.querySelector('.break-panel');
-    panel.classList.add('is-game');
-    const countdownValue = node('strong', 'countdown-value', '3');
-    panel.replaceChildren(node('div', 'countdown-panel', [node('span', '', '准备'), countdownValue]));
-    gameOverlay.hidden = false;
-    gameCountdownCancel = LinuxDoGameCore.countdown((value) => { countdownValue.textContent = String(value); }, launch);
-  }
-
-  function gameShell(title, instructions) {
-    const panel = gameOverlay.querySelector('.break-panel');
-    panel.classList.add('is-game');
-    panel.dataset.game = activeGame;
-    const score = node('strong', 'game-score', '0');
-    score.id = 'mini-game-score';
-    const body = node('div', 'game-body');
-    body.id = 'mini-game-body';
-    const best = node('span', 'game-best', `最高 ${gameRuntime.state().best}`);
-    gamePauseButton = iconAction('Ⅱ', '暂停或继续', () => gameRuntime.togglePause());
-    gamePauseLayer = node('div', 'game-state-layer pause-layer', [
-      node('strong', '', '已暂停'),
-      actionButton('继续', () => gameRuntime.setPaused(false))
-    ]);
-    gamePauseLayer.hidden = true;
-    const resultLayer = node('div', 'game-state-layer result-layer');
-    resultLayer.hidden = true;
-    body.append(gamePauseLayer, resultLayer);
-    const heading = node('div', 'game-toolbar', [
-      iconAction('←', '选择其他游戏', () => showGameMenu(false)),
-      node('div', 'game-title', [node('strong', '', title), node('small', '', instructions)]),
-      node('span', 'score-wrap', [node('small', '', '得分'), score, best]),
-      gamePauseButton,
-      iconAction('↻', '重新开始', () => startGame(activeGame)),
-      iconAction('×', '结束休息', closeGameOverlay)
-    ]);
-    panel.replaceChildren(heading, body);
-    gameOverlay.hidden = false;
-    return { panel, body, score, best, resultLayer };
-  }
-
-  function iconAction(label, title, handler) {
-    const button = node('button', 'mini-icon-button', label);
-    button.type = 'button';
-    button.title = title;
-    button.setAttribute('aria-label', title);
-    button.addEventListener('click', handler);
-    return button;
-  }
-
-  function closeGameOverlay() {
-    stopGame();
-    gameOverlay.hidden = true;
-    if (breakReminderEnabled) scheduleBreak();
-    openGameButton.focus();
-  }
-
-  function stopGame() {
-    clearTimeout(gameTimer);
-    clearInterval(gameTimer);
-    cancelAnimationFrame(gameFrame);
-    gameTimer = undefined;
-    gameFrame = undefined;
-    gameCountdownCancel?.();
-    gameCountdownCancel = undefined;
-    gamePauseButton = undefined;
-    gamePauseLayer = undefined;
-    gameInputReset?.();
-    gameInputReset = undefined;
-    gameResizeCleanup?.();
-    gameResizeCleanup = undefined;
-    gameCleanup.forEach((cleanup) => cleanup());
-    gameCleanup = [];
-    activeGame = undefined;
-    gameKeyHandler = undefined;
-    gameKeyUpHandler = undefined;
-  }
-
-  function setGameScore(ui, value) {
-    const state = gameRuntime.setScore(value);
-    ui.score.textContent = String(state.score);
-    if (ui.best) ui.best.textContent = `最高 ${state.best}`;
-  }
-
-  function finishGame(ui, message, detail) {
-    gameRuntime.finish();
-    gameInputReset?.();
-    if (gamePauseLayer) gamePauseLayer.hidden = true;
-    ui.resultLayer.hidden = false;
-    ui.resultLayer.replaceChildren(
-      node('strong', '', message),
-      detail ? node('span', '', detail) : document.createTextNode(''),
-      node('div', 'result-actions', [
-        actionButton('再来一局', () => startGame(activeGame)),
-        actionButton('选择游戏', () => showGameMenu(false))
-      ])
-    );
-  }
-
-  function start2048() {
-    const ui = gameShell('2048', '方向键或下方按钮移动');
-    const game = LinuxDoGameCore.create2048();
-    const grid = node('div', 'game-board game-2048');
-    const backgrounds = node('div', 'tile-backgrounds');
-    const tileLayer = node('div', 'tile-layer');
-    backgrounds.replaceChildren(...Array.from({ length: 16 }, () => node('span', 'tile-background')));
-    grid.append(backgrounds, tileLayer);
-    const status = node('p', 'game-status', '每局可撤销一次');
-    const undoButton = actionButton('撤销一次', undo);
-    undoButton.disabled = true;
-    const tileNodes = new Map();
-    let animating = false;
-    let queuedDirection;
-    ui.body.append(grid, directionPad(move), node('div', 'game-inline-actions', undoButton), status);
-    observeGameSize(ui, grid, 'square', () => renderStatic(game.state()));
-
-    function move(direction) {
-      if (gameRuntime.state().paused || gameRuntime.state().finished) return;
-      if (animating) {
-        queuedDirection = direction;
-        return;
+    gameController = LinuxDoGameUI.open({
+      core: LinuxDoGameCore,
+      recommended,
+      reminderMode: Boolean(fromReminder),
+      bestScores: savedState.gameBestScores || {},
+      onBestScore: (game, value, bestScores) => {
+        savedState = { ...savedState, gameBestScores: bestScores || { ...(savedState.gameBestScores || {}), [game]: value } };
+        vscode.setState(savedState);
+      },
+      onContinue: () => {
+        gameController = undefined;
+        if (fromReminder && breakReminderEnabled) scheduleBreak();
+        openGameButton.focus();
+      },
+      onSnooze: () => {
+        gameController = undefined;
+        if (breakReminderEnabled) scheduleBreak(10 * 60 * 1000);
+        openGameButton.focus();
       }
-      const result = game.move(direction);
-      if (result.moved) {
-        animateMove(result);
-      } else if (result.finished) {
-        finishGame(ui, '没有可移动方块', `得分 ${result.score}`);
-      }
-    }
-
-    function undo() {
-      if (gameRuntime.state().paused || animating) return;
-      const state = game.undo();
-      renderStatic(state, true);
-    }
-
-    function makeTile(tile, spawned) {
-      const item = node('span', `tile tile-${Math.min(tile.value, 2048)}${spawned ? ' spawned' : ''}`, String(tile.value));
-      item.dataset.id = String(tile.id);
-      tileNodes.set(tile.id, item);
-      tileLayer.append(item);
-      position2048Tile(item, tile.index, grid);
-      return item;
-    }
-
-    function renderStatic(state, undoing = false) {
-      const live = new Set(state.tiles.map((tile) => tile.id));
-      tileNodes.forEach((item, id) => {
-        if (!live.has(id)) {
-          item.remove();
-          tileNodes.delete(id);
-        }
-      });
-      state.tiles.forEach((tile) => {
-        const item = tileNodes.get(tile.id) || makeTile(tile, false);
-        item.className = `tile tile-${Math.min(tile.value, 2048)}${undoing ? ' undoing' : ''}`;
-        item.textContent = String(tile.value);
-        item.style.transition = 'none';
-        position2048Tile(item, tile.index, grid);
-        requestAnimationFrame(() => { item.style.transition = ''; });
-      });
-      undoButton.disabled = !state.canUndo;
-      status.textContent = state.undoUsed ? '本局撤销已使用' : '每局可撤销一次';
-      setGameScore(ui, state.score);
-    }
-
-    function animateMove(state) {
-      animating = true;
-      state.events.filter((event) => event.type === 'move').forEach((event) => {
-        const item = tileNodes.get(event.id);
-        if (item) {
-          item.classList.add('moving');
-          requestAnimationFrame(() => position2048Tile(item, event.to, grid));
-        }
-      });
-      gameTimer = setTimeout(() => {
-        renderStatic(state);
-        state.events.forEach((event) => {
-          if (event.merged && !event.removed) tileNodes.get(event.id)?.classList.add('merged');
-          if (event.type === 'spawn') tileNodes.get(event.id)?.classList.add('spawned');
-        });
-        animating = false;
-        if (state.finished) finishGame(ui, '本局结束', `得分 ${state.score}`);
-        const next = queuedDirection;
-        queuedDirection = undefined;
-        if (next && !state.finished) move(next);
-      }, prefersReducedMotion() ? 20 : 145);
-    }
-
-    renderStatic(game.state());
-    gameKeyHandler = (event) => handleDirectionKey(event, move);
-  }
-
-  function position2048Tile(item, index, grid) {
-    const padding = 6;
-    const gap = 6;
-    const cell = Math.max(0, (grid.clientWidth - padding * 2 - gap * 3) / 4);
-    const column = index % 4;
-    const row = Math.floor(index / 4);
-    item.style.width = `${cell}px`;
-    item.style.height = `${cell}px`;
-    item.style.transform = `translate(${padding + column * (cell + gap)}px, ${padding + row * (cell + gap)}px)`;
-  }
-
-  function startSnake() {
-    const ui = gameShell('贪吃蛇', '方向键改变方向');
-    const game = LinuxDoGameCore.createSnake({ size: 16 });
-    const canvas = node('canvas', 'game-canvas square-canvas');
-    const status = node('p', 'game-status', '长度 3 · 速度 1');
-    let lastStepAt = performance.now();
-    let snakeState = game.state();
-    ui.body.append(canvas, directionPad((direction) => game.queueDirection(direction)), status);
-    observeGameSize(ui, canvas, 'square', () => draw(performance.now(), false));
-
-    function tick() {
-      if (!gameRuntime.state().paused) {
-        snakeState = game.step();
-        lastStepAt = performance.now();
-        setGameScore(ui, snakeState.score);
-        status.textContent = `长度 ${snakeState.snake.length} · 速度 ${1 + Math.floor(snakeState.score / 40)}`;
-        if (snakeState.finished) {
-          finishGame(ui, '撞到了', `得分 ${snakeState.score}`);
-          return;
-        }
-      }
-      gameTimer = setTimeout(tick, snakeState.interval);
-    }
-
-    function draw(time = performance.now(), scheduleNext = true) {
-      const ctx = prepareCanvas(canvas);
-      if (!ctx) return;
-      const width = canvas.clientWidth;
-      const cell = width / snakeState.size;
-      ctx.clearRect(0, 0, width, width);
-      ctx.fillStyle = canvasColor('--vscode-sideBar-background', '#252526');
-      ctx.fillRect(0, 0, width, width);
-      ctx.strokeStyle = canvasColor('--line', 'rgba(127,127,127,.22)');
-      ctx.lineWidth = 1;
-      for (let line = 1; line < snakeState.size; line += 1) {
-        const point = Math.round(line * cell) + 0.5;
-        ctx.beginPath();
-        ctx.moveTo(point, 0); ctx.lineTo(point, width);
-        ctx.moveTo(0, point); ctx.lineTo(width, point);
-        ctx.stroke();
-      }
-      const pulse = prefersReducedMotion() ? 1 : 0.9 + Math.sin(time / 170) * 0.08;
-      ctx.fillStyle = canvasColor('--vscode-testing-iconPassed', '#4da665');
-      ctx.beginPath();
-      ctx.arc((snakeState.food.x + 0.5) * cell, (snakeState.food.y + 0.5) * cell, cell * 0.28 * pulse, 0, Math.PI * 2);
-      ctx.fill();
-      const progress = gameRuntime.state().paused ? 1 : Math.min(1, (time - lastStepAt) / snakeState.interval);
-      snakeState.snake.slice().reverse().forEach((part, reverseIndex) => {
-        const index = snakeState.snake.length - reverseIndex - 1;
-        const previous = snakeState.previous[index] || part;
-        const x = previous.x + (part.x - previous.x) * progress;
-        const y = previous.y + (part.y - previous.y) * progress;
-        ctx.fillStyle = index === 0 ? canvasColor('--vscode-button-background', '#2f7cc0') : canvasColor('--vscode-textLink-foreground', '#3794d0');
-        roundedRect(ctx, x * cell + cell * 0.1, y * cell + cell * 0.1, cell * 0.8, cell * 0.8, cell * 0.22);
-        ctx.fill();
-      });
-      const head = snakeState.snake[0];
-      const eyeBaseX = (head.x + 0.5 + snakeState.direction.x * 0.18) * cell;
-      const eyeBaseY = (head.y + 0.5 + snakeState.direction.y * 0.18) * cell;
-      ctx.fillStyle = canvasColor('--vscode-button-foreground', '#ffffff');
-      ctx.beginPath(); ctx.arc(eyeBaseX, eyeBaseY, Math.max(1.2, cell * 0.065), 0, Math.PI * 2); ctx.fill();
-      if (scheduleNext && !snakeState.finished) gameFrame = requestAnimationFrame((next) => draw(next, true));
-    }
-
-    draw(performance.now(), true);
-    gameTimer = setTimeout(tick, snakeState.interval);
-    gameKeyHandler = (event) => handleDirectionKey(event, (direction) => game.queueDirection(direction));
-  }
-
-  function startRacer() {
-    const ui = gameShell('公路闪避', '左右键连续转向');
-    const game = LinuxDoGameCore.createRacer();
-    const input = LinuxDoGameCore.createInputState();
-    const stepper = LinuxDoGameCore.createFixedStepper(1 / 120, 10);
-    const canvas = node('canvas', 'game-canvas racer-canvas');
-    const status = node('p', 'game-status', '单条道路内自由转向');
-    const controls = holdControls(input, 'left', 'right');
-    let racerState = game.state();
-    let previousTime;
-    ui.body.append(canvas, controls, status);
-    observeGameSize(ui, canvas, 'racer', draw);
-    gameInputReset = () => { input.reset(); game.setSteer(0); };
-
-    function frame(time) {
-      if (previousTime === undefined) previousTime = time;
-      const delta = (time - previousTime) / 1000;
-      previousTime = time;
-      if (!gameRuntime.state().paused && !racerState.finished) {
-        game.setSteer(input.axis('left', 'right'));
-        stepper.advance(delta, (step) => { racerState = game.step(step); });
-        const near = racerState.events.some((event) => event.type === 'near-miss');
-        status.textContent = near ? '擦肩 +5' : `速度 ${Math.round(racerState.difficulty.speed * 100)}`;
-        setGameScore(ui, racerState.score);
-        if (racerState.finished) finishGame(ui, '发生碰撞', `得分 ${racerState.score}`);
-      } else stepper.reset();
-      draw();
-      if (!racerState.finished) gameFrame = requestAnimationFrame(frame);
-    }
-
-    function draw() {
-      const ctx = prepareCanvas(canvas);
-      if (!ctx) return;
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
-      const roadLeft = width * 0.055;
-      const roadWidth = width * 0.89;
-      ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = canvasColor('--vscode-sideBar-background', '#25282c');
-      ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = canvasColor('--vscode-editor-background', '#1f2327');
-      ctx.fillRect(roadLeft, 0, roadWidth, height);
-      ctx.fillStyle = canvasColor('--line', '#62676d');
-      ctx.fillRect(roadLeft, 0, Math.max(3, width * 0.012), height);
-      ctx.fillRect(roadLeft + roadWidth - Math.max(3, width * 0.012), 0, Math.max(3, width * 0.012), height);
-      const markerOffset = (racerState.roadOffset * height * 0.28) % (height * 0.18);
-      ctx.fillStyle = canvasColor('--vscode-descriptionForeground', '#8a8f96');
-      for (let y = -height * 0.2 + markerOffset; y < height; y += height * 0.18) {
-        ctx.fillRect(roadLeft + width * 0.018, y, width * 0.012, height * 0.075);
-        ctx.fillRect(roadLeft + roadWidth - width * 0.03, y, width * 0.012, height * 0.075);
-      }
-      racerState.obstacles.forEach((obstacle) => drawCar(ctx, obstacle, width, height, canvasColor('--vscode-errorForeground', '#d56565'), false));
-      drawCar(ctx, racerState.player, width, height, canvasColor('--vscode-button-background', '#2f7cc0'), true);
-    }
-
-    draw();
-    gameFrame = requestAnimationFrame(frame);
-    gameKeyHandler = (event) => continuousDirectionKey(event, input, true);
-    gameKeyUpHandler = (event) => continuousDirectionKey(event, input, false);
-  }
-
-  function startJumper() {
-    const ui = gameShell('像素跳跃', '空格或上方向键跳跃');
-    const game = LinuxDoGameCore.createJumper();
-    const stepper = LinuxDoGameCore.createFixedStepper(1 / 120, 10);
-    const canvas = node('canvas', 'game-canvas jumper-canvas');
-    const jumpButton = holdButton('跳跃', () => game.pressJump(), () => game.releaseJump(), 'primary-button jump-button');
-    const status = node('p', 'game-status', '短按低跳，长按高跳');
-    let jumperState = game.state();
-    let previousTime;
-    ui.body.append(canvas, node('div', 'jump-controls', jumpButton), status);
-    observeGameSize(ui, canvas, 'jumper', draw);
-    gameInputReset = () => game.releaseJump();
-
-    function frame(time) {
-      if (previousTime === undefined) previousTime = time;
-      const delta = (time - previousTime) / 1000;
-      previousTime = time;
-      if (!gameRuntime.state().paused && !jumperState.finished) {
-        stepper.advance(delta, (step) => { jumperState = game.step(step); });
-        setGameScore(ui, jumperState.score);
-        status.textContent = `速度 ${Math.round(jumperState.difficulty.speed * 100)} · ${Math.floor(jumperState.elapsed)} 秒`;
-        if (jumperState.finished) finishGame(ui, '碰到障碍', `得分 ${jumperState.score}`);
-      } else {
-        stepper.reset();
-      }
-      draw();
-      if (!jumperState.finished) gameFrame = requestAnimationFrame(frame);
-    }
-
-    function draw() {
-      const ctx = prepareCanvas(canvas);
-      if (!ctx) return;
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
-      ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = canvasColor('--vscode-sideBar-background', '#24272b');
-      ctx.fillRect(0, 0, width, height);
-      const farOffset = (jumperState.elapsed * jumperState.difficulty.speed * width * 0.16) % (width * 0.34);
-      ctx.fillStyle = canvasColor('--vscode-editor-background', '#1e2024');
-      for (let x = -width * 0.34 - farOffset; x < width; x += width * 0.34) {
-        ctx.beginPath();
-        ctx.moveTo(x, height * 0.62); ctx.lineTo(x + width * 0.17, height * 0.38); ctx.lineTo(x + width * 0.34, height * 0.62); ctx.closePath(); ctx.fill();
-      }
-      const ground = jumperState.ground * height;
-      ctx.fillStyle = canvasColor('--vscode-editor-background', '#1e1e1e');
-      ctx.fillRect(0, ground, width, height - ground);
-      ctx.fillStyle = canvasColor('--line', '#555b62');
-      ctx.fillRect(0, ground, width, Math.max(2, height * 0.012));
-      const stripe = (jumperState.elapsed * jumperState.difficulty.speed * width) % (width * 0.12);
-      for (let x = -stripe; x < width; x += width * 0.12) ctx.fillRect(x, ground + height * 0.07, width * 0.06, Math.max(2, height * 0.012));
-      jumperState.obstacles.forEach((obstacle) => {
-        ctx.fillStyle = canvasColor('--vscode-errorForeground', '#d56565');
-        roundedRect(ctx, obstacle.x * width, obstacle.y * height, obstacle.width * width, obstacle.height * height, Math.max(2, width * 0.006));
-        ctx.fill();
-      });
-      drawRunner(ctx, jumperState, width, height);
-    }
-
-    draw();
-    gameFrame = requestAnimationFrame(frame);
-    gameKeyHandler = (event) => {
-      if (event.key === ' ' || event.key === 'ArrowUp') {
-        if (!event.repeat) game.pressJump();
-        return true;
-      }
-      if (event.key === 'Escape') {
-        closeGameOverlay();
-        return true;
-      }
-      return false;
-    };
-    gameKeyUpHandler = (event) => {
-      if (event.key === ' ' || event.key === 'ArrowUp') {
-        game.releaseJump();
-        return true;
-      }
-      return false;
-    };
-  }
-
-  function startMines() {
-    const game = LinuxDoGameCore.createMines({ size: 9, mineCount: 10 });
-    let mineState = game.state();
-    let flagMode = false;
-    let elapsedSeconds = 0;
-    let timerStarted = false;
-    let ignoreClick = false;
-    const ui = gameShell('扫雷', '点击翻开，右键或标记模式插旗');
-    const grid = node('div', 'game-board mines-grid');
-    const buttons = [];
-    const flagButton = actionButton('标记', () => {
-      flagMode = !flagMode;
-      flagButton.classList.toggle('active', flagMode);
-      flagButton.setAttribute('aria-pressed', String(flagMode));
     });
-    const revealButton = actionButton('展开', () => reveal(mineState.cursor));
-    revealButton.classList.add('primary-button');
-    const status = node('p', 'game-status');
-    for (let index = 0; index < 81; index += 1) {
-      const button = node('button', 'mine-cell');
-      button.type = 'button';
-      button.addEventListener('click', () => {
-        if (ignoreClick) { ignoreClick = false; return; }
-        if (flagMode) toggleFlag(index); else reveal(index);
-      });
-      button.addEventListener('contextmenu', (event) => { event.preventDefault(); toggleFlag(index); });
-      button.addEventListener('dblclick', (event) => { event.preventDefault(); chord(index); });
-      let holdTimer;
-      button.addEventListener('pointerdown', (event) => {
-        if (event.pointerType === 'mouse') return;
-        holdTimer = setTimeout(() => { ignoreClick = true; toggleFlag(index); }, 480);
-      });
-      const clearHold = () => clearTimeout(holdTimer);
-      button.addEventListener('pointerup', clearHold);
-      button.addEventListener('pointercancel', clearHold);
-      button.addEventListener('pointerleave', clearHold);
-      buttons.push(button);
-      grid.append(button);
-    }
-    ui.body.append(grid, node('div', 'mine-controls segmented-controls', [revealButton, flagButton]), directionPad(moveCursor), status);
-    observeGameSize(ui, grid, 'square', render);
-
-    function startTimer() {
-      if (timerStarted) return;
-      timerStarted = true;
-      gameTimer = setInterval(() => {
-        if (!mineState.finished && !gameRuntime.state().paused) {
-          elapsedSeconds += 1;
-          renderStatus();
-        }
-      }, 1000);
-    }
-
-    function reveal(index) {
-      if (gameRuntime.state().paused || mineState.finished) return;
-      const wasInitialized = mineState.initialized;
-      mineState = game.reveal(index);
-      if (!wasInitialized && mineState.initialized) startTimer();
-      render(mineState.events);
-      completeMines();
-    }
-
-    function toggleFlag(index) {
-      if (gameRuntime.state().paused || mineState.finished) return;
-      mineState = game.toggleFlag(index);
-      render();
-    }
-
-    function chord(index) {
-      if (gameRuntime.state().paused || mineState.finished) return;
-      mineState = game.chord(index);
-      render(mineState.events);
-      completeMines();
-    }
-
-    function moveCursor(direction) {
-      const movement = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[direction];
-      if (!movement) return;
-      mineState = game.moveCursor(movement[0], movement[1]);
-      render();
-      buttons[mineState.cursor]?.focus({ preventScroll: true });
-    }
-
-    function render(events = []) {
-      const revealed = new Map();
-      events.filter((event) => event.type === 'reveal').forEach((event) => {
-        event.indexes.forEach((index, order) => revealed.set(index, order));
-      });
-      mineState.cells.forEach((cell, index) => {
-        const button = buttons[index];
-        button.className = `mine-cell${cell.open ? ' open' : ''}${cell.mine && cell.open ? ' mine' : ''}${cell.wrong ? ' wrong' : ''}${index === mineState.triggered ? ' triggered' : ''}${index === mineState.cursor ? ' cursor' : ''}`;
-        button.textContent = cell.open ? (cell.mine ? '×' : cell.nearby || '') : cell.flagged ? '⚑' : '';
-        button.dataset.nearby = String(cell.nearby);
-        button.setAttribute('aria-label', cell.open ? (cell.mine ? '地雷' : cell.nearby ? `周围 ${cell.nearby} 个地雷` : '空白') : cell.flagged ? '已标记' : '未展开');
-        if (revealed.has(index) && !prefersReducedMotion()) {
-          button.classList.remove('revealing');
-          button.style.animationDelay = `${Math.min(180, revealed.get(index) * 12)}ms`;
-          requestAnimationFrame(() => button.classList.add('revealing'));
-        }
-      });
-      setGameScore(ui, mineState.opened);
-      renderStatus();
-    }
-
-    function renderStatus() {
-      if (!mineState.finished) status.textContent = `剩余旗帜 ${mineState.remainingFlags} · ${elapsedSeconds} 秒`;
-    }
-
-    function completeMines() {
-      if (!mineState.finished) return;
-      clearInterval(gameTimer);
-      finishGame(ui, mineState.won ? '全部安全区域已展开' : '踩到地雷', `${elapsedSeconds} 秒 · 已展开 ${mineState.opened}`);
-    }
-
-    render();
-    gameKeyHandler = (event) => {
-      const direction = directionForKey(event.key);
-      if (direction) { moveCursor(direction); return true; }
-      if (event.key === 'Enter' || event.key === ' ') { reveal(mineState.cursor); return true; }
-      if (event.key.toLowerCase() === 'f') { toggleFlag(mineState.cursor); return true; }
-      if (event.key === 'Escape') { closeGameOverlay(); return true; }
-      return false;
-    };
-  }
-
-  function directionPad(handler, horizontalOnly = false) {
-    const pad = node('div', `direction-pad${horizontalOnly ? ' horizontal' : ''}`);
-    const directions = horizontalOnly ? [['left', '←'], ['right', '→']] : [['up', '↑'], ['left', '←'], ['down', '↓'], ['right', '→']];
-    for (const [direction, label] of directions) {
-      const button = iconAction(label, direction, () => handler(direction));
-      button.dataset.direction = direction;
-      pad.append(button);
-    }
-    return pad;
-  }
-
-  function handleDirectionKey(event, handler) {
-    const direction = directionForKey(event.key);
-    if (!direction) return event.key === 'Escape' ? (closeGameOverlay(), true) : false;
-    handler(direction);
-    return true;
-  }
-
-  function directionForKey(key) {
-    return { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down', ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right' }[key];
-  }
-
-  function continuousDirectionKey(event, input, pressed) {
-    const direction = directionForKey(event.key);
-    if (direction === 'left' || direction === 'right') {
-      if (pressed) input.press(direction); else input.release(direction);
-      return true;
-    }
-    if (pressed && event.key === 'Escape') { closeGameOverlay(); return true; }
-    return false;
-  }
-
-  function holdControls(input, leftAction, rightAction) {
-    const controls = node('div', 'hold-controls');
-    controls.append(
-      holdButton('←', () => input.press(leftAction), () => input.release(leftAction), 'hold-control'),
-      holdButton('→', () => input.press(rightAction), () => input.release(rightAction), 'hold-control')
-    );
-    return controls;
-  }
-
-  function holdButton(label, onPress, onRelease, className) {
-    const button = node('button', className || '', label);
-    button.type = 'button';
-    const press = (event) => {
-      event.preventDefault();
-      button.setPointerCapture?.(event.pointerId);
-      onPress();
-    };
-    const release = (event) => {
-      event?.preventDefault();
-      onRelease();
-    };
-    button.addEventListener('pointerdown', press);
-    button.addEventListener('pointerup', release);
-    button.addEventListener('pointercancel', release);
-    button.addEventListener('lostpointercapture', release);
-    return button;
-  }
-
-  function observeGameSize(ui, stage, kind, onResize) {
-    gameResizeCleanup?.();
-    let frame;
-    const update = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const toolbar = ui.panel.querySelector('.game-toolbar');
-        const siblings = [...ui.body.children].filter((item) => item !== stage && !item.classList.contains('game-state-layer'));
-        const reserved = siblings.reduce((height, item) => height + item.getBoundingClientRect().height, 0) + Math.max(0, siblings.length) * 8;
-        const availableWidth = Math.max(180, ui.body.clientWidth);
-        const availableHeight = Math.max(170, ui.panel.clientHeight - (toolbar?.offsetHeight || 0) - reserved - 42);
-        let width;
-        let height;
-        if (kind === 'square') {
-          width = height = Math.min(440, availableWidth, availableHeight);
-        } else {
-          const ratio = kind === 'racer' ? (availableWidth < 520 ? 0.8 : 1.6) : (availableWidth < 520 ? 4 / 3 : 16 / 9);
-          width = Math.min(kind === 'racer' ? 640 : 720, availableWidth);
-          height = width / ratio;
-          if (height > availableHeight) {
-            height = availableHeight;
-            width = Math.min(availableWidth, height * ratio);
-          }
-        }
-        stage.style.width = `${Math.max(kind === 'square' ? 160 : 180, Math.floor(width))}px`;
-        stage.style.height = `${Math.max(160, Math.floor(height))}px`;
-        ui.panel.classList.toggle('game-compact', ui.panel.clientWidth < 430 || ui.panel.clientHeight < 570);
-        onResize?.();
-      });
-    };
-    const observer = new ResizeObserver(update);
-    observer.observe(ui.panel);
-    observer.observe(ui.body);
-    update();
-    gameResizeCleanup = () => { observer.disconnect(); cancelAnimationFrame(frame); };
-  }
-
-  function prepareCanvas(canvas) {
-    const width = Math.max(1, Math.round(canvas.clientWidth));
-    const height = Math.max(1, Math.round(canvas.clientHeight));
-    const ratio = Math.max(1, window.devicePixelRatio || 1);
-    const pixelWidth = Math.round(width * ratio);
-    const pixelHeight = Math.round(height * ratio);
-    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
-      canvas.width = pixelWidth;
-      canvas.height = pixelHeight;
-    }
-    const context = canvas.getContext('2d');
-    context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    return context;
-  }
-
-  function canvasColor(variable, fallback) {
-    return getComputedStyle(document.documentElement).getPropertyValue(variable).trim() || fallback;
-  }
-
-  function roundedRect(context, x, y, width, height, radius) {
-    const value = Math.min(radius, width / 2, height / 2);
-    context.beginPath();
-    context.moveTo(x + value, y);
-    context.arcTo(x + width, y, x + width, y + height, value);
-    context.arcTo(x + width, y + height, x, y + height, value);
-    context.arcTo(x, y + height, x, y, value);
-    context.arcTo(x, y, x + width, y, value);
-    context.closePath();
-  }
-
-  function drawCar(context, car, width, height, color, player) {
-    const carWidth = car.width * width;
-    const carHeight = car.height * height;
-    const x = car.x * width - carWidth / 2;
-    const y = car.y * height;
-    context.fillStyle = color;
-    roundedRect(context, x, y, carWidth, carHeight, Math.max(3, carWidth * 0.18));
-    context.fill();
-    context.fillStyle = player ? canvasColor('--vscode-button-foreground', '#ffffff') : canvasColor('--vscode-editor-background', '#252525');
-    roundedRect(context, x + carWidth * 0.18, y + carHeight * 0.18, carWidth * 0.64, carHeight * 0.28, 2);
-    context.fill();
-    context.fillStyle = canvasColor('--vscode-editor-background', '#202020');
-    context.fillRect(x - carWidth * 0.05, y + carHeight * 0.22, carWidth * 0.1, carHeight * 0.22);
-    context.fillRect(x + carWidth * 0.95, y + carHeight * 0.22, carWidth * 0.1, carHeight * 0.22);
-    context.fillRect(x - carWidth * 0.05, y + carHeight * 0.66, carWidth * 0.1, carHeight * 0.22);
-    context.fillRect(x + carWidth * 0.95, y + carHeight * 0.66, carWidth * 0.1, carHeight * 0.22);
-  }
-
-  function drawRunner(context, state, width, height) {
-    const player = state.player;
-    const x = player.x * width;
-    const y = player.y * height;
-    const playerWidth = player.width * width;
-    const playerHeight = player.height * height;
-    const runPhase = Math.floor(state.elapsed * 12) % 2;
-    context.fillStyle = canvasColor('--vscode-button-background', '#2f7cc0');
-    roundedRect(context, x, y, playerWidth, playerHeight * 0.72, Math.max(2, playerWidth * 0.15));
-    context.fill();
-    context.fillRect(x + (runPhase ? playerWidth * 0.12 : playerWidth * 0.52), y + playerHeight * 0.66, playerWidth * 0.30, playerHeight * 0.34);
-    context.fillStyle = canvasColor('--vscode-button-foreground', '#ffffff');
-    context.fillRect(x + playerWidth * 0.66, y + playerHeight * 0.18, Math.max(2, playerWidth * 0.1), Math.max(2, playerWidth * 0.1));
-  }
-
-  function prefersReducedMotion() {
-    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   }
 
   function renderLoading() {
+    if (currentPageCacheable && content.childElementCount) {
+      clearInterval(rateLimitTimer);
+      showStatusBanner('正在加载更新内容…');
+      return;
+    }
     setContent(node('div', 'loading', [node('span', 'spinner'), node('span', '', '正在加载公开内容…')]));
+  }
+
+  function renderQueueWait(waitMs, reason) {
+    const seconds = Math.max(0, Math.ceil(Number(waitMs || 0) / 1000));
+    if (!seconds) return;
+    const label = reason === 'server-budget' ? '站点剩余请求预算' : '本地平滑请求节奏';
+    const message = `${label}：预计 ${seconds} 秒后发送，不属于请求错误。`;
+    if (currentPageCacheable && content.childElementCount) showStatusBanner(message);
+    else setContent(node('div', 'loading', [node('span', 'spinner'), node('span', '', message)]));
   }
 
   function renderCloudflare(message) {
@@ -1137,7 +404,11 @@
     setContent(wrapper);
   }
 
-  function renderError(message) {
+  function renderError(message, retryAt) {
+    if (currentPageCacheable && content.childElementCount) {
+      showRateLimitBanner(message, retryAt);
+      return;
+    }
     const wrapper = node('section', 'state-page');
     wrapper.append(
       node('div', 'state-icon', '!'),
@@ -1145,7 +416,23 @@
       node('p', '', String(message || '未知错误')),
       actionButton('重试', () => vscode.postMessage({ type: 'refresh' }))
     );
+    let startCountdown;
+    if (Number.isFinite(Number(retryAt)) && Number(retryAt) > Date.now()) {
+      const countdown = node('p', 'privacy-note');
+      const update = () => {
+        const seconds = Math.max(0, Math.ceil((Number(retryAt) - Date.now()) / 1000));
+        countdown.textContent = seconds ? `请求恢复倒计时：约 ${seconds} 秒。页面会自动重试一次。` : '可以重试。';
+        if (!seconds) clearInterval(rateLimitTimer);
+      };
+      wrapper.append(countdown);
+      startCountdown = () => {
+        clearInterval(rateLimitTimer);
+        update();
+        if (Number(retryAt) > Date.now()) rateLimitTimer = setInterval(update, 1_000);
+      };
+    }
     setContent(wrapper);
+    startCountdown?.();
   }
 
   function renderTopicList(data, meta) {
@@ -1174,13 +461,16 @@
     loadMore.id = 'topic-list-load-more';
     section.append(loadMore);
     setContent(section);
+    appendCacheNotice(heading, meta.cacheInfo);
     topicListState = {
       hasMore: Boolean(data?.morePath),
       loading: false,
       loadedTopicCount: topics.length,
-      error: ''
+      error: '',
+      autoMore: createAutoMoreGate()
     };
     currentPageCacheable = true;
+    displayedEntryId = Number(meta.entryId) || currentEntryId;
     updateTopicListFooter();
   }
 
@@ -1217,7 +507,7 @@
     return article;
   }
 
-  function renderCategories(categories) {
+  function renderCategories(categories, meta = {}) {
     const section = node('section', 'page');
     const heading = node('div', 'page-heading');
     heading.append(node('div', '', [node('h1', '', '浏览分类'), node('p', 'page-subtitle', '选择一个公开分类')]));
@@ -1240,10 +530,12 @@
     });
     section.append(grid);
     setContent(section);
+    appendCacheNotice(heading, meta.cacheInfo);
     currentPageCacheable = true;
+    displayedEntryId = Number(meta.entryId) || currentEntryId;
   }
 
-  function renderTopic(topic) {
+  function renderTopic(topic, meta = {}) {
     const section = node('article', 'topic-page');
     const header = node('header', 'topic-header');
     const titleBox = node('div', 'topic-title-box');
@@ -1267,15 +559,18 @@
     loadMore.id = 'load-more';
     section.append(posts, loadMore);
     setContent(section);
+    appendCacheNotice(titleBox, meta.cacheInfo);
     topicState = {
       id: Number(topic.id),
       remainingPostIds: [...(topic.remainingPostIds || [])],
       totalPostCount: Number(topic.totalPostCount || topic.posts?.length || 0),
       loadedPostCount: topic.posts?.length || 0,
       loading: false,
-      error: ''
+      error: '',
+      autoMore: createAutoMoreGate()
     };
     currentPageCacheable = true;
+    displayedEntryId = Number(meta.entryId) || currentEntryId;
     updateLoadMoreFooter();
   }
 
@@ -1303,13 +598,14 @@
     return article;
   }
 
-  function requestMorePosts() {
+  function requestMorePosts(source = 'manual') {
     if (!topicState || topicState.loading || !topicState.remainingPostIds.length) return;
     const postIds = topicState.remainingPostIds.slice(0, 20);
     topicState.loading = true;
+    resetAutoMoreGate(topicState);
     topicState.error = '';
     updateLoadMoreFooter();
-    vscode.postMessage({ type: 'loadMorePosts', topicId: topicState.id, postIds });
+    vscode.postMessage({ type: 'loadMorePosts', topicId: topicState.id, postIds, source });
   }
 
   function appendMorePosts(message) {
@@ -1318,6 +614,7 @@
     topicState.remainingPostIds = topicState.remainingPostIds.filter((postId) => !requested.has(Number(postId)));
     topicState.loading = false;
     topicState.error = '';
+    resetAutoMoreGate(topicState);
 
     const postList = content.querySelector('.post-list');
     postList.querySelector('.empty')?.remove();
@@ -1360,7 +657,11 @@
       footer.append(button);
       if (!topicState.loading) {
         loadMoreObserver = new IntersectionObserver((entries) => {
-          if (entries.some((entry) => entry.isIntersecting)) requestMorePosts();
+          entries.forEach((entry) => {
+            topicState.autoMore.footerVisible = entry.isIntersecting;
+            if (!entry.isIntersecting) topicState.autoMore.sawExit = true;
+            if (entry.isIntersecting && canAutoLoadMore(topicState)) requestMorePosts('auto');
+          });
         }, { rootMargin: '120px 0px' });
         loadMoreObserver.observe(footer);
       }
@@ -1374,12 +675,13 @@
     loadMoreObserver = undefined;
   }
 
-  function requestMoreTopics() {
+  function requestMoreTopics(source = 'manual') {
     if (!topicListState || topicListState.loading || !topicListState.hasMore) return;
     topicListState.loading = true;
+    resetAutoMoreGate(topicListState);
     topicListState.error = '';
     updateTopicListFooter();
-    vscode.postMessage({ type: 'loadMoreTopics' });
+    vscode.postMessage({ type: 'loadMoreTopics', source });
   }
 
   function appendMoreTopics(message) {
@@ -1423,7 +725,11 @@
       footer.append(button);
       if (!topicListState.loading) {
         topicListObserver = new IntersectionObserver((entries) => {
-          if (entries.some((entry) => entry.isIntersecting)) requestMoreTopics();
+          entries.forEach((entry) => {
+            topicListState.autoMore.footerVisible = entry.isIntersecting;
+            if (!entry.isIntersecting) topicListState.autoMore.sawExit = true;
+            if (entry.isIntersecting && canAutoLoadMore(topicListState)) requestMoreTopics('auto');
+          });
         }, { rootMargin: '160px 0px' });
         topicListObserver.observe(footer);
       }
@@ -1437,15 +743,97 @@
     topicListObserver = undefined;
   }
 
+  function createAutoMoreGate() {
+    return { lastScrollY: window.scrollY, downwardPixels: 0, sawExit: false, footerVisible: false };
+  }
+
+  function resetAutoMoreGate(state) {
+    if (!state) return;
+    state.autoMore = createAutoMoreGate();
+  }
+
+  function recordMoreScrollIntent() {
+    const currentY = window.scrollY;
+    [[topicState, requestMorePosts], [topicListState, requestMoreTopics]].forEach(([state, requestMore]) => {
+      if (!state?.autoMore) return;
+      if (currentY > state.autoMore.lastScrollY) state.autoMore.downwardPixels += currentY - state.autoMore.lastScrollY;
+      state.autoMore.lastScrollY = currentY;
+      if (state.autoMore.footerVisible && canAutoLoadMore(state)) requestMore('auto');
+    });
+  }
+
+  function canAutoLoadMore(state) {
+    if (!state || state.loading || !state.autoMore) return false;
+    const threshold = Math.min(240, window.innerHeight * 0.5);
+    return state.autoMore.sawExit || state.autoMore.downwardPixels >= threshold;
+  }
+
+  function appendCacheNotice(container, cacheInfo) {
+    if (!cacheInfo || cacheInfo.source === 'network' || !Number(cacheInfo.storedAt)) return;
+    const label = cacheInfo.reason === 'rate-limit'
+      ? '正在显示受限前缓存'
+      : cacheInfo.reason === 'offline'
+        ? '正在显示离线缓存'
+        : '正在显示本机缓存';
+    const notice = node('p', 'page-subtitle cache-notice', `${label} · ${formatDate(new Date(cacheInfo.storedAt).toISOString())}`);
+    container.append(notice);
+    if (cacheInfo.reason !== 'rate-limit' || !Number.isFinite(Number(cacheInfo.retryAt))) return;
+    const update = () => {
+      const seconds = Math.max(0, Math.ceil((Number(cacheInfo.retryAt) - Date.now()) / 1000));
+      notice.textContent = `${label} · ${formatDate(new Date(cacheInfo.storedAt).toISOString())}${seconds ? ` · 恢复倒计时 ${seconds} 秒` : ' · 可以重试'}`;
+      if (!seconds) clearInterval(rateLimitTimer);
+    };
+    clearInterval(rateLimitTimer);
+    update();
+    if (Number(cacheInfo.retryAt) > Date.now()) rateLimitTimer = setInterval(update, 1_000);
+  }
+
+  function showStatusBanner(message) {
+    clearInterval(rateLimitTimer);
+    let banner = document.getElementById('reader-status-banner');
+    if (!banner) {
+      banner = node('div', 'reader-status-banner');
+      banner.id = 'reader-status-banner';
+      content.prepend(banner);
+    }
+    banner.replaceChildren(node('span', 'spinner'), node('span', '', message));
+  }
+
+  function showRateLimitBanner(message, retryAt) {
+    clearInterval(rateLimitTimer);
+    let banner = document.getElementById('reader-status-banner');
+    if (!banner) {
+      banner = node('div', 'reader-status-banner');
+      banner.id = 'reader-status-banner';
+      content.prepend(banner);
+    }
+    const detail = node('span', '', String(message || '暂时无法加载。'));
+    const retry = actionButton('重试', () => vscode.postMessage({ type: 'refresh' }));
+    retry.classList.add('banner-retry');
+    const countdown = node('span', 'banner-countdown');
+    const update = () => {
+      if (!Number.isFinite(Number(retryAt))) {
+        countdown.textContent = '';
+        return;
+      }
+      const seconds = Math.max(0, Math.ceil((Number(retryAt) - Date.now()) / 1000));
+      countdown.textContent = seconds ? `恢复倒计时 ${seconds} 秒` : '可以重试';
+      if (!seconds) clearInterval(rateLimitTimer);
+    };
+    update();
+    if (Number(retryAt) > Date.now()) rateLimitTimer = setInterval(update, 1_000);
+    banner.replaceChildren(detail, countdown, retry);
+  }
+
   function navigate(message) {
     saveCurrentPage();
     vscode.postMessage(message);
   }
 
   function saveCurrentPage() {
-    if (!currentPageCacheable || !Number.isInteger(currentEntryId)) return;
-    pageCache.delete(currentEntryId);
-    pageCache.set(currentEntryId, {
+    if (!currentPageCacheable || !Number.isInteger(displayedEntryId)) return;
+    pageCache.delete(displayedEntryId);
+    pageCache.set(displayedEntryId, {
       nodes: [...content.childNodes],
       scrollY: window.scrollY,
       topicState: cloneTopicState(topicState),
@@ -1465,6 +853,7 @@
     topicState = cloneTopicState(snapshot.topicState);
     topicListState = cloneTopicListState(snapshot.topicListState);
     currentPageCacheable = true;
+    displayedEntryId = Number(entryId);
     if (topicState) updateLoadMoreFooter();
     if (topicListState) updateTopicListFooter();
     requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo({ top: snapshot.scrollY, behavior: 'instant' })));
@@ -1547,6 +936,15 @@
     return button;
   }
 
+  function iconAction(label, title, handler) {
+    const button = node('button', 'secondary-button compact-icon-button', label);
+    button.type = 'button';
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    button.addEventListener('click', handler);
+    return button;
+  }
+
   function stat(value, label) {
     return node('span', 'stat', [node('strong', '', value), node('small', '', label)]);
   }
@@ -1561,6 +959,7 @@
   }
 
   function setContent(element) {
+    clearInterval(rateLimitTimer);
     disconnectLoadMoreObserver();
     disconnectTopicListObserver();
     topicState = undefined;

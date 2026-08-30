@@ -1,14 +1,12 @@
 body.lexiao-demo-mode {
-  --lex-demo-bg: var(--secondary, #f7f8fa);
-  --lex-demo-panel: var(--secondary, #ffffff);
-  --lex-demo-soft: var(--primary-very-low, #f2f4f7);
-  --lex-demo-border: var(--primary-low, #d9dde3);
-  --lex-demo-text: var(--primary, #24292f);
-  --lex-demo-muted: var(--primary-medium, #667085);
-  --lex-demo-keyword: var(--tertiary, #286aa6);
-  --lex-demo-string: #2f7d4a;
-  background: var(--lex-demo-bg) !important;
-  color: var(--lex-demo-text) !important;
+  --lex-mono-bg: var(--secondary, #f7f8fa);
+  --lex-mono-panel: var(--secondary, #ffffff);
+  --lex-mono-soft: var(--primary-very-low, #f1f2f4);
+  --lex-mono-border: var(--primary-low, #d6d9de);
+  --lex-mono-text: var(--primary, #24272c);
+  --lex-mono-muted: var(--primary-medium, #697078);
+  background: var(--lex-mono-bg) !important;
+  color: var(--lex-mono-text) !important;
 }
 
 body.lexiao-demo-mode .d-header,
@@ -24,7 +22,9 @@ body.lexiao-demo-mode .topic-navigation,
 body.lexiao-demo-mode .list-controls,
 body.lexiao-demo-mode .footer-message,
 body.lexiao-demo-mode .signup-cta,
-body.lexiao-demo-mode .suggested-topics-wrapper {
+body.lexiao-demo-mode .suggested-topics-wrapper,
+body.lexiao-demo-mode .topic-map,
+body.lexiao-demo-mode .post-menu-area {
   display: none !important;
 }
 
@@ -37,69 +37,36 @@ body.lexiao-demo-mode #main-outlet-wrapper {
 
 body.lexiao-demo-mode #main-outlet,
 body.lexiao-demo-mode .wrap {
+  box-sizing: border-box !important;
   width: 100% !important;
   max-width: 1080px !important;
 }
 
 body.lexiao-demo-mode #main-outlet {
-  box-sizing: border-box !important;
   padding-top: 10px !important;
 }
 
-.lexiao-demo-header {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  min-height: 38px;
-  margin: 0 0 12px;
-  border: 1px solid var(--lex-demo-border);
-  border-radius: 5px;
-  background: var(--lex-demo-panel);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 7%);
-  color: var(--lex-demo-muted);
-  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  overflow: hidden;
-}
-
-.lexiao-demo-header__mark {
-  align-self: stretch;
-  display: grid;
-  place-items: center;
-  width: 38px;
-  border-right: 1px solid var(--lex-demo-border);
-  color: var(--lex-demo-keyword);
-  background: var(--lex-demo-soft);
-  font-weight: 700;
-}
-
-.lexiao-demo-header__path {
-  min-width: 0;
-  padding: 0 10px;
-  color: var(--lex-demo-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.lexiao-demo-header__status {
-  margin-left: auto;
-  padding: 2px 8px;
-  border-left: 1px solid var(--lex-demo-border);
-  color: var(--lex-demo-string);
-  white-space: nowrap;
+body.lexiao-demo-mode :where(#main-outlet *:not(.cooked):not(.cooked *)),
+body.lexiao-demo-mode :where(#main-outlet *:not(.cooked):not(.cooked *)::before),
+body.lexiao-demo-mode :where(#main-outlet *:not(.cooked):not(.cooked *)::after) {
+  border-color: var(--lex-mono-border) !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  color: var(--lex-mono-text) !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
 }
 
 body.lexiao-demo-mode .topic-list,
 body.lexiao-demo-mode .category-list {
   display: block !important;
   width: 100% !important;
-  border: 1px solid var(--lex-demo-border) !important;
+  border: 1px solid var(--lex-mono-border) !important;
   border-radius: 5px !important;
-  background: var(--lex-demo-panel) !important;
+  background: var(--lex-mono-panel) !important;
   overflow: hidden !important;
-  counter-reset: lexiao-row !important;
 }
 
 body.lexiao-demo-mode .topic-list thead,
@@ -114,13 +81,10 @@ body.lexiao-demo-mode .category-list tbody {
 
 body.lexiao-demo-mode .topic-list tr,
 body.lexiao-demo-mode .category-list tr {
-  position: relative !important;
-  display: grid !important;
-  grid-template-columns: 44px minmax(0, 1fr) !important;
-  min-height: 54px !important;
-  border-bottom: 1px solid var(--lex-demo-border) !important;
+  display: block !important;
+  min-height: 52px !important;
+  border-bottom: 1px solid var(--lex-mono-border) !important;
   background: transparent !important;
-  counter-increment: lexiao-row !important;
 }
 
 body.lexiao-demo-mode .topic-list tr:last-child,
@@ -128,24 +92,9 @@ body.lexiao-demo-mode .category-list tr:last-child {
   border-bottom: 0 !important;
 }
 
-body.lexiao-demo-mode .topic-list tr::before,
-body.lexiao-demo-mode .category-list tr::before {
-  content: counter(lexiao-row);
-  grid-column: 1 !important;
-  grid-row: 1 / span 3 !important;
-  display: flex !important;
-  justify-content: flex-end !important;
-  padding: 12px 10px 0 0 !important;
-  border-right: 1px solid var(--lex-demo-border) !important;
-  background: var(--lex-demo-soft) !important;
-  color: var(--lex-demo-muted) !important;
-  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
-}
-
 body.lexiao-demo-mode .topic-list td,
 body.lexiao-demo-mode .category-list td {
   display: block !important;
-  grid-column: 2 !important;
   width: auto !important;
   max-width: none !important;
   padding: 8px 12px !important;
@@ -153,6 +102,7 @@ body.lexiao-demo-mode .category-list td {
 }
 
 body.lexiao-demo-mode .topic-list .posters,
+body.lexiao-demo-mode .topic-list .poster,
 body.lexiao-demo-mode .topic-list .num,
 body.lexiao-demo-mode .topic-list .topic-statuses,
 body.lexiao-demo-mode .category-list .topics,
@@ -163,21 +113,9 @@ body.lexiao-demo-mode .category-list .latest {
 body.lexiao-demo-mode .topic-list .main-link a.title,
 body.lexiao-demo-mode .topic-list .link-top-line a.title,
 body.lexiao-demo-mode .category-list a.category-title-link {
-  color: var(--lex-demo-text) !important;
+  color: var(--lex-mono-text) !important;
   font: 500 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
   letter-spacing: 0 !important;
-}
-
-body.lexiao-demo-mode .topic-list .main-link a.title::before,
-body.lexiao-demo-mode .topic-list .link-top-line a.title::before {
-  content: "sample(";
-  color: var(--lex-demo-keyword) !important;
-}
-
-body.lexiao-demo-mode .topic-list .main-link a.title::after,
-body.lexiao-demo-mode .topic-list .link-top-line a.title::after {
-  content: ")";
-  color: var(--lex-demo-keyword) !important;
 }
 
 body.lexiao-demo-mode .topic-list .topic-excerpt,
@@ -185,7 +123,7 @@ body.lexiao-demo-mode .category-list .category-description {
   display: -webkit-box !important;
   margin-top: 4px !important;
   overflow: hidden !important;
-  color: var(--lex-demo-muted) !important;
+  color: var(--lex-mono-muted) !important;
   font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
   -webkit-box-orient: vertical !important;
   -webkit-line-clamp: 2 !important;
@@ -194,66 +132,52 @@ body.lexiao-demo-mode .category-list .category-description {
 body.lexiao-demo-mode #topic-title {
   margin: 0 0 10px !important;
   padding: 12px 14px !important;
-  border: 1px solid var(--lex-demo-border) !important;
+  border: 1px solid var(--lex-mono-border) !important;
   border-radius: 5px !important;
-  background: var(--lex-demo-panel) !important;
+  background: var(--lex-mono-panel) !important;
 }
 
 body.lexiao-demo-mode #topic-title h1,
 body.lexiao-demo-mode #topic-title .fancy-title {
   margin: 0 !important;
-  color: var(--lex-demo-text) !important;
+  color: var(--lex-mono-text) !important;
   font: 600 16px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
   letter-spacing: 0 !important;
 }
 
-body.lexiao-demo-mode #topic-title h1::before,
-body.lexiao-demo-mode #topic-title .fancy-title::before {
-  content: "# demo: ";
-  color: var(--lex-demo-keyword) !important;
-}
-
-body.lexiao-demo-mode .posts-wrapper {
-  counter-reset: lexiao-post !important;
-}
-
-body.lexiao-demo-mode .topic-post {
-  counter-increment: lexiao-post !important;
-}
-
 body.lexiao-demo-mode .topic-post article {
-  position: relative !important;
-  display: grid !important;
-  grid-template-columns: 44px minmax(0, 1fr) !important;
+  display: block !important;
   margin: 0 0 10px !important;
   padding: 0 !important;
-  border: 1px solid var(--lex-demo-border) !important;
+  border: 1px solid var(--lex-mono-border) !important;
   border-radius: 5px !important;
-  background: var(--lex-demo-panel) !important;
+  background: var(--lex-mono-panel) !important;
   overflow: hidden !important;
 }
 
-body.lexiao-demo-mode .topic-post article::before {
-  content: counter(lexiao-post);
-  grid-column: 1 !important;
-  grid-row: 1 !important;
-  display: flex !important;
-  justify-content: flex-end !important;
-  padding: 13px 10px 0 0 !important;
-  border-right: 1px solid var(--lex-demo-border) !important;
-  background: var(--lex-demo-soft) !important;
-  color: var(--lex-demo-muted) !important;
-  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+body.lexiao-demo-mode .topic-avatar,
+body.lexiao-demo-mode .avatar,
+body.lexiao-demo-mode .avatar-flair,
+body.lexiao-demo-mode .avatar-flair-preview,
+body.lexiao-demo-mode .user-card,
+body.lexiao-demo-mode .user-card-avatar,
+body.lexiao-demo-mode .user-card-popup,
+body.lexiao-demo-mode [data-lexiao-private="identity"] {
+  display: none !important;
 }
 
-body.lexiao-demo-mode .topic-avatar,
-body.lexiao-demo-mode .topic-map,
-body.lexiao-demo-mode .post-menu-area {
+body.lexiao-demo-mode .topic-post .names .user-title,
+body.lexiao-demo-mode .topic-post .names .user-status,
+body.lexiao-demo-mode .topic-post .names .poster-icon,
+body.lexiao-demo-mode .topic-post .names .full-name,
+body.lexiao-demo-mode .topic-post .names .badge-wrapper,
+body.lexiao-demo-mode .topic-post .names .badge-grouping,
+body.lexiao-demo-mode .topic-post .names .primary-group,
+body.lexiao-demo-mode .topic-post .names .user-profile-link {
   display: none !important;
 }
 
 body.lexiao-demo-mode .topic-body {
-  grid-column: 2 !important;
   width: auto !important;
   min-width: 0 !important;
   padding: 11px 14px 14px !important;
@@ -261,19 +185,23 @@ body.lexiao-demo-mode .topic-body {
 }
 
 body.lexiao-demo-mode .topic-post .names,
-body.lexiao-demo-mode .topic-post .post-infos {
-  color: var(--lex-demo-muted) !important;
-  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+body.lexiao-demo-mode .topic-post .post-infos,
+body.lexiao-demo-mode [data-lexiao-private="username"] {
+  color: var(--lex-mono-muted) !important;
+  font: 500 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  letter-spacing: 0 !important;
 }
 
-body.lexiao-demo-mode .topic-post .names::before {
-  content: "// author: ";
-  color: var(--lex-demo-keyword) !important;
+body.lexiao-demo-mode .topic-post .names a,
+body.lexiao-demo-mode .topic-post .names .username {
+  color: var(--lex-mono-muted) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  text-decoration: none !important;
 }
 
 body.lexiao-demo-mode .topic-post .cooked {
   margin-top: 8px !important;
-  color: var(--lex-demo-text) !important;
+  color: var(--lex-mono-text) !important;
   font-size: 13px !important;
   line-height: 1.62 !important;
 }
@@ -282,24 +210,61 @@ body.lexiao-demo-mode .topic-post .cooked p {
   margin: 0 0 10px !important;
 }
 
-body.lexiao-demo-mode .topic-post .cooked pre {
-  border: 1px solid var(--lex-demo-border) !important;
-  border-radius: 4px !important;
-  background: var(--lex-demo-soft) !important;
+body.lexiao-demo-mode .topic-post .cooked *:not(img):not(picture):not(source) {
+  color: inherit !important;
+  border-color: var(--lex-mono-border) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+  text-shadow: none !important;
+}
+
+body.lexiao-demo-mode .topic-post .cooked a {
+  color: inherit !important;
+  text-decoration: underline !important;
+}
+
+body.lexiao-demo-mode .topic-post .cooked pre,
+body.lexiao-demo-mode .topic-post .cooked blockquote {
+  border-color: var(--lex-mono-border) !important;
+  background: var(--lex-mono-soft) !important;
   box-shadow: none !important;
 }
 
-body.lexiao-demo-mode .topic-post .cooked blockquote {
-  border-left: 3px solid var(--lex-demo-keyword) !important;
-  background: var(--lex-demo-soft) !important;
+body.lexiao-demo-mode .badge-category__wrapper,
+body.lexiao-demo-mode .badge-category,
+body.lexiao-demo-mode .badge-category-bg,
+body.lexiao-demo-mode .category-name,
+body.lexiao-demo-mode .discourse-tag,
+body.lexiao-demo-mode .alert,
+body.lexiao-demo-mode .global-notice,
+body.lexiao-demo-mode .discourse-banner {
+  border-color: var(--lex-mono-border) !important;
+  background: var(--lex-mono-soft) !important;
+  background-color: var(--lex-mono-soft) !important;
+  color: var(--lex-mono-muted) !important;
+  box-shadow: none !important;
 }
 
-body.lexiao-demo-mode a {
-  text-decoration: none !important;
+body.lexiao-demo-mode #main-outlet img,
+body.lexiao-demo-mode #main-outlet svg,
+body.lexiao-demo-mode #main-outlet .emoji,
+body.lexiao-demo-mode #main-outlet video,
+body.lexiao-demo-mode #main-outlet canvas,
+body.lexiao-demo-mode #main-outlet iframe,
+body.lexiao-demo-mode #main-outlet object,
+body.lexiao-demo-mode #main-outlet embed {
+  display: none !important;
 }
 
-body.lexiao-demo-mode a:hover {
-  text-decoration: underline !important;
+body.lexiao-demo-mode #main-outlet .topic-post .cooked img:not(.emoji),
+body.lexiao-demo-mode #main-outlet .topic-post .cooked svg {
+  display: revert !important;
+  max-width: 100% !important;
+  height: auto !important;
+  filter: none !important;
+  opacity: 1 !important;
 }
 
 @media (max-width: 520px) {
@@ -307,26 +272,8 @@ body.lexiao-demo-mode a:hover {
     padding: 0 7px 18px !important;
   }
 
-  .lexiao-demo-header {
-    margin-bottom: 7px;
-  }
-
-  .lexiao-demo-header__status {
-    display: none;
-  }
-
-  body.lexiao-demo-mode .topic-list tr,
-  body.lexiao-demo-mode .category-list tr,
-  body.lexiao-demo-mode .topic-post article {
-    grid-template-columns: 32px minmax(0, 1fr) !important;
-  }
-
-  body.lexiao-demo-mode .topic-list tr::before,
-  body.lexiao-demo-mode .category-list tr::before,
-  body.lexiao-demo-mode .topic-post article::before {
-    padding-right: 7px !important;
-  }
-
+  body.lexiao-demo-mode .topic-list td,
+  body.lexiao-demo-mode .category-list td,
   body.lexiao-demo-mode .topic-body {
     padding: 9px 10px 12px !important;
   }

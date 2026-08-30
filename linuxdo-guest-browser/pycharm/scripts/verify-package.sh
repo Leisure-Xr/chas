@@ -2,9 +2,10 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.10.0.zip}"
+PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.11.0.zip}"
 
 "$PROJECT_DIR/../shared/check-game-core.sh"
+"$PROJECT_DIR/../shared/check-game-ui.sh"
 
 test -f "$PACKAGE"
 unzip -tq "$PACKAGE"
@@ -21,6 +22,7 @@ unzip -Z1 "$PLUGIN_JAR" > "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'META-INF/plugin.xml' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'break-overlay.js' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'game-core.js' "$TEMP_DIR/jar-list.txt"
+grep -Fxq 'game-ui.js' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'reader-mode.css' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'reader-mode.js' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'studio/lexiao/linuxdo/LinuxDoToolWindowFactory.class' "$TEMP_DIR/jar-list.txt"

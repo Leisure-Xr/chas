@@ -28,6 +28,7 @@ import org.cef.handler.CefResourceRequestHandler;
 import org.cef.handler.CefResourceRequestHandlerAdapter;
 import org.cef.handler.CefRequestHandlerAdapter;
 import org.cef.handler.CefLoadHandlerAdapter;
+import org.cef.handler.CefLoadHandler.ErrorCode;
 import org.cef.handler.CefDisplayHandlerAdapter;
 import org.cef.misc.BoolRef;
 import org.cef.network.CefRequest;
@@ -112,6 +113,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private static final int SNOOZE_MINUTES = 10;
         private static final String BREAK_OVERLAY_SCRIPT = loadBreakOverlayScript();
         private static final String GAME_CORE_SCRIPT = loadResourceScript("/game-core.js");
+        private static final String GAME_UI_SCRIPT = loadResourceScript("/game-ui.js");
         private static final String DEMO_PAGE_STYLE = loadResourceScript("/reader-mode.css");
         private static final String READER_MODE_SCRIPT = loadResourceScript("/reader-mode.js");
         private static final String BASE_PAGE_STYLE = """
@@ -123,6 +125,21 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                   display: none !important;
                 }
                 """;
+        private static final String DEMO_LOADING_STYLE = """
+                #main-outlet img, #main-outlet svg, #main-outlet video, #main-outlet .emoji,
+                .avatar, .avatar-flair, .topic-avatar, .topic-avatar img, .topic-list .posters,
+                .user-card, .user-card-avatar, .user-card-avatar img, .names .user-title,
+                .names .user-status, .names .badge-wrapper, .names .badge-grouping,
+                .names .poster-icon, .names .full-name,
+                .topic-post .names .user-title, .topic-post .names .user-status {
+                  visibility: hidden !important;
+                }
+                #main-outlet .topic-post .cooked img:not(.emoji),
+                #main-outlet .topic-post .cooked svg,
+                #main-outlet .topic-post .cooked video {
+                  visibility: visible !important;
+                }
+                """;
         private final JBCefBrowser browser = new JBCefBrowser("about:blank");
         private final JBCefCookieManager cookieManager = browser.getJBCefCookieManager();
         private final JButton backButton = iconButton(AllIcons.Actions.Back, "返回");
@@ -132,14 +149,12 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private final JButton historyButton = iconButton(AllIcons.Vcs.History, "浏览历史");
         private final JButton gameButton = new JButton("小游戏");
         private final JButton shareButton = new JButton("分享");
-        private final JButton openShareButton = new JButton("打开分享码");
+        private final JButton openShareButton = new JButton("打开加密分享");
         private final JButton overflowButton = new JButton("⋯");
         private final JToggleButton demoButton = new JToggleButton("</>");
         private final JToggleButton breakReminderButton = new JToggleButton("休息提醒");
         private final JBTextField searchField = new JBTextField();
         private final JLabel status = new JLabel("正在启动游客会话...");
-        private final JLabel brandLabel = new JLabel("Examples");
-        private final JLabel readOnlyLabel = new JLabel("PREVIEW");
         private final PropertiesComponent properties = PropertiesComponent.getInstance();
         private final List<ReaderHistory.Entry> browsingHistory = new ArrayList<>(
                 ReaderHistory.parse(properties.getValue(HISTORY_PROPERTY))
@@ -154,6 +169,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private volatile boolean guestSessionInitializing = true;
         private volatile String pendingNavigationUrl = HOME_URL;
         private volatile String currentPageTitle = "LINUX DO 公开主题";
+        private volatile boolean mainLoadFailed;
         private JBPopup historyPopup;
         private volatile boolean disposed;
 
@@ -178,27 +194,19 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             ));
 
             JPanel firstRow = new JPanel(new BorderLayout(JBUI.scale(8), 0));
-            JPanel historyAndBrand = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 0));
+            JPanel navigationControls = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 0));
             JPanel tools = new JPanel(new FlowLayout(FlowLayout.TRAILING, 4, 0));
-
-            brandLabel.setFont(brandLabel.getFont().deriveFont(Font.BOLD, brandLabel.getFont().getSize2D() - 1f));
-            readOnlyLabel.setForeground(JBColor.GRAY);
-            readOnlyLabel.setFont(readOnlyLabel.getFont().deriveFont(readOnlyLabel.getFont().getSize2D() - 2f));
-            readOnlyLabel.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(JBColor.border()),
-                    JBUI.Borders.empty(1, 5)
-            ));
 
             styleToolbarButton(backButton, "返回");
             styleToolbarButton(forwardButton, "前进");
             styleToolbarButton(historyButton, "浏览最近访问的公开页面");
             styleToolbarButton(refreshButton, "刷新");
             styleToolbarButton(resetButton, "清理 Cookie 并开始新游客会话");
-            styleToolbarButton(demoButton, "切换演示/原始网页布局");
+            styleToolbarButton(demoButton, "切换隐私阅读/原始网页布局");
             styleToolbarButton(breakReminderButton, "随机 31-60 分钟后提醒休息");
             styleToolbarButton(gameButton, "随时打开休息小游戏");
             styleToolbarButton(shareButton, "分享当前主题");
-            styleToolbarButton(openShareButton, "打开临时分享码");
+            styleToolbarButton(openShareButton, "打开加密分享");
             styleToolbarButton(overflowButton, "更多操作");
 
             backButton.setEnabled(false);
@@ -223,21 +231,11 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             overflowButton.addActionListener(event -> showOverflowMenu());
             shareButton.setEnabled(false);
 
-            historyAndBrand.add(backButton);
-            historyAndBrand.add(forwardButton);
-            historyAndBrand.add(historyButton);
-            historyAndBrand.add(Box.createHorizontalStrut(4));
-            historyAndBrand.add(brandLabel);
-            historyAndBrand.add(readOnlyLabel);
-            tools.add(demoButton);
-            tools.add(breakReminderButton);
-            tools.add(gameButton);
-            tools.add(shareButton);
-            tools.add(openShareButton);
-            tools.add(refreshButton);
-            tools.add(resetButton);
+            navigationControls.add(backButton);
+            navigationControls.add(forwardButton);
+            navigationControls.add(refreshButton);
             tools.add(overflowButton);
-            firstRow.add(historyAndBrand, BorderLayout.WEST);
+            firstRow.add(navigationControls, BorderLayout.WEST);
             firstRow.add(tools, BorderLayout.EAST);
 
             JPanel secondRow = new JPanel(new BorderLayout(JBUI.scale(8), 0));
@@ -297,27 +295,17 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         }
 
         private void updateResponsiveToolbar(int width, JPanel secondRow, JPanel navigation, JPanel searchPanel) {
-            boolean wide = width >= JBUI.scale(760);
             boolean narrow = width < JBUI.scale(520);
             boolean veryNarrow = width < JBUI.scale(360);
-            brandLabel.setVisible(width >= JBUI.scale(620));
-            readOnlyLabel.setVisible(width >= JBUI.scale(620));
-            forwardButton.setVisible(!veryNarrow);
-            historyButton.setVisible(!veryNarrow);
-            demoButton.setVisible(wide);
-            breakReminderButton.setVisible(wide);
-            gameButton.setVisible(!narrow);
-            shareButton.setVisible(!narrow);
-            openShareButton.setVisible(wide);
-            resetButton.setVisible(wide);
-            overflowButton.setVisible(!wide);
+            backButton.setVisible(true);
+            forwardButton.setVisible(true);
+            refreshButton.setVisible(true);
+            overflowButton.setVisible(true);
             status.setVisible(width >= JBUI.scale(820));
-            gameButton.setText(wide ? "小游戏" : "游戏");
             navigationButtons.values().forEach(button -> button.setMargin(JBUI.insets(2, narrow ? 5 : 8)));
             int compactMargin = veryNarrow ? 3 : 7;
             backButton.setMargin(JBUI.insets(2, compactMargin));
             forwardButton.setMargin(JBUI.insets(2, compactMargin));
-            historyButton.setMargin(JBUI.insets(2, compactMargin));
             refreshButton.setMargin(JBUI.insets(2, compactMargin));
             overflowButton.setMargin(JBUI.insets(2, compactMargin));
 
@@ -338,15 +326,15 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
         private void showOverflowMenu() {
             JPopupMenu menu = new JPopupMenu();
-            menu.add(menuAction(demoMode ? "使用原始网页布局" : "使用演示布局", demoButton::doClick));
-            menu.add(menuAction("浏览历史", historyButton::doClick));
+            menu.add(menuAction(demoMode ? "使用原始网页布局" : "使用隐私阅读布局", demoButton::doClick));
+            menu.add(menuAction("浏览历史", this::showHistoryPopup));
             menu.add(menuAction(breakReminderEnabled ? "关闭休息提醒" : "开启休息提醒", breakReminderButton::doClick));
             menu.add(menuAction("打开小游戏", gameButton::doClick));
             JMenuItem shareItem = menuAction("分享当前主题", shareButton::doClick);
             shareItem.setEnabled(shareButton.isEnabled());
             menu.add(shareItem);
-            menu.add(menuAction("打开临时分享码", openShareButton::doClick));
-            menu.add(menuAction("临时分享码使用说明", this::showShareHelp));
+            menu.add(menuAction("打开加密分享", openShareButton::doClick));
+            menu.add(menuAction("加密分享使用说明", this::showShareHelp));
             menu.addSeparator();
             menu.add(menuAction("清理 Cookie 并重置会话", resetButton::doClick));
             menu.show(overflowButton, 0, overflowButton.getHeight());
@@ -402,7 +390,11 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         boolean canGoBack,
                         boolean canGoForward
                 ) {
-                    if (isLoading) currentPageTitle = "";
+                    if (isLoading) {
+                        currentPageTitle = "";
+                        mainLoadFailed = false;
+                    }
+                    if (isLoading && demoMode) applyLoadingPrivacyStyle(cefBrowser);
                     SwingUtilities.invokeLater(() -> {
                         if (disposed) {
                             return;
@@ -412,21 +404,46 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         refreshButton.setEnabled(!isLoading);
                         navigationButtons.values().forEach(button -> button.setEnabled(!isLoading));
                         searchField.setEnabled(!isLoading);
-                        status.setText(isLoading ? "加载中..." : "游客模式");
+                        status.setText(isLoading ? "加载中..." : (mainLoadFailed ? "加载失败，可重试" : "游客模式"));
                         updateNavigationState(cefBrowser.getURL());
-                        if (!isLoading) recordHistory(cefBrowser.getURL(), safeCurrentTitle());
                     });
                 }
 
                 @Override
                 public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
                     if (frame != null && frame.isMain() && httpStatusCode < 400) {
-                        SwingUtilities.invokeLater(() -> updateNavigationState(cefBrowser.getURL()));
+                        mainLoadFailed = false;
+                        SwingUtilities.invokeLater(() -> {
+                            if (disposed) return;
+                            status.setText("游客模式");
+                            updateNavigationState(cefBrowser.getURL());
+                            recordHistory(cefBrowser.getURL(), safeCurrentTitle());
+                        });
                         applyPageStyle(cefBrowser);
                         if (breakOverlayVisible) {
                             showBreakOverlay(cefBrowser);
                         }
+                    } else if (frame != null && frame.isMain()) {
+                        mainLoadFailed = true;
+                        SwingUtilities.invokeLater(() -> {
+                            if (!disposed) status.setText("加载失败，可重试");
+                        });
                     }
+                }
+
+                @Override
+                public void onLoadError(
+                        CefBrowser cefBrowser,
+                        CefFrame frame,
+                        ErrorCode errorCode,
+                        String errorText,
+                        String failedUrl
+                ) {
+                    if (frame == null || !frame.isMain() || errorCode == ErrorCode.ERR_ABORTED) return;
+                    mainLoadFailed = true;
+                    SwingUtilities.invokeLater(() -> {
+                        if (!disposed) status.setText("加载失败，可重试");
+                    });
                 }
             }, browser.getCefBrowser());
         }
@@ -568,7 +585,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     .setCancelOnClickOutside(true)
                     .setCancelOnOtherWindowOpen(true)
                     .createPopup();
-            historyPopup.showUnderneathOf(historyButton);
+            historyPopup.showUnderneathOf(overflowButton);
         }
 
         private void populateHistoryRows(JPanel rows, JBLabel count, String rawQuery) {
@@ -680,14 +697,22 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             String expiry = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
                     .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(now + settings.duration()));
             status.setText("加密分享内容已复制，" + expiry + " 失效");
-            JOptionPane.showMessageDialog(
-                    this,
-                    "加密分享内容已复制到剪贴板。\n\n"
-                            + "把分享内容发给对方，并通过另一渠道告知刚才设置的分享密码。\n"
-                            + "密码不会写入分享内容或保存在插件中。\n\n失效时间：" + expiry,
-                    "加密分享已生成",
-                    JOptionPane.INFORMATION_MESSAGE
-            );
+            String message = "加密分享内容已复制到剪贴板。\n\n"
+                    + "可再次复制分享内容或密码；密码不会写入分享内容或保存在插件中。\n\n失效时间：" + expiry;
+            String[] actions = {"复制分享内容", "复制密码", "完成"};
+            while (true) {
+                int answer = JOptionPane.showOptionDialog(this, message, "加密分享已生成",
+                        JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, actions, actions[2]);
+                if (answer == 0) {
+                    CopyPasteManager.getInstance().setContents(new StringSelection(code));
+                    status.setText("加密分享内容已复制");
+                } else if (answer == 1) {
+                    CopyPasteManager.getInstance().setContents(new StringSelection(settings.password()));
+                    status.setText("分享密码已复制");
+                } else {
+                    break;
+                }
+            }
         }
 
         private ShareSettings promptShareSettings() {
@@ -713,6 +738,20 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 password.selectAll();
                 password.requestFocusInWindow();
             });
+            JButton copyPassword = new JButton("复制密码");
+            copyPassword.addActionListener(event -> {
+                char[] passwordChars = password.getPassword();
+                try {
+                    String value = new String(passwordChars);
+                    ShareCode.validatePassword(value);
+                    CopyPasteManager.getInstance().setContents(new StringSelection(value));
+                    status.setText("分享密码已复制");
+                } catch (IllegalArgumentException error) {
+                    JOptionPane.showMessageDialog(this, error.getMessage(), "无法复制密码", JOptionPane.WARNING_MESSAGE);
+                } finally {
+                    Arrays.fill(passwordChars, '\0');
+                }
+            });
 
             JPanel form = new JPanel();
             form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
@@ -727,8 +766,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEADING, JBUI.scale(6), JBUI.scale(6)));
             controls.add(showPassword);
             controls.add(generate);
+            controls.add(copyPassword);
             form.add(controls);
-            form.add(new JLabel("<html><small>密码不会保存。生成强密码后，请先复制或保存，再点击确定。</small></html>"));
+            form.add(new JLabel("<html><small>密码不会保存。可使用“复制密码”后再点击确定。</small></html>"));
 
             while (true) {
                 int answer = JOptionPane.showConfirmDialog(this, form, "设置加密分享",
@@ -797,14 +837,14 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     "1. 打开一个公开主题，点击工具栏“分享”。\n"
                             + "2. 选择有效期，填写并确认至少 12 个字符的密码；也可生成 20 位强密码。\n"
                             + "3. 插件把加密分享内容复制到剪贴板；把它发给对方，并通过另一渠道告知密码。\n"
-                            + "4. 对方选择“打开临时分享码”，粘贴分享内容并输入相同密码。\n\n"
+                            + "4. 对方选择“打开加密分享”，粘贴分享内容并输入相同密码。\n\n"
                             + "主题、标题、生成时间和过期时间均使用 AES-256-GCM 加密。密码经随机盐和\n"
                             + "600,000 次 PBKDF2-HMAC-SHA256 派生密钥；密码不进入分享内容，也不会保存。\n"
                             + "只有分享内容而没有密码，即使知道算法和源码也无法直接还原主题。\n\n"
                             + "请使用不易猜测的密码并通过另一渠道发送。如果中间人同时获得分享内容和密码，\n"
                             + "或密码过于简单，纯客户端插件无法继续保密。到期后插件拒绝导入，\n"
                             + "但已经打开或另行保存的公开 URL 无法撤回。",
-                    "临时分享码使用说明",
+                    "加密分享使用说明",
                     JOptionPane.INFORMATION_MESSAGE
             );
         }
@@ -813,16 +853,28 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (disposed || cefBrowser == null) {
                 return;
             }
-            brandLabel.setText(demoMode ? "Examples" : "LINUX DO");
-            readOnlyLabel.setText(demoMode ? "PREVIEW" : "只读");
             String css = BASE_PAGE_STYLE + (demoMode ? DEMO_PAGE_STYLE : "");
             String script = "(function(){"
                     + "var id='lexiao-guest-reader-style';"
                     + "var style=document.getElementById(id);"
                     + "if(!style){style=document.createElement('style');style.id=id;document.head.appendChild(style);}"
                     + "style.textContent=\"" + escapeJavaScript(css) + "\";"
+                    + "var loadingId='lexiao-guest-loading-privacy';"
+                    + "var loadingStyle=document.getElementById(loadingId);"
+                    + "if(loadingStyle){loadingStyle.textContent=\"" + escapeJavaScript(demoMode ? DEMO_LOADING_STYLE : "") + "\";}"
                     + "})();\n"
                     + READER_MODE_SCRIPT.replace("__LEXIAO_DEMO_MODE__", Boolean.toString(demoMode));
+            cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
+        }
+
+        private void applyLoadingPrivacyStyle(CefBrowser cefBrowser) {
+            if (disposed || cefBrowser == null) return;
+            String script = "(function(){"
+                    + "var id='lexiao-guest-loading-privacy';"
+                    + "var style=document.getElementById(id);"
+                    + "if(!style){style=document.createElement('style');style.id=id;document.head.appendChild(style);}"
+                    + "style.textContent=\"" + escapeJavaScript(DEMO_LOADING_STYLE) + "\";"
+                    + "})();";
             cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
         }
 
@@ -1002,7 +1054,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (disposed || !breakOverlayVisible || cefBrowser == null) {
                 return;
             }
-            String script = GAME_CORE_SCRIPT + "\n" + BREAK_OVERLAY_SCRIPT.replace(
+            String script = GAME_CORE_SCRIPT + "\n" + GAME_UI_SCRIPT + "\n" + BREAK_OVERLAY_SCRIPT.replace(
                     "__LEXIAO_RECOMMENDED_GAME__",
                     "\"" + escapeJavaScript(recommendedGame) + "\""
             ).replace("__LEXIAO_REMINDER_MODE__", Boolean.toString(breakOverlayReminderMode))
@@ -1049,7 +1101,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             }
             CefBrowser cefBrowser = browser.getCefBrowser();
             String script = "if(window.__lexiaoBreakCleanup){window.__lexiaoBreakCleanup();}"
-                    + "var overlay=document.getElementById('lexiao-break-overlay');"
+                    + "var overlay=document.getElementById('linuxdo-game-overlay');"
                     + "if(overlay){overlay.remove();}";
             cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
         }

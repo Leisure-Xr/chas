@@ -2,7 +2,7 @@
   "name": "linuxdo-guest-browser",
   "displayName": "LINUX DO 游客阅读器",
   "description": "在 VS Code 中以游客身份浏览 LINUX DO 的公开内容。",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "publisher": "lexiao-studio",
   "repository": {
     "type": "git",
@@ -30,6 +30,7 @@
     "onCommand:linuxdoGuest.openCategories",
     "onCommand:linuxdoGuest.setCloudflareClearance",
     "onCommand:linuxdoGuest.clearCloudflareClearance",
+    "onCommand:linuxdoGuest.setRequestMode",
     "onCommand:linuxdoGuest.shareCurrentTopic",
     "onCommand:linuxdoGuest.openShareCode",
     "onCommand:linuxdoGuest.shareHelp"
@@ -73,18 +74,23 @@
         "icon": "$(trash)"
       },
       {
+        "command": "linuxdoGuest.setRequestMode",
+        "title": "LINUX DO: 设置请求节奏",
+        "icon": "$(dashboard)"
+      },
+      {
         "command": "linuxdoGuest.shareCurrentTopic",
         "title": "LINUX DO: 分享当前主题",
         "icon": "$(share)"
       },
       {
         "command": "linuxdoGuest.openShareCode",
-        "title": "LINUX DO: 打开临时分享码",
+        "title": "LINUX DO: 打开加密分享",
         "icon": "$(link-external)"
       },
       {
         "command": "linuxdoGuest.shareHelp",
-        "title": "LINUX DO: 临时分享码使用说明",
+        "title": "LINUX DO: 加密分享使用说明",
         "icon": "$(question)"
       }
     ],
@@ -138,6 +144,23 @@
           "default": "latest",
           "description": "打开阅读器时默认显示的页面。"
         },
+        "linuxdoGuest.requestMode": {
+          "type": "string",
+          "enum": [
+            "smart",
+            "fluent",
+            "balanced",
+            "careful"
+          ],
+          "enumDescriptions": [
+            "根据明确限流自动在均衡、稳妥和流畅之间调整。",
+            "令牌容量 2，每 4 秒平滑恢复 1 次。",
+            "令牌容量 2，每 5 秒平滑恢复 1 次。",
+            "令牌容量 1，每 8 秒平滑恢复 1 次。"
+          ],
+          "default": "smart",
+          "description": "控制游客公开接口的请求节奏；仍会遵守站点返回的 Retry-After。"
+        },
         "linuxdoGuest.breakReminder.enabled": {
           "type": "boolean",
           "default": false,
@@ -147,7 +170,7 @@
     }
   },
   "scripts": {
-    "check": "bash ../shared/check-game-core.sh && node --check src/extension.js && node --check src/guest-session.js && node --check src/reader-history.js && node --check src/share-code.js && node --check src/verification-panel.js && node --check media/game-core.js && node --check media/main.js && npm test",
+    "check": "bash ../shared/check-game-core.sh && bash ../shared/check-game-ui.sh && node --check src/extension.js && node --check src/guest-session.js && node --check src/request-profile.js && node --check src/reader-history.js && node --check src/share-code.js && node --check src/verification-panel.js && node --check media/game-core.js && node --check media/game-ui.js && node --check media/main.js && npm test",
     "test": "node --test test/*.test.js",
     "package": "npx --yes @vscode/vsce@3.6.0 package --no-dependencies"
   }

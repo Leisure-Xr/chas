@@ -1,26 +1,33 @@
 'use strict';
 
+const {
+  EXACT_GUEST_COOKIE_NAMES,
+  REQUEST_PROFILE_SECRET,
+  createRequestProfile,
+  parseAndFilterGuestCookies,
+  profileSummary,
+  sanitizeStoredProfile
+} = require('./request-profile');
+
 const SITE_ORIGIN = 'https://linux.do';
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 12 * 1024 * 1024;
 const REQUEST_BURST_CAPACITY = 2;
-const REQUEST_REFILL_INTERVAL_MS = 2_200;
-const DEFAULT_CACHE_TTL_MS = 90_000;
-const STALE_CACHE_MAX_AGE_MS = 30 * 60_000;
+const REQUEST_REFILL_INTERVAL_MS = 5_000;
+const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
+const STALE_CACHE_MAX_AGE_MS = 6 * 60 * 60_000;
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
-const RECENT_SUCCESS_WINDOW_MS = 30 * 60_000;
-const PENALTY_SUCCESS_THRESHOLD = 4;
+const SMART_CAREFUL_MINIMUM_MS = 15 * 60_000;
+const SMART_BALANCED_STABLE_MS = 10 * 60_000;
+const REQUEST_MODES = Object.freeze({
+  fluent: Object.freeze({ capacity: 2, refillIntervalMs: 4_000 }),
+  balanced: Object.freeze({ capacity: 2, refillIntervalMs: 5_000 }),
+  careful: Object.freeze({ capacity: 1, refillIntervalMs: 8_000 })
+});
 const CLEARANCE_SECRET = 'linuxdoGuest.cloudflare.clearance';
 const GUEST_COOKIE_SECRET = 'linuxdoGuest.cloudflare.guestCookies';
 const USER_AGENT_SECRET = 'linuxdoGuest.cloudflare.userAgent';
-const GUEST_COOKIE_NAMES = new Set([
-  'cf_clearance',
-  '__cf_bm',
-  '__cfuvid',
-  '_cfuvid',
-  '_bypass_cache',
-  '_forum_session'
-]);
+const GUEST_COOKIE_NAMES = EXACT_GUEST_COOKIE_NAMES;
 const LOGIN_COOKIE_NAMES = new Set(['_t', 'remember_user_token', 'auth_token']);
 
 class CloudflareError extends Error {
@@ -34,8 +41,8 @@ class CloudflareError extends Error {
 }
 
 class RateLimitError extends Error {
-  constructor(status, retryAt) {
-    const seconds = Math.max(1, Math.ceil((Number(retryAt) - Date.now()) / 1000));
+  constructor(status, retryAt, now = Date.now()) {
+    const seconds = Math.max(1, Math.ceil((Number(retryAt) - Number(now)) / 1000));
     super(`站点暂时限制请求（HTTP ${status}），插件已暂停联网，请约 ${seconds} 秒后再试。`);
     this.name = 'RateLimitError';
     this.status = status;
@@ -56,16 +63,15 @@ class GuestRequestSession {
     this.fetchResponse = options.fetchResponse || fetchGuestResponse;
     this.now = options.now || (() => Date.now());
     this.sleep = options.sleep || delay;
-    const configuredRefillInterval = Number.isFinite(options.requestRefillIntervalMs)
-      ? options.requestRefillIntervalMs
-      : options.minRequestIntervalMs;
-    this.requestRefillIntervalMs = Number.isFinite(configuredRefillInterval)
-      ? Math.max(0, configuredRefillInterval)
-      : REQUEST_REFILL_INTERVAL_MS;
-    this.requestBurstCapacity = Number.isFinite(options.requestBurstCapacity)
-      ? Math.max(1, Math.floor(options.requestBurstCapacity))
-      : REQUEST_BURST_CAPACITY;
-    this.requestQueue = Promise.resolve();
+    this.onQueueWait = typeof options.onQueueWait === 'function' ? options.onQueueWait : undefined;
+    this.requestMode = normalizeRequestMode(options.requestMode);
+    this.customPacing = Number.isFinite(options.requestRefillIntervalMs) || Number.isFinite(options.minRequestIntervalMs);
+    const configuredRefillInterval = Number.isFinite(options.requestRefillIntervalMs) ? options.requestRefillIntervalMs : options.minRequestIntervalMs;
+    this.requestRefillIntervalMs = Number.isFinite(configuredRefillInterval) ? Math.max(0, configuredRefillInterval) : REQUEST_REFILL_INTERVAL_MS;
+    this.requestBurstCapacity = Number.isFinite(options.requestBurstCapacity) ? Math.max(1, Math.floor(options.requestBurstCapacity)) : REQUEST_BURST_CAPACITY;
+    this.requestQueue = [];
+    this.isDrainingQueue = false;
+    this.nextQueueOrder = 0;
     this.inFlight = new Map();
     this.pendingByLane = new Map();
     this.cache = new Map();
@@ -73,10 +79,17 @@ class GuestRequestSession {
     this.lastSuccessfulRequestAt = 0;
     this.cooldownUntil = 0;
     this.cooldownStatus = 429;
-    this.penaltyLevel = 0;
-    this.successesSincePenalty = 0;
-    this.availableRequestTokens = this.requestBurstCapacity;
-    this.lastTokenRefillAt = this.now();
+    this.smartMode = 'balanced';
+    this.smartCarefulUntil = 0;
+    this.smartSuccesses = 0;
+    this.lastExplicitRateLimitAt = 0;
+    this.smartStableSince = this.now();
+    this.bucketMode = this.getEffectiveRequestMode();
+    this.bucketTokens = REQUEST_MODES[this.bucketMode].capacity;
+    this.bucketUpdatedAt = this.now();
+    this.serverBudgetUntil = 0;
+    this.serverBudget = undefined;
+    this.lastResponseInfo = { source: 'network', storedAt: 0, reason: 'network' };
   }
 
   get isRunning() {
@@ -85,24 +98,38 @@ class GuestRequestSession {
 
   async hasStoredVerification() {
     const verification = await this.getStoredVerification();
-    return Boolean(verification.cookieHeader && verification.userAgent);
+    return Boolean(verification.cookieHeader && verification.userAgent && verification.status !== 'legacy-unverified');
   }
 
   async getStoredVerification() {
-    const [cookies, legacy, userAgent] = await Promise.all([
+    const [storedProfile, cookies, legacy, userAgent] = await Promise.all([
+      this.secrets.get(REQUEST_PROFILE_SECRET),
       this.secrets.get(GUEST_COOKIE_SECRET),
       this.secrets.get(CLEARANCE_SECRET),
       this.secrets.get(USER_AGENT_SECRET)
     ]);
-    return {
-      cookieHeader: cookies || (legacy ? `cf_clearance=${legacy}` : ''),
-      userAgent: String(userAgent || '').trim()
-    };
+    const profile = sanitizeStoredProfile(storedProfile);
+    if (profile) return profile;
+    const cookieHeader = cookies || (legacy ? `cf_clearance=${legacy}` : '');
+    const normalizedUserAgent = String(userAgent || '').trim();
+    if (!cookieHeader || !normalizedUserAgent) return { cookieHeader, userAgent: normalizedUserAgent, clientHints: {}, status: 'unverified' };
+    try {
+      const migrated = createRequestProfile({ cookieHeader, userAgent: normalizedUserAgent, source: 'legacy-secret-storage' });
+      migrated.status = 'legacy-unverified';
+      await this.secrets.store(REQUEST_PROFILE_SECRET, JSON.stringify(migrated));
+      return migrated;
+    } catch {
+      return { cookieHeader, userAgent: normalizedUserAgent, clientHints: {}, status: 'unverified' };
+    }
+  }
+
+  async getStoredProfileSummary() {
+    return profileSummary(await this.getStoredVerification());
   }
 
   async request(rawPath, options = {}) {
     const url = assertLinuxDoRequestUrl(rawPath);
-    const key = url.toString();
+    const key = cacheKeyForUrl(url);
     const now = this.now();
     const cached = this.cache.get(key);
     const ttlMs = Number.isFinite(options.cacheTtlMs)
@@ -110,7 +137,8 @@ class GuestRequestSession {
       : cacheTtlForUrl(url);
 
     if (!options.force && cached && now - cached.storedAt <= ttlMs) {
-      return cached.data;
+      this.touchCache(key, cached);
+      return this.returnData(cached.data, { source: 'cache', storedAt: cached.storedAt, reason: 'fresh' });
     }
     const existing = this.inFlight.get(key);
     if (existing && !existing.token.cancelled) {
@@ -120,9 +148,8 @@ class GuestRequestSession {
     const token = this.createRequestToken(options);
     const request = this.enqueue(async () => {
       if (token.cancelled) throw new SupersededRequestError();
-      token.started = true;
-      return this.performRequest(url, key, cached, ttlMs);
-    });
+      return this.performRequest(url, key, cached, ttlMs, token);
+    }, token);
     this.inFlight.set(key, { promise: request, token });
     request.finally(() => {
       if (this.inFlight.get(key)?.promise === request) this.inFlight.delete(key);
@@ -136,7 +163,16 @@ class GuestRequestSession {
     const lanesToCancel = new Set(Array.isArray(options.cancelPendingLanes) ? options.cancelPendingLanes : []);
     if (lane) lanesToCancel.add(lane);
     this.cancelPendingRequests(lanesToCancel);
-    const token = { lane, started: false, cancelled: false };
+    let resolveCancelled;
+    const token = {
+      lane,
+      started: false,
+      cancelled: false,
+      cancelledPromise: new Promise((resolve) => { resolveCancelled = resolve; }),
+      cancel: () => resolveCancelled(),
+      priority: Number.isFinite(options.requestPriority) ? Number(options.requestPriority) : requestPriorityForLane(lane),
+      continuation: Boolean(options.continuation) || lane === 'topic-more' || lane === 'list-more'
+    };
     if (lane) this.pendingByLane.set(lane, token);
     return token;
   }
@@ -144,155 +180,327 @@ class GuestRequestSession {
   cancelPendingRequests(lanes) {
     for (const pendingLane of lanes || []) {
       const pending = this.pendingByLane.get(pendingLane);
-      if (pending && !pending.started) pending.cancelled = true;
+      if (pending && !pending.started) {
+        pending.cancelled = true;
+        pending.cancel();
+      }
     }
   }
 
-  enqueue(task) {
-    const request = this.requestQueue.then(task, task);
-    this.requestQueue = request.then(() => undefined, () => undefined);
-    return request;
+  enqueue(task, token) {
+    return new Promise((resolve, reject) => {
+      this.requestQueue.push({ task, token, resolve, reject, order: this.nextQueueOrder++ });
+      void this.drainQueue();
+    });
   }
 
-  async performRequest(url, key, cached) {
+  async drainQueue() {
+    if (this.isDrainingQueue) return;
+    this.isDrainingQueue = true;
+    try {
+      while (this.requestQueue.length) {
+        this.requestQueue.sort((left, right) => right.token.priority - left.token.priority || left.order - right.order);
+        const job = this.requestQueue.shift();
+        if (job.token.cancelled) {
+          job.reject(new SupersededRequestError());
+          continue;
+        }
+        try {
+          job.resolve(await job.task());
+        } catch (error) {
+          job.reject(error);
+        }
+      }
+    } finally {
+      this.isDrainingQueue = false;
+    }
+  }
+
+  async performRequest(url, key, cached, ttlMs, token) {
     let now = this.now();
     if (now < this.cooldownUntil) {
-      if (isUsableStaleCache(cached, now)) return cached.data;
-      throw new RateLimitError(this.cooldownStatus, this.cooldownUntil);
+      if (isUsableStaleCache(cached, now)) {
+        this.touchCache(key, cached);
+        return this.returnData(cached.data, { source: 'stale-cache', storedAt: cached.storedAt, reason: 'rate-limit', retryAt: this.cooldownUntil, status: this.cooldownStatus });
+      }
+      throw new RateLimitError(this.cooldownStatus, this.cooldownUntil, now);
     }
 
-    now = await this.acquireRequestPermit();
+    now = await this.acquireRequestPermit(token);
+    if (token.cancelled) throw new SupersededRequestError();
+    token.started = true;
     this.lastRequestAt = now;
 
     const verification = await this.getStoredVerification();
+    if (verification.status === 'legacy-unverified') {
+      throw new CloudflareError(true, '检测到旧版分项 Cookie 与 User-Agent。它们可能来自不同请求，已迁移为待验证档案；请在验证设置中重新捕获完整 /latest.json 请求，或手动测试后再使用。');
+    }
     const hasVerification = Boolean(verification.cookieHeader && verification.userAgent);
     const response = await this.fetchResponse(url, verification);
     if (response.status === 403 || response.status === 429) {
-      const fallbackMs = response.status === 429 ? DEFAULT_RATE_LIMIT_COOLDOWN_MS : 45_000;
-      const cooldownMs = retryAfterMilliseconds(response.retryAfter, now, fallbackMs);
-      this.cooldownUntil = Math.max(this.cooldownUntil, now + cooldownMs);
-      this.cooldownStatus = response.status;
-      this.applyRateLimitPenalty(now);
-      if (isUsableStaleCache(cached, now)) return cached.data;
-      const hadRecentSuccess = this.lastSuccessfulRequestAt > 0 &&
-        now - this.lastSuccessfulRequestAt <= RECENT_SUCCESS_WINDOW_MS;
-      if (response.status === 429 || hadRecentSuccess) {
-        throw new RateLimitError(response.status, this.cooldownUntil);
+      this.resetSmartStability(now);
+      if (isCloudflareChallenge(response)) {
+        throw new CloudflareError(hasVerification, hasVerification
+          ? 'Cloudflare 验证已失效或浏览器指纹不匹配，请更新游客 Cookie 和 User-Agent。'
+          : undefined);
+      }
+      if (isExplicitRateLimitResponse(response)) {
+        const cooldownMs = retryAfterMilliseconds(response.retryAfter, now, DEFAULT_RATE_LIMIT_COOLDOWN_MS);
+        this.setRateLimitCooldown(response.status, now, cooldownMs);
+        if (isUsableStaleCache(cached, now)) {
+          this.touchCache(key, cached);
+          return this.returnData(cached.data, { source: 'stale-cache', storedAt: cached.storedAt, reason: 'rate-limit', retryAt: this.cooldownUntil, status: response.status });
+        }
+        throw new RateLimitError(response.status, this.cooldownUntil, now);
       }
       throw new CloudflareError(hasVerification, hasVerification
-        ? `Cloudflare 拒绝或暂时限制了请求。插件已暂停联网 ${Math.ceil(cooldownMs / 1000)} 秒；请等待后再试，持续出现 403 时再更新游客参数。`
+        ? '服务器拒绝了这组游客请求档案（HTTP 403）。这不是已确认的限流：参数可能已失效，或 Cloudflare 绑定了浏览器 TLS/HTTP2 指纹，Node 请求无法兼容。请从同一次 /latest.json 请求重新复制完整档案。'
         : undefined);
     }
 
-    const data = parseJsonResponse(response, hasVerification);
+    this.applyServerBudget(response, now);
+
+    let data;
+    try {
+      data = parseJsonResponse(response, hasVerification);
+    } catch (error) {
+      if (isNetworkResponse(response) && isUsableStaleCache(cached, now)) {
+        this.touchCache(key, cached);
+        return this.returnData(cached.data, { source: 'stale-cache', storedAt: cached.storedAt, reason: 'offline' });
+      }
+      throw error;
+    }
     this.recordSuccessfulRequest(now);
+    this.cache.delete(key);
     this.cache.set(key, { data, storedAt: now });
     while (this.cache.size > 80) this.cache.delete(this.cache.keys().next().value);
-    return data;
+    return this.returnData(data, { source: 'network', storedAt: now, reason: 'network' });
   }
 
-  effectiveRefillIntervalMs() {
-    return this.requestRefillIntervalMs * Math.min(3, 1 + this.penaltyLevel);
+  setRequestMode(mode) {
+    const now = this.now();
+    this.refillTokenBucket(now);
+    const available = this.bucketTokens;
+    this.requestMode = normalizeRequestMode(mode);
+    this.switchTokenBucketMode(now, available);
   }
 
-  refillRequestTokens(now) {
-    const interval = this.effectiveRefillIntervalMs();
-    if (interval <= 0) {
-      this.availableRequestTokens = this.requestBurstCapacity;
-      this.lastTokenRefillAt = now;
+  getEffectiveRequestMode() {
+    return this.requestMode === 'smart' ? this.smartMode : this.requestMode;
+  }
+
+  consumeLastResponseInfo() {
+    return { ...this.lastResponseInfo };
+  }
+
+  async acquireRequestPermit(token) {
+    for (;;) {
+      const now = this.now();
+      if (token.cancelled) throw new SupersededRequestError();
+      const waitMs = this.requestPermitWaitMs(now, token);
+      if (waitMs <= 0) {
+        this.onQueueWait?.({ waitMs: 0, reason: 'ready' });
+        this.recordRequestPermit(now, token);
+        return now;
+      }
+      this.onQueueWait?.({
+        waitMs,
+        reason: this.serverBudgetUntil > now ? 'server-budget' : 'local-pacing'
+      });
+      // A navigation that arrives while this job waits for pacing must be able to
+      // replace it immediately instead of inheriting the obsolete wait.
+      await Promise.race([this.sleep(waitMs), token.cancelledPromise]);
+    }
+  }
+
+  requestPermitWaitMs(now, token) {
+    if (this.customPacing) {
+      const last = this.lastRequestAt;
+      return Math.max(0, this.requestRefillIntervalMs - Math.max(0, now - last));
+    }
+    this.refillTokenBucket(now);
+    const pacing = REQUEST_MODES[this.bucketMode];
+    const localWait = this.bucketTokens >= 1 ? 0 : Math.ceil((1 - this.bucketTokens) * pacing.refillIntervalMs);
+    const serverWait = Math.max(0, this.serverBudgetUntil - now);
+    return Math.max(localWait, serverWait);
+  }
+
+  recordRequestPermit(now, token) {
+    if (!this.customPacing) {
+      this.refillTokenBucket(now);
+      this.bucketTokens = Math.max(0, this.bucketTokens - 1);
+    }
+    this.lastRequestAt = now;
+  }
+
+  refillTokenBucket(now) {
+    const mode = this.getEffectiveRequestMode();
+    if (mode !== this.bucketMode) {
+      this.bucketMode = mode;
+      this.bucketTokens = Math.min(this.bucketTokens, REQUEST_MODES[mode].capacity);
+      this.bucketUpdatedAt = now;
       return;
     }
-    const elapsed = Math.max(0, now - this.lastTokenRefillAt);
-    this.availableRequestTokens = Math.min(
-      this.requestBurstCapacity,
-      this.availableRequestTokens + elapsed / interval
-    );
-    this.lastTokenRefillAt = now;
-  }
-
-  async acquireRequestPermit() {
-    let now = this.now();
-    this.refillRequestTokens(now);
-    if (this.availableRequestTokens < 1) {
-      const waitMs = Math.ceil((1 - this.availableRequestTokens) * this.effectiveRefillIntervalMs());
-      if (waitMs > 0) await this.sleep(waitMs);
-      now = this.now();
-      this.refillRequestTokens(now);
+    const pacing = REQUEST_MODES[mode];
+    const elapsed = Math.max(0, now - this.bucketUpdatedAt);
+    if (elapsed > 0) {
+      this.bucketTokens = Math.min(pacing.capacity, this.bucketTokens + elapsed / pacing.refillIntervalMs);
+      this.bucketUpdatedAt = now;
     }
-    this.availableRequestTokens = Math.max(0, this.availableRequestTokens - 1);
-    return now;
   }
 
-  applyRateLimitPenalty(now) {
-    this.penaltyLevel = Math.min(2, this.penaltyLevel + 1);
-    this.successesSincePenalty = 0;
-    this.availableRequestTokens = 0;
-    this.lastTokenRefillAt = now;
+  resetTokenBucket(now) {
+    this.bucketMode = this.getEffectiveRequestMode();
+    this.bucketTokens = REQUEST_MODES[this.bucketMode].capacity;
+    this.bucketUpdatedAt = now;
+  }
+
+  switchTokenBucketMode(now, available = this.bucketTokens) {
+    this.bucketMode = this.getEffectiveRequestMode();
+    this.bucketTokens = Math.min(Math.max(0, available), REQUEST_MODES[this.bucketMode].capacity);
+    this.bucketUpdatedAt = now;
+  }
+
+  applyServerBudget(response, now) {
+    const budget = parseRateLimitBudget(response, now);
+    if (!budget) return;
+    this.serverBudget = budget;
+    if (budget.remaining <= budget.reserve && budget.resetAt > now) {
+      this.serverBudgetUntil = Math.max(this.serverBudgetUntil, budget.resetAt);
+    } else if (budget.remaining > budget.reserve) {
+      this.serverBudgetUntil = 0;
+    }
   }
 
   recordSuccessfulRequest(now) {
     this.lastSuccessfulRequestAt = now;
-    if (this.penaltyLevel <= 0) return;
-    this.successesSincePenalty += 1;
-    if (this.successesSincePenalty < PENALTY_SUCCESS_THRESHOLD) return;
-    this.penaltyLevel -= 1;
-    this.successesSincePenalty = 0;
-    this.availableRequestTokens = Math.min(this.availableRequestTokens, 1);
-    this.lastTokenRefillAt = now;
+    if (this.requestMode !== 'smart') return;
+    this.smartSuccesses += 1;
+    if (this.smartMode === 'careful' && now >= this.smartCarefulUntil && this.smartSuccesses >= 8) {
+      this.smartMode = 'balanced';
+      this.smartSuccesses = 0;
+      this.smartStableSince = now;
+      this.switchTokenBucketMode(now);
+    } else if (this.smartMode === 'balanced' && now - this.smartStableSince >= SMART_BALANCED_STABLE_MS && this.smartSuccesses >= 12) {
+      this.smartMode = 'fluent';
+      this.smartSuccesses = 0;
+      this.switchTokenBucketMode(now);
+    }
   }
 
-  resetRequestState() {
+  setRateLimitCooldown(status, now, cooldownMs, explicit = true) {
+    this.cooldownUntil = Math.max(this.cooldownUntil, now + cooldownMs);
+    this.cooldownStatus = status;
+    if (explicit && this.requestMode === 'smart') {
+      this.smartMode = 'careful';
+      this.smartCarefulUntil = now + SMART_CAREFUL_MINIMUM_MS;
+      this.smartSuccesses = 0;
+      this.lastExplicitRateLimitAt = now;
+      this.smartStableSince = now;
+      this.switchTokenBucketMode(now);
+    }
+  }
+
+  resetSmartStability(now) {
+    if (this.requestMode !== 'smart') return;
+    this.smartSuccesses = 0;
+    this.smartStableSince = now;
+  }
+
+  touchCache(key, entry) {
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+  }
+
+  returnData(data, responseInfo) {
+    this.lastResponseInfo = responseInfo;
+    return data;
+  }
+
+  resetRequestState(preservePacing = false) {
     for (const token of this.pendingByLane.values()) {
-      if (!token.started) token.cancelled = true;
+      if (!token.started) {
+        token.cancelled = true;
+        token.cancel();
+      }
     }
     this.pendingByLane.clear();
     this.cache.clear();
-    this.cooldownUntil = 0;
-    this.cooldownStatus = 429;
-    this.lastRequestAt = 0;
-    this.lastSuccessfulRequestAt = 0;
-    this.penaltyLevel = 0;
-    this.successesSincePenalty = 0;
-    this.availableRequestTokens = this.requestBurstCapacity;
-    this.lastTokenRefillAt = this.now();
+    if (!preservePacing) {
+      this.cooldownUntil = 0;
+      this.cooldownStatus = 429;
+      this.lastRequestAt = 0;
+      this.lastSuccessfulRequestAt = 0;
+      this.serverBudgetUntil = 0;
+      this.serverBudget = undefined;
+      this.smartMode = 'balanced';
+      this.smartCarefulUntil = 0;
+      this.smartSuccesses = 0;
+      this.lastExplicitRateLimitAt = 0;
+      this.smartStableSince = this.now();
+      this.resetTokenBucket(this.now());
+    }
+    this.lastResponseInfo = { source: 'network', storedAt: 0, reason: 'network' };
   }
 
-  async saveManualVerification({ cookieHeader, userAgent, validate = true }) {
-    const filteredCookies = cookieHeaderFromPairs(parseCookieHeader(cookieHeader));
-    if (!/(?:^|;\s*)cf_clearance=/i.test(filteredCookies)) {
-      throw new Error('没有找到有效的 cf_clearance。');
-    }
-    const normalizedUserAgent = String(userAgent || '').trim();
-    if (normalizedUserAgent.length < 20 || normalizedUserAgent.length > 1024 || /[\r\n]/.test(normalizedUserAgent)) {
-      throw new Error('User-Agent 格式不正确。');
-    }
+  async saveManualVerification({ cookieHeader, userAgent, clientHints = {}, source = 'manual', validate = true }) {
+    const candidate = createRequestProfile({ cookieHeader, userAgent, headers: clientHints, source });
 
     let validatedData;
     if (validate) {
-      const response = await this.fetchResponse(new URL('/latest.json', SITE_ORIGIN), {
-        cookieHeader: filteredCookies,
-        userAgent: normalizedUserAgent
-      });
-      const data = parseJsonResponse(response, true);
-      if (!Array.isArray(data.topic_list?.topics)) {
-        throw new Error('参数测试返回的数据不完整。');
-      }
-      validatedData = data;
+      validatedData = await this.validateCandidateProfile(candidate);
     }
 
-    await this.secrets.store(GUEST_COOKIE_SECRET, filteredCookies);
-    await this.secrets.delete(CLEARANCE_SECRET);
-    await this.secrets.store(USER_AGENT_SECRET, normalizedUserAgent);
-    this.resetRequestState();
+    await this.secrets.store(REQUEST_PROFILE_SECRET, JSON.stringify(candidate));
+    await Promise.allSettled([
+      this.secrets.delete(CLEARANCE_SECRET),
+      this.secrets.delete(GUEST_COOKIE_SECRET),
+      this.secrets.delete(USER_AGENT_SECRET)
+    ]);
+    this.resetRequestState(true);
     if (validatedData) {
       const storedAt = this.now();
       this.lastRequestAt = storedAt;
       this.lastSuccessfulRequestAt = storedAt;
-      this.availableRequestTokens = Math.max(0, this.requestBurstCapacity - 1);
-      this.lastTokenRefillAt = storedAt;
       this.cache.set(new URL('/latest.json', SITE_ORIGIN).toString(), { data: validatedData, storedAt });
     }
-    return { cookieHeader: filteredCookies, userAgent: normalizedUserAgent };
+    return candidate;
+  }
+
+  async validateCandidateProfile(candidate) {
+    const token = this.createRequestToken({ requestLane: 'verification', requestPriority: 40 });
+    try {
+      return await this.enqueue(async () => {
+        let now = this.now();
+        if (now < this.cooldownUntil) throw new RateLimitError(this.cooldownStatus, this.cooldownUntil, now);
+        now = await this.acquireRequestPermit(token);
+        if (token.cancelled) throw new SupersededRequestError();
+        token.started = true;
+        this.lastRequestAt = now;
+        const response = await this.fetchResponse(new URL('/latest.json', SITE_ORIGIN), candidate);
+        this.applyServerBudget(response, now);
+        if (response.status === 403) this.resetSmartStability(now);
+        if (isCloudflareChallenge(response)) {
+          throw new CloudflareError(true, 'Cloudflare challenge 仍未通过。请确认复制的是验证完成后同一次 /latest.json 请求。');
+        }
+        if (isExplicitRateLimitResponse(response)) {
+          const cooldownMs = retryAfterMilliseconds(response.retryAfter, now, DEFAULT_RATE_LIMIT_COOLDOWN_MS);
+          this.setRateLimitCooldown(response.status || 429, now, cooldownMs);
+          throw new RateLimitError(response.status || 429, this.cooldownUntil, now);
+        }
+        if (response.status === 403) {
+          throw new CloudflareError(true, '参数测试收到无明确限流标记的 HTTP 403。Cookie/UA/客户端提示可能混用，或 Cloudflare 绑定了浏览器 TLS/HTTP2 指纹；旧的有效档案没有被覆盖。');
+        }
+        const data = parseJsonResponse(response, true);
+        if (!Array.isArray(data.topic_list?.topics)) throw new Error('参数测试返回的数据不完整。');
+        candidate.status = 'verified';
+        candidate.verifiedAt = now;
+        this.recordSuccessfulRequest(now);
+        return data;
+      }, token);
+    } finally {
+      if (this.pendingByLane.get('verification') === token) this.pendingByLane.delete('verification');
+    }
   }
 
   async stop() {
@@ -305,9 +513,10 @@ function delay(milliseconds) {
 }
 
 function cacheTtlForUrl(url) {
-  if (url.pathname === '/categories.json') return 10 * 60_000;
-  if (url.pathname === '/search.json') return 60_000;
-  if (/^\/t\/.+\.json$/.test(url.pathname) || /^\/t\/\d+\/posts\.json$/.test(url.pathname)) return 5 * 60_000;
+  if (url.pathname === '/categories.json') return 30 * 60_000;
+  if (url.pathname === '/search.json') return 2 * 60_000;
+  if (/^\/t\/\d+\/posts\.json$/.test(url.pathname)) return 60 * 60_000;
+  if (/^\/t\/.+\.json$/.test(url.pathname)) return 30 * 60_000;
   return DEFAULT_CACHE_TTL_MS;
 }
 
@@ -333,6 +542,9 @@ async function fetchGuestResponse(url, verification = {}) {
     'User-Agent': verification.userAgent || defaultUserAgent()
   };
   if (verification.cookieHeader) headers.Cookie = verification.cookieHeader;
+  for (const [name, value] of Object.entries(verification.clientHints || {})) {
+    if (/^(?:sec-ch-ua(?:-[a-z-]+)?|accept-language)$/i.test(name) && value) headers[name] = String(value);
+  }
 
   try {
     const response = await fetch(url, {
@@ -350,6 +562,16 @@ async function fetchGuestResponse(url, verification = {}) {
       status: response.status,
       contentLength,
       retryAfter: response.headers.get('retry-after') || '',
+      rateLimit: response.headers.get('ratelimit') || '',
+      rateLimitPolicy: response.headers.get('ratelimit-policy') || '',
+      rateLimitLimit: response.headers.get('ratelimit-limit') || response.headers.get('x-ratelimit-limit') || '',
+      rateLimitRemaining: response.headers.get('ratelimit-remaining') || response.headers.get('x-ratelimit-remaining') || '',
+      rateLimitReset: response.headers.get('ratelimit-reset') || response.headers.get('x-ratelimit-reset') || '',
+      discourseRateLimitCode: response.headers.get('discourse-rate-limit-error-code')
+        || response.headers.get('x-discourse-rate-limit-error-code') || '',
+      contentType: response.headers.get('content-type') || '',
+      cfMitigated: response.headers.get('cf-mitigated') || '',
+      cfRay: response.headers.get('cf-ray') || '',
       text: await readLimitedText(response, MAX_RESPONSE_BYTES)
     };
   } catch (error) {
@@ -358,6 +580,102 @@ async function fetchGuestResponse(url, verification = {}) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function normalizeRequestMode(value) {
+  return ['smart', 'fluent', 'balanced', 'careful'].includes(value) ? value : 'smart';
+}
+
+function requestPriorityForLane(lane) {
+  if (lane === 'navigation') return 30;
+  if (lane === 'manual-more') return 20;
+  if (lane === 'topic-more' || lane === 'list-more') return 10;
+  return 20;
+}
+
+function cacheKeyForUrl(url) {
+  const normalized = new URL(url.toString());
+  const topicMatch = normalized.pathname.match(/^\/t\/[^/]+\/(\d+)\.json$/);
+  if (topicMatch) return `${SITE_ORIGIN}/t/${topicMatch[1]}.json`;
+  if (/^\/t\/\d+\/posts\.json$/.test(normalized.pathname)) {
+    const postIds = [...new Set(normalized.searchParams.getAll('post_ids[]').map(Number))]
+      .filter((id) => Number.isInteger(id) && id > 0)
+      .sort((left, right) => left - right);
+    return `${SITE_ORIGIN}${normalized.pathname}?post_ids=${postIds.join(',')}`;
+  }
+  normalized.searchParams.sort();
+  return normalized.toString();
+}
+
+function isCloudflareChallenge(response) {
+  if (String(response.cfMitigated || '').toLowerCase() === 'challenge') return true;
+  const contentType = String(response.contentType || '').toLowerCase();
+  const sample = String(response.text || '').slice(0, 4_096).toLowerCase();
+  return contentType.includes('text/html') && (
+    sample.includes('cf-chl-') || sample.includes('just a moment') || sample.includes('/cdn-cgi/challenge-platform')
+  );
+}
+
+function isExplicitRateLimitResponse(response) {
+  if (Number(response.status) === 429 || String(response.retryAfter || '').trim() || String(response.discourseRateLimitCode || '').trim()) return true;
+  const budget = parseRateLimitBudget(response, Date.now());
+  if (budget && budget.remaining <= 0) return true;
+  const sample = String(response.text || '').slice(0, 4_096).toLowerCase();
+  return /\b(?:too many requests|rate[ _-]?limit(?:ed|ing)?|slow down)\b/.test(sample)
+    || sample.includes('请求过于频繁')
+    || sample.includes('访问频率过高')
+    || /"error_type"\s*:\s*"(?:rate_limit|too_many_requests)"/.test(sample);
+}
+
+function parseRateLimitBudget(response, now) {
+  const combined = String(response?.rateLimit || '');
+  const policy = String(response?.rateLimitPolicy || '');
+  let limit = positiveNumber(response?.rateLimitLimit);
+  let remaining = nonNegativeNumber(response?.rateLimitRemaining);
+  let resetValue = String(response?.rateLimitReset || '').trim();
+  if (combined) {
+    limit ||= namedRateValue(combined, 'limit') || positiveNumber(combined.match(/^\s*(\d+)/)?.[1]);
+    if (remaining === undefined) remaining = namedRateValue(combined, 'remaining');
+    resetValue ||= String(namedRateValue(combined, 'reset') ?? '');
+  }
+  if (!limit && policy) limit = positiveNumber(policy.match(/^\s*(\d+)/)?.[1]) || namedRateValue(policy, 'limit');
+  if (!limit || remaining === undefined) return undefined;
+  const resetAt = rateLimitResetAt(resetValue, now);
+  return {
+    limit,
+    remaining,
+    reserve: Math.max(1, Math.ceil(limit * 0.2)),
+    resetAt
+  };
+}
+
+function positiveNumber(value) {
+  const number = Number(String(value ?? '').match(/\d+(?:\.\d+)?/)?.[0]);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function nonNegativeNumber(value) {
+  const match = String(value ?? '').match(/\d+(?:\.\d+)?/);
+  if (!match) return undefined;
+  const number = Number(match[0]);
+  return Number.isFinite(number) && number >= 0 ? number : undefined;
+}
+
+function namedRateValue(value, name) {
+  const match = String(value || '').match(new RegExp(`(?:^|[,;\\s])${name}\\s*=\\s*"?(\\d+(?:\\.\\d+)?)`, 'i'));
+  return match ? Number(match[1]) : undefined;
+}
+
+function rateLimitResetAt(value, now) {
+  const number = Number(String(value || '').match(/\d+(?:\.\d+)?/)?.[0]);
+  if (!Number.isFinite(number) || number <= 0) return 0;
+  if (number > 10_000_000_000) return number;
+  if (number > 1_000_000_000) return number * 1000;
+  return now + number * 1000;
+}
+
+function isNetworkResponse(response) {
+  return Boolean(response?.networkError);
 }
 
 async function readLimitedText(response, byteLimit) {
@@ -389,7 +707,7 @@ function parseJsonResponse(response, hasClearance) {
   if (response.networkError) throw new Error('无法连接 LINUX DO，请检查网络、代理或 DNS 设置。');
   if (response.status === 403) {
     throw new CloudflareError(hasClearance, hasClearance
-      ? 'Cloudflare 拒绝了请求，可能是游客参数已失效或站点临时限流。请先稍候再试；持续出现 403 时，再从同一浏览器的 Network 请求复制完整 Cookie 与 User-Agent。'
+      ? '服务器拒绝了游客请求（HTTP 403）。这不是已确认的限流：档案可能已失效，或 Cloudflare 绑定了浏览器 TLS/HTTP2 指纹。请从同一次 /latest.json 请求重新复制完整档案。'
       : undefined);
   }
   if (response.status === 429) throw new Error('站点请求过于频繁（HTTP 429），请稍后再试。');
@@ -413,23 +731,7 @@ function assertLinuxDoRequestUrl(rawPath) {
 }
 
 function parseCookieHeader(input) {
-  const raw = String(input || '').trim();
-  const hasLoginCookie = [...LOGIN_COOKIE_NAMES].some((name) =>
-    new RegExp(`(?:^|;\\s*)${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=`, 'i').test(raw));
-  const selected = new Map();
-  for (const part of raw.split(';')) {
-    const separator = part.indexOf('=');
-    if (separator <= 0) continue;
-    const name = part.slice(0, separator).trim();
-    const value = part.slice(separator + 1).trim();
-    if (GUEST_COOKIE_NAMES.has(name) && !(hasLoginCookie && name === '_forum_session') && value && !/[\r\n;]/.test(value)) {
-      selected.set(name, value);
-    }
-  }
-  if (!selected.size && raw && !raw.includes('=') && !/[\r\n;]/.test(raw)) {
-    selected.set('cf_clearance', raw);
-  }
-  return [...selected.entries()].map(([name, value]) => ({ name, value }));
+  return parseAndFilterGuestCookies(input);
 }
 
 function cookieHeaderFromPairs(pairs) {
@@ -465,19 +767,25 @@ module.exports = {
   MAX_RESPONSE_BYTES,
   REQUEST_BURST_CAPACITY,
   REQUEST_REFILL_INTERVAL_MS,
+  REQUEST_MODES,
   RateLimitError,
   REQUEST_TIMEOUT_MS,
   SITE_ORIGIN,
   SupersededRequestError,
   USER_AGENT_SECRET,
+  REQUEST_PROFILE_SECRET,
   assertLinuxDoRequestUrl,
   cookieHeaderFromPairs,
   cacheTtlForUrl,
+  cacheKeyForUrl,
   defaultUserAgent,
   fetchGuestResponse,
   isLinuxDoUrl,
   parseCookieHeader,
   parseJsonResponse,
+  isCloudflareChallenge,
+  isExplicitRateLimitResponse,
+  parseRateLimitBudget,
   retryAfterMilliseconds,
   readLimitedText
 };
