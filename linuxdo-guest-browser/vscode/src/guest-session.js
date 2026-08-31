@@ -17,6 +17,8 @@ const REQUEST_REFILL_INTERVAL_MS = 5_000;
 const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 const STALE_CACHE_MAX_AGE_MS = 6 * 60 * 60_000;
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
+const TRANSIENT_PROTECTION_BACKOFF_MS = Object.freeze([8_000, 15_000, 30_000]);
+const TRANSIENT_PROTECTION_RESET_MS = 10 * 60_000;
 const SMART_CAREFUL_MINIMUM_MS = 15 * 60_000;
 const SMART_BALANCED_STABLE_MS = 10 * 60_000;
 const REQUEST_MODES = Object.freeze({
@@ -33,7 +35,7 @@ const LOGIN_COOKIE_NAMES = new Set(['_t', 'remember_user_token', 'auth_token']);
 class CloudflareError extends Error {
   constructor(hasClearance, message) {
     super(message || (hasClearance
-      ? 'Cloudflare 拒绝了已保存的游客参数，请在原浏览器重新验证并复制最新 Cookie 与 User-Agent。'
+      ? 'Cloudflare 拒绝了这次游客请求；仅凭这一次响应无法判断参数是否失效，可稍后重试或更新请求档案。'
       : 'Cloudflare 要求人机验证，请打开验证设置并手动填写游客参数。'));
     this.name = 'CloudflareError';
     this.hasClearance = hasClearance;
@@ -47,6 +49,18 @@ class RateLimitError extends Error {
     this.name = 'RateLimitError';
     this.status = status;
     this.retryAt = Number(retryAt);
+  }
+}
+
+class TransientProtectionError extends Error {
+  constructor(retryAt, now = Date.now(), attempt = 1) {
+    const seconds = Math.max(1, Math.ceil((Number(retryAt) - Number(now)) / 1000));
+    const repeated = attempt > 1 ? `（连续第 ${attempt} 次）` : '';
+    super(`Cloudflare 暂时拦截了这次游客请求${repeated}，但这不能证明已保存参数失效。请约 ${seconds} 秒后重试；若持续出现，可更新请求档案，也可以保留当前档案稍后再试。`);
+    this.name = 'TransientProtectionError';
+    this.status = 403;
+    this.retryAt = Number(retryAt);
+    this.attempt = attempt;
   }
 }
 
@@ -79,6 +93,9 @@ class GuestRequestSession {
     this.lastSuccessfulRequestAt = 0;
     this.cooldownUntil = 0;
     this.cooldownStatus = 429;
+    this.transientProtectionUntil = 0;
+    this.transientProtectionCount = 0;
+    this.lastTransientProtectionAt = 0;
     this.smartMode = 'balanced';
     this.smartCarefulUntil = 0;
     this.smartSuccesses = 0;
@@ -225,6 +242,19 @@ class GuestRequestSession {
       }
       throw new RateLimitError(this.cooldownStatus, this.cooldownUntil, now);
     }
+    if (now < this.transientProtectionUntil) {
+      if (isUsableStaleCache(cached, now)) {
+        this.touchCache(key, cached);
+        return this.returnData(cached.data, {
+          source: 'stale-cache',
+          storedAt: cached.storedAt,
+          reason: 'cloudflare-protection',
+          retryAt: this.transientProtectionUntil,
+          status: 403
+        });
+      }
+      throw new TransientProtectionError(this.transientProtectionUntil, now, this.transientProtectionCount);
+    }
 
     now = await this.acquireRequestPermit(token);
     if (token.cancelled) throw new SupersededRequestError();
@@ -232,18 +262,10 @@ class GuestRequestSession {
     this.lastRequestAt = now;
 
     const verification = await this.getStoredVerification();
-    if (verification.status === 'legacy-unverified') {
-      throw new CloudflareError(true, '检测到旧版分项 Cookie 与 User-Agent。它们可能来自不同请求，已迁移为待验证档案；请在验证设置中重新捕获完整 /latest.json 请求，或手动测试后再使用。');
-    }
     const hasVerification = Boolean(verification.cookieHeader && verification.userAgent);
     const response = await this.fetchResponse(url, verification);
     if (response.status === 403 || response.status === 429) {
       this.resetSmartStability(now);
-      if (isCloudflareChallenge(response)) {
-        throw new CloudflareError(hasVerification, hasVerification
-          ? 'Cloudflare 验证已失效或浏览器指纹不匹配，请更新游客 Cookie 和 User-Agent。'
-          : undefined);
-      }
       if (isExplicitRateLimitResponse(response)) {
         const cooldownMs = retryAfterMilliseconds(response.retryAfter, now, DEFAULT_RATE_LIMIT_COOLDOWN_MS);
         this.setRateLimitCooldown(response.status, now, cooldownMs);
@@ -253,9 +275,8 @@ class GuestRequestSession {
         }
         throw new RateLimitError(response.status, this.cooldownUntil, now);
       }
-      throw new CloudflareError(hasVerification, hasVerification
-        ? '服务器拒绝了这组游客请求档案（HTTP 403）。这不是已确认的限流：参数可能已失效，或 Cloudflare 绑定了浏览器 TLS/HTTP2 指纹，Node 请求无法兼容。请从同一次 /latest.json 请求重新复制完整档案。'
-        : undefined);
+      if (!hasVerification) throw new CloudflareError(false);
+      return this.handleTransientProtection(key, cached, now);
     }
 
     this.applyServerBudget(response, now);
@@ -270,6 +291,8 @@ class GuestRequestSession {
       }
       throw error;
     }
+    await this.promoteStoredProfileAfterSuccess(verification, now);
+    this.clearTransientProtection();
     this.recordSuccessfulRequest(now);
     this.cache.delete(key);
     this.cache.set(key, { data, storedAt: now });
@@ -407,6 +430,51 @@ class GuestRequestSession {
     this.smartStableSince = now;
   }
 
+  handleTransientProtection(key, cached, now) {
+    const error = this.registerTransientProtection(now);
+    if (isUsableStaleCache(cached, now)) {
+      this.touchCache(key, cached);
+      return this.returnData(cached.data, {
+        source: 'stale-cache',
+        storedAt: cached.storedAt,
+        reason: 'cloudflare-protection',
+        retryAt: error.retryAt,
+        status: 403
+      });
+    }
+    throw error;
+  }
+
+  registerTransientProtection(now) {
+    if (!this.lastTransientProtectionAt || now - this.lastTransientProtectionAt > TRANSIENT_PROTECTION_RESET_MS) {
+      this.transientProtectionCount = 0;
+    }
+    this.transientProtectionCount += 1;
+    this.lastTransientProtectionAt = now;
+    const waitMs = TRANSIENT_PROTECTION_BACKOFF_MS[Math.min(
+      this.transientProtectionCount - 1,
+      TRANSIENT_PROTECTION_BACKOFF_MS.length - 1
+    )];
+    this.transientProtectionUntil = now + waitMs;
+    return new TransientProtectionError(this.transientProtectionUntil, now, this.transientProtectionCount);
+  }
+
+  clearTransientProtection() {
+    this.transientProtectionUntil = 0;
+    this.transientProtectionCount = 0;
+    this.lastTransientProtectionAt = 0;
+  }
+
+  async promoteStoredProfileAfterSuccess(profile, now) {
+    if (!profile?.cookieHeader || !profile?.userAgent || profile.status === 'verified') return;
+    const promoted = { ...profile, status: 'verified', verifiedAt: now };
+    try {
+      await this.secrets.store(REQUEST_PROFILE_SECRET, JSON.stringify(promoted));
+    } catch {
+      // A metadata promotion must never discard an otherwise successful page response.
+    }
+  }
+
   touchCache(key, entry) {
     this.cache.delete(key);
     this.cache.set(key, entry);
@@ -426,6 +494,7 @@ class GuestRequestSession {
     }
     this.pendingByLane.clear();
     this.cache.clear();
+    this.clearTransientProtection();
     if (!preservePacing) {
       this.cooldownUntil = 0;
       this.cooldownStatus = 429;
@@ -473,6 +542,9 @@ class GuestRequestSession {
       return await this.enqueue(async () => {
         let now = this.now();
         if (now < this.cooldownUntil) throw new RateLimitError(this.cooldownStatus, this.cooldownUntil, now);
+        if (now < this.transientProtectionUntil) {
+          throw new TransientProtectionError(this.transientProtectionUntil, now, this.transientProtectionCount);
+        }
         now = await this.acquireRequestPermit(token);
         if (token.cancelled) throw new SupersededRequestError();
         token.started = true;
@@ -480,21 +552,21 @@ class GuestRequestSession {
         const response = await this.fetchResponse(new URL('/latest.json', SITE_ORIGIN), candidate);
         this.applyServerBudget(response, now);
         if (response.status === 403) this.resetSmartStability(now);
-        if (isCloudflareChallenge(response)) {
-          throw new CloudflareError(true, 'Cloudflare challenge 仍未通过。请确认复制的是验证完成后同一次 /latest.json 请求。');
-        }
         if (isExplicitRateLimitResponse(response)) {
           const cooldownMs = retryAfterMilliseconds(response.retryAfter, now, DEFAULT_RATE_LIMIT_COOLDOWN_MS);
           this.setRateLimitCooldown(response.status || 429, now, cooldownMs);
           throw new RateLimitError(response.status || 429, this.cooldownUntil, now);
         }
         if (response.status === 403) {
-          throw new CloudflareError(true, '参数测试收到无明确限流标记的 HTTP 403。Cookie/UA/客户端提示可能混用，或 Cloudflare 绑定了浏览器 TLS/HTTP2 指纹；旧的有效档案没有被覆盖。');
+          const error = this.registerTransientProtection(now);
+          error.message = `本次 /latest.json 参数测试被 Cloudflare 暂时拦截，无法据此判断档案失效。旧档案没有被覆盖；请约 ${Math.ceil((error.retryAt - now) / 1000)} 秒后再测试，或仅保存为未验证。`;
+          throw error;
         }
         const data = parseJsonResponse(response, true);
         if (!Array.isArray(data.topic_list?.topics)) throw new Error('参数测试返回的数据不完整。');
         candidate.status = 'verified';
         candidate.verifiedAt = now;
+        this.clearTransientProtection();
         this.recordSuccessfulRequest(now);
         return data;
       }, token);
@@ -707,7 +779,7 @@ function parseJsonResponse(response, hasClearance) {
   if (response.networkError) throw new Error('无法连接 LINUX DO，请检查网络、代理或 DNS 设置。');
   if (response.status === 403) {
     throw new CloudflareError(hasClearance, hasClearance
-      ? '服务器拒绝了游客请求（HTTP 403）。这不是已确认的限流：档案可能已失效，或 Cloudflare 绑定了浏览器 TLS/HTTP2 指纹。请从同一次 /latest.json 请求重新复制完整档案。'
+      ? '服务器暂时拒绝了游客请求（HTTP 403）。仅凭这一次响应无法判断档案是否失效。'
       : undefined);
   }
   if (response.status === 429) throw new Error('站点请求过于频繁（HTTP 429），请稍后再试。');
@@ -761,6 +833,7 @@ module.exports = {
   CloudflareError,
   DEFAULT_CACHE_TTL_MS,
   DEFAULT_RATE_LIMIT_COOLDOWN_MS,
+  TRANSIENT_PROTECTION_BACKOFF_MS,
   GUEST_COOKIE_NAMES,
   GUEST_COOKIE_SECRET,
   GuestRequestSession,
@@ -772,6 +845,7 @@ module.exports = {
   REQUEST_TIMEOUT_MS,
   SITE_ORIGIN,
   SupersededRequestError,
+  TransientProtectionError,
   USER_AGENT_SECRET,
   REQUEST_PROFILE_SECRET,
   assertLinuxDoRequestUrl,

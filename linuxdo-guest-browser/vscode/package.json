@@ -2,7 +2,7 @@
   "name": "linuxdo-guest-browser",
   "displayName": "LINUX DO 游客阅读器",
   "description": "在 VS Code 中以游客身份浏览 LINUX DO 的公开内容。",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "publisher": "lexiao-studio",
   "repository": {
     "type": "git",

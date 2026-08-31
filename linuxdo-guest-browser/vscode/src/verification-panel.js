@@ -117,7 +117,7 @@ function getHtml(webview) {
     <div id="profile" class="summary" hidden></div><div id="message" class="message" role="status"></div>
     <div class="actions"><button id="test" type="button">保存并测试一次</button><button id="save" class="secondary" type="button">仅保存为未验证</button><button id="clear-capture" class="outline" type="button">清空输入</button></div>
     <div class="actions"><button data-clear="cookie" class="danger" type="button">清除 Cookie</button><button data-clear="userAgent" class="danger" type="button">清除 User-Agent</button><button data-clear="all" class="danger" type="button">全部清除</button></div>
-    <p class="hint">检测到登录 Cookie、Authorization、CSRF 或论坛 API 凭据时会拒绝整组导入。验证只请求一次 <code>/latest.json</code>；失败不会覆盖之前的有效档案。无标记 403 会报告为参数或浏览器指纹不兼容，不会伪装成 60 秒限流。</p>
+    <p class="hint">检测到登录 Cookie、Authorization、CSRF 或论坛 API 凭据时会拒绝整组导入。验证只请求一次 <code>/latest.json</code>；失败不会覆盖之前的有效档案。Cloudflare challenge 或无标记 403 只能说明本次请求被拦截，不能单独证明参数失效；插件会短暂等待后允许重试。</p>
   </section>
 </main><script nonce="${nonce}">
   const vscode=acquireVsCodeApi(),capture=document.getElementById('capture'),cookie=document.getElementById('cookie'),ua=document.getElementById('ua'),source=document.getElementById('source'),message=document.getElementById('message'),profile=document.getElementById('profile');

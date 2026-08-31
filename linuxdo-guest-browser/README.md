@@ -18,7 +18,7 @@
 
 打开扩展面板，选择右上角菜单中的 `Install from VSIX...`，然后选择 VSIX 文件。
 
-VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。请求可选智能、流畅、均衡和稳妥四档，始终单并发；平滑令牌桶取代 60 秒本地硬窗口，正常导航优先于续载，尚未发送的旧导航会取消。只有明确的 429、`Retry-After` 或限流标记才进入服务器冷却；无标记 403 会如实提示档案失效或浏览器指纹不兼容。最近 60 条公开页面历史可搜索、重新打开、复制 URL 或全部清除。验证页支持粘贴同一次 `/latest.json` 的完整 Request Headers 或 Chrome、Edge、Brave 的 Copy as cURL，也可同时手动填写 Cookie 与 User-Agent；插件不会启动、控制或读取外部浏览器。完整的 Windows DevTools 步骤、接口差异表和示意图见 [VS Code 说明](vscode/README.md)。
+VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。请求可选智能、流畅、均衡和稳妥四档，始终单并发；平滑令牌桶取代 60 秒本地硬窗口，正常导航优先于续载，尚未发送的旧导航会取消。只有明确的 429、`Retry-After` 或限流标记才进入服务器冷却；`0.15.1` 起，challenge 与无标记 403 不再被单次判定为档案失效，而是使用最多 30 秒的独立短退避并保留现有页面。最近 60 条公开页面历史可搜索、重新打开、复制 URL 或全部清除。验证页支持粘贴同一次 `/latest.json` 的完整 Request Headers 或 Chrome、Edge、Brave 的 Copy as cURL，也可同时手动填写 Cookie 与 User-Agent；插件不会启动、控制或读取外部浏览器。完整的 Windows DevTools 步骤、接口差异表和示意图见 [VS Code 说明](vscode/README.md)。
 
 ### PyCharm
 

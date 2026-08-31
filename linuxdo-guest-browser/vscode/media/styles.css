@@ -795,6 +795,13 @@ body.compact .load-more {
   margin-bottom: 18px;
 }
 
+.state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
 .state-icon {
   display: grid;
   width: 36px;

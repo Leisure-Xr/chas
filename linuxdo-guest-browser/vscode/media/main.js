@@ -180,7 +180,7 @@
         renderQueueWait(message.waitMs, message.reason);
         break;
       case 'error':
-        renderError(message.message, message.retryAt);
+        renderError(message.message, message.retryAt, message.allowVerification);
         break;
       case 'cloudflareRequired':
         renderCloudflare(message);
@@ -404,18 +404,25 @@
     setContent(wrapper);
   }
 
-  function renderError(message, retryAt) {
+  function renderError(message, retryAt, allowVerification = false) {
     if (currentPageCacheable && content.childElementCount) {
-      showRateLimitBanner(message, retryAt);
+      showRateLimitBanner(message, retryAt, allowVerification);
       return;
     }
     const wrapper = node('section', 'state-page');
     wrapper.append(
       node('div', 'state-icon', '!'),
       node('h1', '', '暂时无法加载'),
-      node('p', '', String(message || '未知错误')),
-      actionButton('重试', () => vscode.postMessage({ type: 'refresh' }))
+      node('p', '', String(message || '未知错误'))
     );
+    const actions = node('div', 'state-actions');
+    actions.append(actionButton('重试', () => vscode.postMessage({ type: 'refresh' })));
+    if (allowVerification) {
+      const setup = actionButton('更新验证参数', () => vscode.postMessage({ type: 'cloudflareSetup' }));
+      setup.className = 'secondary-button';
+      actions.append(setup);
+    }
+    wrapper.append(actions);
     let startCountdown;
     if (Number.isFinite(Number(retryAt)) && Number(retryAt) > Date.now()) {
       const countdown = node('p', 'privacy-note');
@@ -772,12 +779,14 @@
     if (!cacheInfo || cacheInfo.source === 'network' || !Number(cacheInfo.storedAt)) return;
     const label = cacheInfo.reason === 'rate-limit'
       ? '正在显示受限前缓存'
+      : cacheInfo.reason === 'cloudflare-protection'
+        ? '正在显示临时保护前缓存'
       : cacheInfo.reason === 'offline'
         ? '正在显示离线缓存'
         : '正在显示本机缓存';
     const notice = node('p', 'page-subtitle cache-notice', `${label} · ${formatDate(new Date(cacheInfo.storedAt).toISOString())}`);
     container.append(notice);
-    if (cacheInfo.reason !== 'rate-limit' || !Number.isFinite(Number(cacheInfo.retryAt))) return;
+    if (!['rate-limit', 'cloudflare-protection'].includes(cacheInfo.reason) || !Number.isFinite(Number(cacheInfo.retryAt))) return;
     const update = () => {
       const seconds = Math.max(0, Math.ceil((Number(cacheInfo.retryAt) - Date.now()) / 1000));
       notice.textContent = `${label} · ${formatDate(new Date(cacheInfo.storedAt).toISOString())}${seconds ? ` · 恢复倒计时 ${seconds} 秒` : ' · 可以重试'}`;
@@ -799,7 +808,7 @@
     banner.replaceChildren(node('span', 'spinner'), node('span', '', message));
   }
 
-  function showRateLimitBanner(message, retryAt) {
+  function showRateLimitBanner(message, retryAt, allowVerification = false) {
     clearInterval(rateLimitTimer);
     let banner = document.getElementById('reader-status-banner');
     if (!banner) {
@@ -810,6 +819,11 @@
     const detail = node('span', '', String(message || '暂时无法加载。'));
     const retry = actionButton('重试', () => vscode.postMessage({ type: 'refresh' }));
     retry.classList.add('banner-retry');
+    let setup;
+    if (allowVerification) {
+      setup = actionButton('更新参数', () => vscode.postMessage({ type: 'cloudflareSetup' }));
+      setup.className = 'secondary-button banner-retry';
+    }
     const countdown = node('span', 'banner-countdown');
     const update = () => {
       if (!Number.isFinite(Number(retryAt))) {
@@ -822,7 +836,7 @@
     };
     update();
     if (Number(retryAt) > Date.now()) rateLimitTimer = setInterval(update, 1_000);
-    banner.replaceChildren(detail, countdown, retry);
+    banner.replaceChildren(detail, countdown, retry, ...(setup ? [setup] : []));
   }
 
   function navigate(message) {

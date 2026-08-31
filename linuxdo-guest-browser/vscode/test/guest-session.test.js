@@ -7,11 +7,13 @@ const {
   GuestRequestSession,
   MAX_RESPONSE_BYTES,
   REQUEST_MODES,
+  TRANSIENT_PROTECTION_BACKOFF_MS,
   REQUEST_PROFILE_SECRET,
   GUEST_COOKIE_SECRET,
   USER_AGENT_SECRET,
   RateLimitError,
   SupersededRequestError,
+  TransientProtectionError,
   assertLinuxDoRequestUrl,
   cacheKeyForUrl,
   cookieHeaderFromPairs,
@@ -110,7 +112,7 @@ test('legacy Cookie and User-Agent migrate atomically on first read', async () =
   assert.equal(await session.hasStoredVerification(), false);
 });
 
-test('failed candidate verification preserves the previously saved profile', async () => {
+test('temporarily blocked candidate verification preserves the previously saved profile', async () => {
   const values = new Map();
   let calls = 0;
   const session = new GuestRequestSession(mapSecrets(values), {
@@ -121,8 +123,16 @@ test('failed candidate verification preserves the previously saved profile', asy
     }
   });
   await session.saveManualVerification({ cookieHeader: 'cf_clearance=old', userAgent: VALID_UA, validate: false });
-  await assert.rejects(() => session.saveManualVerification({ cookieHeader: 'cf_clearance=new', userAgent: VALID_UA, validate: true }), CloudflareError);
+  await assert.rejects(
+    () => session.saveManualVerification({ cookieHeader: 'cf_clearance=new', userAgent: VALID_UA, validate: true }),
+    (error) => error instanceof TransientProtectionError && /无法据此判断档案失效/.test(error.message)
+  );
   assert.equal((await session.getStoredVerification()).cookieHeader, 'cf_clearance=old');
+  assert.equal(calls, 1);
+  await assert.rejects(
+    () => session.saveManualVerification({ cookieHeader: 'cf_clearance=new', userAgent: VALID_UA, validate: true }),
+    TransientProtectionError
+  );
   assert.equal(calls, 1);
 });
 
@@ -253,10 +263,11 @@ test('guest session falls back to a recent stale cache entry during explicit coo
   assert.equal(calls, 2);
 });
 
-test('an unmarked 403 immediately reports verification or browser fingerprint incompatibility', async () => {
+test('an unmarked 403 after a successful verified request enters a short neutral protection wait', async () => {
   let now = 40_000;
   let calls = 0;
-  const session = new GuestRequestSession(memorySecrets(), {
+  const values = new Map();
+  const session = new GuestRequestSession(mapSecrets(values), {
     now: () => now,
     requestRefillIntervalMs: 0,
     fetchResponse: async () => {
@@ -267,14 +278,100 @@ test('an unmarked 403 immediately reports verification or browser fingerprint in
     }
   });
 
+  await session.saveManualVerification({ cookieHeader: 'cf_clearance=saved', userAgent: VALID_UA, validate: false });
   await session.request('/latest.json');
   now += 1_000;
   await assert.rejects(
     () => session.request('/top.json'),
-    (error) => error instanceof CloudflareError
+    (error) => error instanceof TransientProtectionError
+      && error.retryAt === now + TRANSIENT_PROTECTION_BACKOFF_MS[0]
+      && /不能证明已保存参数失效/.test(error.message)
   );
   assert.equal(session.cooldownUntil, 0);
+  assert.equal(session.transientProtectionUntil, now + 8_000);
   assert.equal(calls, 2);
+});
+
+test('challenge and unknown 403 responses back off at 8, 15 and 30 seconds then reset after success', async () => {
+  let now = 100_000;
+  let calls = 0;
+  const responses = [
+    { status: 403, contentType: 'text/html', cfMitigated: 'challenge', text: '<html>Just a moment... cf-chl-</html>' },
+    { status: 403, contentLength: 0, text: '' },
+    { status: 403, contentType: 'text/html', text: '<html>/cdn-cgi/challenge-platform</html>' },
+    { status: 200, contentLength: 2, text: '{}' },
+    { status: 403, contentLength: 0, text: '' }
+  ];
+  const session = new GuestRequestSession(memorySecrets(), {
+    now: () => now,
+    minRequestIntervalMs: 0,
+    fetchResponse: async () => responses[calls++]
+  });
+  await session.saveManualVerification({ cookieHeader: 'cf_clearance=saved', userAgent: VALID_UA, validate: false });
+
+  for (let index = 0; index < 3; index += 1) {
+    await assert.rejects(
+      () => session.request(`/latest.json?page=${index}`),
+      (error) => error instanceof TransientProtectionError
+        && error.retryAt === now + TRANSIENT_PROTECTION_BACKOFF_MS[index]
+    );
+    assert.ok(TRANSIENT_PROTECTION_BACKOFF_MS[index] <= 30_000);
+    now += TRANSIENT_PROTECTION_BACKOFF_MS[index];
+  }
+
+  await session.request('/categories.json');
+  assert.equal(session.transientProtectionCount, 0);
+  assert.equal(session.transientProtectionUntil, 0);
+  await assert.rejects(
+    () => session.request('/top.json'),
+    (error) => error instanceof TransientProtectionError && error.retryAt === now + 8_000
+  );
+  assert.equal(calls, 5);
+});
+
+test('a transient Cloudflare rejection serves stale cache and does not become server rate limiting', async () => {
+  let now = 200_000;
+  let calls = 0;
+  const session = new GuestRequestSession(memorySecrets(), {
+    now: () => now,
+    minRequestIntervalMs: 0,
+    fetchResponse: async () => {
+      calls += 1;
+      return calls === 1
+        ? { status: 200, contentLength: 11, text: '{"ok":true}' }
+        : { status: 403, contentType: 'text/html', cfMitigated: 'challenge', text: '<html>Just a moment</html>' };
+    }
+  });
+  await session.saveManualVerification({ cookieHeader: 'cf_clearance=saved', userAgent: VALID_UA, validate: false });
+  assert.deepEqual(await session.request('/latest.json'), { ok: true });
+  now += 6 * 60_000;
+  assert.deepEqual(await session.request('/latest.json'), { ok: true });
+  assert.deepEqual(session.consumeLastResponseInfo(), {
+    source: 'stale-cache',
+    storedAt: 200_000,
+    reason: 'cloudflare-protection',
+    retryAt: now + 8_000,
+    status: 403
+  });
+  assert.equal(session.cooldownUntil, 0);
+  assert.equal(calls, 2);
+});
+
+test('a migrated legacy profile is tried and promoted after a successful public response', async () => {
+  const values = new Map([
+    [GUEST_COOKIE_SECRET, 'cf_clearance=legacy; __cf_bm=bm'],
+    [USER_AGENT_SECRET, VALID_UA]
+  ]);
+  const session = new GuestRequestSession(mapSecrets(values), {
+    now: () => 300_000,
+    minRequestIntervalMs: 0,
+    fetchResponse: async () => ({ status: 200, contentLength: 11, text: '{"ok":true}' })
+  });
+  assert.deepEqual(await session.request('/latest.json'), { ok: true });
+  const promoted = await session.getStoredVerification();
+  assert.equal(promoted.status, 'verified');
+  assert.equal(promoted.verifiedAt, 300_000);
+  assert.equal(promoted.cookieHeader, 'cf_clearance=legacy; __cf_bm=bm');
 });
 
 test('challenge HTML bypasses cooldown and cache keys normalize topic routes', async () => {

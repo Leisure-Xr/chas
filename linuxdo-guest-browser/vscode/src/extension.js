@@ -5,6 +5,7 @@ const {
   GuestRequestSession,
   CloudflareError,
   RateLimitError,
+  TransientProtectionError,
   CLEARANCE_SECRET,
   GUEST_COOKIE_NAMES,
   GUEST_COOKIE_SECRET,
@@ -562,8 +563,15 @@ class GuestReaderPanel {
         if (error instanceof CloudflareError) {
           this.post({ type: 'cloudflareRequired', message: error.message, hasClearance: error.hasClearance });
         } else {
-          this.post({ type: 'error', message: friendlyError(error), retryAt: error instanceof RateLimitError ? error.retryAt : undefined });
-          if (error instanceof RateLimitError && this.currentAction && !this.currentAction.hasRenderedResult && !this.currentAction.autoRetryUsed) {
+          const retryableProtection = error instanceof TransientProtectionError;
+          const timedError = error instanceof RateLimitError || retryableProtection;
+          this.post({
+            type: 'error',
+            message: friendlyError(error),
+            retryAt: timedError ? error.retryAt : undefined,
+            allowVerification: retryableProtection
+          });
+          if (timedError && this.currentAction && !this.currentAction.hasRenderedResult && !this.currentAction.autoRetryUsed) {
             this.currentAction.autoRetryUsed = true;
             this.scheduleOneRetry(this.currentAction, error.retryAt);
           }
