@@ -1,0 +1,15 @@
+# Local IDE and assistant settings
+.claude/
+.idea/
+.ignore
+
+# macOS metadata
+.DS_Store
+
+# Build and dependency output
+**/node_modules/
+**/build/
+**/.gradle/
+*.class
+*.jar
+*.vsix
