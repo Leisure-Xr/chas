@@ -4,23 +4,23 @@
 
 ## 下载
 
-当前稳定包统一发布在 GitHub Release [`0.2.0`](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)，进入发布页后下载对应附件：
+仓库只保留当前最新构建包；进入 GitHub Release [`0.2.0`](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0) 或直接下载下表中的文件：
 
 | IDE | 插件版本 | Release 下载页 | 安装包 | SHA-256 |
 | --- | --- | --- | --- | --- |
-| VS Code | `0.15.0`（稳定） | [打开 Release](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0) | `linuxdo-guest-browser-vscode-0.15.0.vsix` | `15671e2771b724b9a794b043311e8642328c42cc8cc22eb20228f3d7f9583f02` |
-| PyCharm | `0.11.0` | [打开 Release](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0) | `linuxdo-guest-browser-pycharm-0.11.0.zip` | `4af206f29e430eb34710b7b763359c8f95111ce514c6d9d4795cdfabe65e015d` |
+| VS Code | `0.16.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.16.0.vsix) | `linuxdo-guest-browser-vscode-0.16.0.vsix` | `f6c4d9ebcf2fd89c06108e055008b144f8d6d87fb3bfc6e487915e344dfbc49c` |
+| PyCharm | `0.11.0` | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.11.0.zip) | `linuxdo-guest-browser-pycharm-0.11.0.zip` | `ec549a566d1bbd18e4c1a13fd394332ccf2572ae00602da23aaf7c4b52e36346` |
 
-两个安装包都附在同一个 Release 中。下载后可用
+下载后可用
 `certutil -hashfile <文件> SHA256`（Windows）或 `shasum -a 256 <文件>`（macOS/Linux）核对完整性。
 
-本次主分支还提供了尚未单独发布的验证构建包：VS Code `0.16.0`（新增 VS Code 内置 Integrated Browser 请求引擎）和 PyCharm `0.11.0`（隐私样式精修）。它们位于仓库的 [`dist/`](dist/) 目录，Release `0.2.0` 的附件仍保持稳定版本。当前验证包 SHA-256 为：VS Code `f6c4d9ebcf2fd89c06108e055008b144f8d6d87fb3bfc6e487915e344dfbc49c`；PyCharm `ec549a566d1bbd18e4c1a13fd394332ccf2572ae00602da23aaf7c4b52e36346`。
+仓库的 [`dist/`](dist/) 目录也只保留上述两个最新安装包，旧版本安装包已清理；源码和 Git 历史仍完整保留。
 
 ### VS Code
 
 打开扩展面板，选择右上角菜单中的 `Install from VSIX...`，然后选择 VSIX 文件。`0.16.0` 验证包安装前请确认 VS Code 版本不低于 `1.114` 才能使用内置浏览器引擎；较旧版本仍可安装，但需要切换到手动参数请求引擎。
 
-VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。`0.16.0` 默认优先在 VS Code 内置 Integrated Browser 中完成 challenge，并让后续请求保持同一 Chromium 会话；不启动外部 Chrome 或 ChromeDriver。没有该能力时可切换到手动参数。请求可选智能、流畅、均衡和稳妥四档，始终单并发；平滑令牌桶取代 60 秒本地硬窗口，正常导航优先于续载，尚未发送的旧导航会取消。只有明确的 429、`Retry-After` 或限流标记才进入服务器冷却；`0.15.1` 起，challenge 与无标记 403 不再被单次判定为档案失效，而是使用最多 30 秒的独立短退避并保留现有页面。最近 60 条公开页面历史可搜索、重新打开、复制 URL 或全部清除。验证页支持粘贴同一次 `/latest.json` 的完整 Request Headers 或 Chrome、Edge、Brave 的 Copy as cURL，也可同时手动填写 Cookie 与 User-Agent。完整的 Windows DevTools 步骤、接口差异表和示意图见 [VS Code 说明](vscode/README.md)。
+VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。`0.16.0` 默认优先在 VS Code 内置 Integrated Browser 中完成 challenge，并让后续请求保持同一 Chromium 会话；不启动外部 Chrome 或 ChromeDriver。没有该能力时可切换到手动参数。请求可选智能、流畅、均衡和稳妥四档，始终单并发；平滑令牌桶取代 60 秒本地硬窗口，正常导航优先于续载，尚未发送的旧导航会取消。只有明确的 429、`Retry-After` 或限流标记才进入服务器冷却；challenge 与无标记 403 不再被单次判定为档案失效，而是使用独立短退避并保留现有页面。最近 60 条公开页面历史可搜索、重新打开、复制 URL 或全部清除。验证页支持粘贴同一次 `/latest.json` 的完整 Request Headers 或 Chrome、Edge、Brave 的 Copy as cURL，也可同时手动填写 Cookie 与 User-Agent。完整的 Windows DevTools 步骤、接口差异表和示意图见 [VS Code 说明](vscode/README.md)。
 
 ### PyCharm
 

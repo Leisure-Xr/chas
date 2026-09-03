@@ -4,10 +4,11 @@
 
 ## 下载已发布版本
 
-- [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)：下载附件 `linuxdo-guest-browser-pycharm-0.11.0.zip`
+- [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)
+- [仓库最新 ZIP（0.11.0）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.11.0.zip)
 - SHA-256（当前构建包）：`ec549a566d1bbd18e4c1a13fd394332ccf2572ae00602da23aaf7c4b52e36346`
 
-当前主分支还包含隐私样式精修后的同版本构建包；Release 页面中的附件可能早于这次样式更新。若要验证最新源码，请使用仓库 `dist/` 中的 ZIP，并按上面的 SHA-256 校验。
+仓库和 `dist/` 目录只保留 `0.11.0` 最新 ZIP，旧版本安装包已清理。
 
 工具窗口默认使用自适应的单色隐私阅读布局，不添加伪代码、文件标签或行号装饰。主题使用简洁标题，作者只显示单色纯用户名。帖子正文以外的图片、SVG、视频、头像、徽章、表情、用户卡、用户头衔和状态装饰全部隐藏；标题、标签、链接、状态、边框和背景统一为 IDE 黑白灰。帖子正文中的截图、附件、Onebox 和技术图片保持原色。
 

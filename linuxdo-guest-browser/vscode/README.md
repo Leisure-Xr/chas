@@ -4,10 +4,11 @@
 
 ## 下载已发布版本
 
-- [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)：当前稳定附件为 `linuxdo-guest-browser-vscode-0.15.0.vsix`；仓库源码中的 `0.15.1` 为 Cloudflare 403 误判修复试装版。
-- SHA-256 校验值请以 GitHub Release 0.2.0 的发布说明和根目录 README 为准。
+- [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)
+- [仓库最新 VSIX（0.16.0）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.16.0.vsix)
+- SHA-256：`f6c4d9ebcf2fd89c06108e055008b144f8d6d87fb3bfc6e487915e344dfbc49c`
 
-仓库当前还包含尚未发布的 `0.16.0` 开发版：它增加了 VS Code 内置 Integrated Browser 请求引擎。打包后可在本地安装验证；正式下载链接仍以 Release 页面为准。
+仓库和 `dist/` 目录只保留 `0.16.0` 最新 VSIX，旧版本安装包已清理。
 
 ## 功能
 
