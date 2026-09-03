@@ -247,6 +247,37 @@ body.lexiao-demo-mode .discourse-banner {
   box-shadow: none !important;
 }
 
+/* Discourse themes may put a foreground color directly on links or buttons;
+   normalize those chrome elements as well so announcements never flash blue
+   or another saturated theme color in privacy mode. */
+body.lexiao-demo-mode #main-outlet :where(
+  a:not(.topic-post .cooked a),
+  button,
+  [role="button"],
+  .alert a,
+  .global-notice a,
+  .discourse-banner a,
+  .badge-category__wrapper a,
+  .discourse-tag a
+) {
+  color: var(--lex-mono-muted) !important;
+  background-color: transparent !important;
+  border-color: var(--lex-mono-border) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+body.lexiao-demo-mode #main-outlet :where(
+  .alert,
+  .global-notice,
+  .discourse-banner,
+  .topic-list .topic-statuses,
+  .topic-list .topic-excerpt,
+  .category-list .category-description
+) {
+  filter: grayscale(1) !important;
+}
+
 body.lexiao-demo-mode #main-outlet img,
 body.lexiao-demo-mode #main-outlet svg,
 body.lexiao-demo-mode #main-outlet .emoji,
@@ -265,6 +296,23 @@ body.lexiao-demo-mode #main-outlet .topic-post .cooked svg {
   height: auto !important;
   filter: none !important;
   opacity: 1 !important;
+}
+
+/* Keep the image itself but remove lightbox/download/gallery controls that
+   Discourse may place next to it. */
+body.lexiao-demo-mode .topic-post .cooked :where(
+  .lightbox-controls,
+  .image-controls,
+  .image-overlay,
+  .image-toolbar,
+  .d-image-wrapper .meta,
+  .lightbox-wrapper .meta,
+  .lightbox-wrapper button,
+  .lightbox-wrapper [role="button"],
+  [data-image-toolbar],
+  [data-download-image]
+) {
+  display: none !important;
 }
 
 @media (max-width: 520px) {

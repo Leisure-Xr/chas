@@ -131,7 +131,11 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 .user-card, .user-card-avatar, .user-card-avatar img, .names .user-title,
                 .names .user-status, .names .badge-wrapper, .names .badge-grouping,
                 .names .poster-icon, .names .full-name,
-                .topic-post .names .user-title, .topic-post .names .user-status {
+                .topic-post .names .user-title, .topic-post .names .user-status,
+                .lightbox-controls, .image-controls, .image-overlay, .image-toolbar,
+                .lightbox-wrapper .meta, .lightbox-wrapper button,
+                .lightbox-wrapper [role='button'], [data-image-toolbar],
+                [data-download-image] {
                   visibility: hidden !important;
                 }
                 #main-outlet .topic-post .cooked img:not(.emoji),

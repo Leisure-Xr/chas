@@ -53,7 +53,7 @@ class RateLimitError extends Error {
 }
 
 class TransientProtectionError extends Error {
-  constructor(retryAt, now = Date.now(), attempt = 1) {
+  constructor(retryAt, now = Date.now(), attempt = 1, verificationAction = 'manual') {
     const seconds = Math.max(1, Math.ceil((Number(retryAt) - Number(now)) / 1000));
     const repeated = attempt > 1 ? `（连续第 ${attempt} 次）` : '';
     super(`Cloudflare 暂时拦截了这次游客请求${repeated}，但这不能证明已保存参数失效。请约 ${seconds} 秒后重试；若持续出现，可更新请求档案，也可以保留当前档案稍后再试。`);
@@ -61,6 +61,7 @@ class TransientProtectionError extends Error {
     this.status = 403;
     this.retryAt = Number(retryAt);
     this.attempt = attempt;
+    this.verificationAction = verificationAction === 'native' ? 'native' : 'manual';
   }
 }
 
@@ -96,6 +97,7 @@ class GuestRequestSession {
     this.transientProtectionUntil = 0;
     this.transientProtectionCount = 0;
     this.lastTransientProtectionAt = 0;
+    this.transientProtectionAction = 'manual';
     this.smartMode = 'balanced';
     this.smartCarefulUntil = 0;
     this.smartSuccesses = 0;
@@ -253,7 +255,12 @@ class GuestRequestSession {
           status: 403
         });
       }
-      throw new TransientProtectionError(this.transientProtectionUntil, now, this.transientProtectionCount);
+      throw new TransientProtectionError(
+        this.transientProtectionUntil,
+        now,
+        this.transientProtectionCount,
+        this.transientProtectionAction
+      );
     }
 
     now = await this.acquireRequestPermit(token);
@@ -264,6 +271,7 @@ class GuestRequestSession {
     const verification = await this.getStoredVerification();
     const hasVerification = Boolean(verification.cookieHeader && verification.userAgent);
     const response = await this.fetchResponse(url, verification);
+    const hasGuestContext = hasVerification || Boolean(response.nativeBrowser);
     if (response.status === 403 || response.status === 429) {
       this.resetSmartStability(now);
       if (isExplicitRateLimitResponse(response)) {
@@ -275,8 +283,8 @@ class GuestRequestSession {
         }
         throw new RateLimitError(response.status, this.cooldownUntil, now);
       }
-      if (!hasVerification) throw new CloudflareError(false);
-      return this.handleTransientProtection(key, cached, now);
+      if (!hasGuestContext) throw new CloudflareError(false);
+      return this.handleTransientProtection(key, cached, now, response.nativeBrowser ? 'native' : 'manual');
     }
 
     this.applyServerBudget(response, now);
@@ -430,8 +438,8 @@ class GuestRequestSession {
     this.smartStableSince = now;
   }
 
-  handleTransientProtection(key, cached, now) {
-    const error = this.registerTransientProtection(now);
+  handleTransientProtection(key, cached, now, verificationAction = 'manual') {
+    const error = this.registerTransientProtection(now, verificationAction);
     if (isUsableStaleCache(cached, now)) {
       this.touchCache(key, cached);
       return this.returnData(cached.data, {
@@ -445,24 +453,31 @@ class GuestRequestSession {
     throw error;
   }
 
-  registerTransientProtection(now) {
+  registerTransientProtection(now, verificationAction = 'manual') {
     if (!this.lastTransientProtectionAt || now - this.lastTransientProtectionAt > TRANSIENT_PROTECTION_RESET_MS) {
       this.transientProtectionCount = 0;
     }
     this.transientProtectionCount += 1;
     this.lastTransientProtectionAt = now;
+    this.transientProtectionAction = verificationAction === 'native' ? 'native' : 'manual';
     const waitMs = TRANSIENT_PROTECTION_BACKOFF_MS[Math.min(
       this.transientProtectionCount - 1,
       TRANSIENT_PROTECTION_BACKOFF_MS.length - 1
     )];
     this.transientProtectionUntil = now + waitMs;
-    return new TransientProtectionError(this.transientProtectionUntil, now, this.transientProtectionCount);
+    return new TransientProtectionError(
+      this.transientProtectionUntil,
+      now,
+      this.transientProtectionCount,
+      this.transientProtectionAction
+    );
   }
 
   clearTransientProtection() {
     this.transientProtectionUntil = 0;
     this.transientProtectionCount = 0;
     this.lastTransientProtectionAt = 0;
+    this.transientProtectionAction = 'manual';
   }
 
   async promoteStoredProfileAfterSuccess(profile, now) {
@@ -549,7 +564,11 @@ class GuestRequestSession {
         if (token.cancelled) throw new SupersededRequestError();
         token.started = true;
         this.lastRequestAt = now;
-        const response = await this.fetchResponse(new URL('/latest.json', SITE_ORIGIN), candidate);
+        const response = await this.fetchResponse(
+          new URL('/latest.json', SITE_ORIGIN),
+          candidate,
+          { forceManual: true }
+        );
         this.applyServerBudget(response, now);
         if (response.status === 403) this.resetSmartStability(now);
         if (isExplicitRateLimitResponse(response)) {

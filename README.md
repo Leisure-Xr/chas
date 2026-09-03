@@ -17,6 +17,13 @@
 - [VS Code 安装包说明](linuxdo-guest-browser/README.md#vs-code)
 - [PyCharm 安装包说明](linuxdo-guest-browser/README.md#pycharm)
 
+当前主分支还提供了尚未单独发布的验证构建包：
+
+- [VS Code 0.16.0 VSIX](linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.16.0.vsix)：默认使用 VS Code 内置 Chromium 请求引擎。
+- [PyCharm 0.11.0 ZIP](linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.11.0.zip)：精修单色隐私阅读布局，帖子正文图片保持原色。
+
+两个验证包的 SHA-256 和安装说明见 [插件使用说明](linuxdo-guest-browser/README.md)。
+
 ## 仓库结构
 
 ```text

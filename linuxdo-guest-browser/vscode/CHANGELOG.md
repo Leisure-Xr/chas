@@ -1,5 +1,13 @@
 # 更新记录
 
+## 0.16.0
+
+- 新增 VS Code Integrated Browser 请求引擎：默认在 VS Code 内置 Chromium 中完成 Cloudflare challenge，并在同一浏览器会话中请求公开 JSON，避免把 Cookie、User-Agent 和浏览器指纹拆开后再次触发 403。
+- 新增“自动 / VS Code 原生浏览器 / 手动参数”请求引擎切换；旧版 VS Code 或原生浏览器不可用时，自动模式才回退到已保存的手动请求档案。
+- 原生会话使用独立 ephemeral 浏览器存储、精确的 `linux.do` 调试 URL 过滤和 60 KB 响应分块；排除 Cloudflare iframe、blob 和 challenge 子目标。
+- 连接完成后多次尝试把焦点还给阅读器，同时保留临时 `VM...` 调试编辑器以避免部分 VS Code 版本终止 CDP 会话；关闭阅读器、清除验证或退出扩展时停止调试连接，并尽力关闭本扩展创建的原生浏览器标签；VS Code 重载后会按需建立新连接。
+- 增加原生浏览器能力、Cloudflare 子目标过滤、多块 UTF-8 响应和标签清理测试；原有请求调度、缓存、分享和游戏测试保持通过。
+
 ## 0.15.1
 
 - 修正 Cloudflare challenge 与无标记 HTTP 403 的误判：已有游客档案时不再直接提示“验证已失效”，改为 8、15、30 秒的短暂保护退避，成功一次立即清零。

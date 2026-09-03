@@ -180,7 +180,10 @@
         renderQueueWait(message.waitMs, message.reason);
         break;
       case 'error':
-        renderError(message.message, message.retryAt, message.allowVerification);
+        renderError(message.message, message.retryAt, message.verificationAction);
+        break;
+      case 'nativeStatus':
+        showStatusBanner(message.message);
         break;
       case 'cloudflareRequired':
         renderCloudflare(message);
@@ -404,9 +407,9 @@
     setContent(wrapper);
   }
 
-  function renderError(message, retryAt, allowVerification = false) {
+  function renderError(message, retryAt, verificationAction) {
     if (currentPageCacheable && content.childElementCount) {
-      showRateLimitBanner(message, retryAt, allowVerification);
+      showRateLimitBanner(message, retryAt, verificationAction);
       return;
     }
     const wrapper = node('section', 'state-page');
@@ -417,8 +420,11 @@
     );
     const actions = node('div', 'state-actions');
     actions.append(actionButton('重试', () => vscode.postMessage({ type: 'refresh' })));
-    if (allowVerification) {
-      const setup = actionButton('更新验证参数', () => vscode.postMessage({ type: 'cloudflareSetup' }));
+    if (verificationAction) {
+      const native = verificationAction === 'native';
+      const setup = actionButton(native ? '打开原生验证' : '更新验证参数', () => vscode.postMessage({
+        type: native ? 'nativeVerification' : 'cloudflareSetup'
+      }));
       setup.className = 'secondary-button';
       actions.append(setup);
     }
@@ -808,7 +814,7 @@
     banner.replaceChildren(node('span', 'spinner'), node('span', '', message));
   }
 
-  function showRateLimitBanner(message, retryAt, allowVerification = false) {
+  function showRateLimitBanner(message, retryAt, verificationAction) {
     clearInterval(rateLimitTimer);
     let banner = document.getElementById('reader-status-banner');
     if (!banner) {
@@ -820,8 +826,11 @@
     const retry = actionButton('重试', () => vscode.postMessage({ type: 'refresh' }));
     retry.classList.add('banner-retry');
     let setup;
-    if (allowVerification) {
-      setup = actionButton('更新参数', () => vscode.postMessage({ type: 'cloudflareSetup' }));
+    if (verificationAction) {
+      const native = verificationAction === 'native';
+      setup = actionButton(native ? '打开原生验证' : '更新参数', () => vscode.postMessage({
+        type: native ? 'nativeVerification' : 'cloudflareSetup'
+      }));
       setup.className = 'secondary-button banner-retry';
     }
     const countdown = node('span', 'banner-countdown');

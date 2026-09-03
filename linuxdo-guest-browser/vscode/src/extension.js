@@ -12,8 +12,14 @@ const {
   SITE_ORIGIN,
   USER_AGENT_SECRET,
   REQUEST_PROFILE_SECRET,
+  fetchGuestResponse,
   isLinuxDoUrl
 } = require('./guest-session');
+const {
+  GuestRequestTransport,
+  NativeBrowserSession,
+  NativeBrowserUnavailableError
+} = require('./native-browser-session');
 const { createRequestProfile, parseCapturedRequest } = require('./request-profile');
 const { createShareCode, generatePassword, parseShareCode, validatePassword } = require('./share-code');
 const {
@@ -37,6 +43,11 @@ const REQUEST_MODE_OPTIONS = [
   { label: '流畅', value: 'fluent', description: '最多短突发 2 次，之后每 4 秒平滑恢复 1 次。' },
   { label: '均衡', value: 'balanced', description: '最多短突发 2 次，之后每 5 秒平滑恢复 1 次。' },
   { label: '稳妥', value: 'careful', description: '不短突发，每 8 秒平滑恢复 1 次。' }
+];
+const REQUEST_ENGINE_OPTIONS = [
+  { label: '自动（推荐）', value: 'auto', description: '新版桌面 VS Code 优先使用原生浏览器，不可用时回退到手动参数。' },
+  { label: 'VS Code 原生浏览器', value: 'native', description: '使用隔离的 Integrated Browser 会话，不回退到 Node 请求。' },
+  { label: '手动参数', value: 'manual', description: '继续使用 Cookie、User-Agent 与 Node 请求。' }
 ];
 
 class LinuxDoApi {
@@ -260,7 +271,10 @@ class GuestReaderPanel {
     this.panel.onDidDispose(() => {
       this.cancelScheduledRetry();
       GuestReaderPanel.current = undefined;
-      void this.browserSession.stop();
+      void Promise.allSettled([
+        this.browserSession.stop(),
+        activeRequestTransport?.stop()
+      ]);
     }, null, context.subscriptions);
     this.panel.webview.onDidReceiveMessage((message) => this.handleMessage(message), null, context.subscriptions);
   }
@@ -324,6 +338,9 @@ class GuestReaderPanel {
         break;
       case 'cloudflareSetup':
         await configureCloudflare(this.context, this.browserSession, () => this.refresh(false));
+        break;
+      case 'nativeVerification':
+        await activeNativeBrowserSession?.revealVerification();
         break;
       case 'shareCurrent':
         await this.shareCurrentTopic();
@@ -554,12 +571,14 @@ class GuestReaderPanel {
     try {
       const data = await loader();
       if (current === this.sequence) {
+        if (activeRequestTransport?.lastEngine === 'native') returnFocusToReader(this.panel);
         onSuccess?.(data);
         if (this.currentAction?.entryId) this.currentAction.hasRenderedResult = true;
         this.post({ type: resultType, data, entryId: this.currentAction?.entryId, cacheInfo: this.browserSession.consumeLastResponseInfo(), ...meta });
       }
     } catch (error) {
       if (current === this.sequence) {
+        if (activeRequestTransport?.lastEngine === 'native') returnFocusToReader(this.panel);
         if (error instanceof CloudflareError) {
           this.post({ type: 'cloudflareRequired', message: error.message, hasClearance: error.hasClearance });
         } else {
@@ -569,7 +588,7 @@ class GuestReaderPanel {
             type: 'error',
             message: friendlyError(error),
             retryAt: timedError ? error.retryAt : undefined,
-            allowVerification: retryableProtection
+            verificationAction: retryableProtection ? error.verificationAction : undefined
           });
           if (timedError && this.currentAction && !this.currentAction.hasRenderedResult && !this.currentAction.autoRetryUsed) {
             this.currentAction.autoRetryUsed = true;
@@ -748,6 +767,23 @@ async function configureRequestMode(browserSession) {
   vscode.window.showInformationMessage(`请求节奏已设置为：${selected.label}。`);
 }
 
+async function configureRequestEngine(browserSession, transport) {
+  const selected = await vscode.window.showQuickPick(REQUEST_ENGINE_OPTIONS, {
+    title: '设置 LINUX DO 请求引擎',
+    placeHolder: '原生浏览器使用 VS Code 内置 Chromium，会话与 Cloudflare 指纹保持一致'
+  });
+  if (!selected) return;
+  await vscode.workspace.getConfiguration('linuxdoGuest').update(
+    'requestEngine',
+    selected.value,
+    vscode.ConfigurationTarget.Global
+  );
+  transport.setMode(selected.value);
+  browserSession.resetRequestState();
+  if (selected.value === 'manual') await transport.stop();
+  vscode.window.showInformationMessage(`请求引擎已设置为：${selected.label}。`);
+}
+
 class GuestTreeProvider {
   constructor() {
     this.changeEmitter = new vscode.EventEmitter();
@@ -769,6 +805,8 @@ class GuestTreeProvider {
       navItem('浏览分类', 'linuxdoGuest.openCategories', 'list-tree', '查看公开分类'),
       navItem('打开加密分享', 'linuxdoGuest.openShareCode', 'link-external', '粘贴分享内容和密码打开主题'),
       navItem('设置请求节奏', 'linuxdoGuest.setRequestMode', 'dashboard', '调整游客请求节奏'),
+      navItem('设置请求引擎', 'linuxdoGuest.setRequestEngine', 'server-process', '切换原生浏览器或手动参数请求'),
+      navItem('打开原生游客验证', 'linuxdoGuest.openNativeVerification', 'browser', '在 VS Code 内置浏览器中完成游客验证'),
       navItem('加密分享教程', 'linuxdoGuest.shareHelp', 'question', '了解如何跨插件分享公开主题'),
       navItem('打开阅读器', 'linuxdoGuest.open', 'globe', '打开默认页面')
     ];
@@ -1059,11 +1097,34 @@ function randomNonce() {
 
 function activate(context) {
   const provider = new GuestTreeProvider();
+  const nativeBrowserSession = new NativeBrowserSession(vscode, {
+    onStatus: (message) => {
+      GuestReaderPanel.current?.post({ type: 'nativeStatus', message });
+      vscode.window.setStatusBarMessage(`LINUX DO：${message}`, 8_000);
+    },
+    onReady: async () => {
+      // startDebugging may focus its debugger editor and the bottom panel.
+      // Return focus to the reader after the browser editor has finished
+      // activating, without closing the debug editor (closing it terminates
+      // the CDP session on some VS Code builds).
+      if (!GuestReaderPanel.current) return;
+      await vscode.commands.executeCommand('workbench.action.closePanel').catch(() => {});
+      returnFocusToReader(GuestReaderPanel.current.panel);
+    }
+  });
+  const requestTransport = new GuestRequestTransport({
+    nativeBrowser: nativeBrowserSession,
+    manualFetch: fetchGuestResponse,
+    mode: vscode.workspace.getConfiguration('linuxdoGuest').get('requestEngine', 'auto')
+  });
   const browserSession = new GuestRequestSession(context.secrets, {
     requestMode: vscode.workspace.getConfiguration('linuxdoGuest').get('requestMode', 'smart'),
+    fetchResponse: (url, verification) => requestTransport.fetchResponse(url, verification),
     onQueueWait: ({ waitMs, reason }) => GuestReaderPanel.current?.post({ type: 'queueWait', waitMs, reason })
   });
   activeBrowserSession = browserSession;
+  activeNativeBrowserSession = nativeBrowserSession;
+  activeRequestTransport = requestTransport;
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('linuxdoGuest.explorer', provider),
     vscode.commands.registerCommand('linuxdoGuest.open', () => {
@@ -1080,6 +1141,15 @@ function activate(context) {
     vscode.commands.registerCommand('linuxdoGuest.setCloudflareClearance', () => configureCloudflare(context, browserSession, () => GuestReaderPanel.current?.refresh(false))),
     vscode.commands.registerCommand('linuxdoGuest.clearCloudflareClearance', () => clearCloudflare(context, browserSession)),
     vscode.commands.registerCommand('linuxdoGuest.setRequestMode', () => configureRequestMode(browserSession)),
+    vscode.commands.registerCommand('linuxdoGuest.setRequestEngine', () => configureRequestEngine(browserSession, requestTransport)),
+    vscode.commands.registerCommand('linuxdoGuest.openNativeVerification', async () => {
+      try {
+        await nativeBrowserSession.revealVerification();
+      } catch (error) {
+        const message = error instanceof NativeBrowserUnavailableError ? error.message : friendlyError(error);
+        vscode.window.showErrorMessage(message);
+      }
+    }),
     vscode.commands.registerCommand('linuxdoGuest.shareCurrentTopic', () => GuestReaderPanel.current?.shareCurrentTopic() || vscode.window.showInformationMessage('请先打开一个主题。')),
     vscode.commands.registerCommand('linuxdoGuest.openShareCode', () => openShareCode(context, browserSession)),
     vscode.commands.registerCommand('linuxdoGuest.shareHelp', showShareHelp),
@@ -1090,16 +1160,66 @@ function activate(context) {
       if (event.affectsConfiguration('linuxdoGuest.requestMode')) {
         browserSession.setRequestMode(vscode.workspace.getConfiguration('linuxdoGuest').get('requestMode', 'smart'));
       }
+      if (event.affectsConfiguration('linuxdoGuest.requestEngine')) {
+        requestTransport.setMode(vscode.workspace.getConfiguration('linuxdoGuest').get('requestEngine', 'auto'));
+        browserSession.resetRequestState();
+      }
     }),
     provider.changeEmitter,
-    { dispose: () => void browserSession.stop() }
+    { dispose: () => void Promise.allSettled([browserSession.stop(), requestTransport.stop()]) }
   );
 }
 
 let activeBrowserSession;
+let activeNativeBrowserSession;
+let activeRequestTransport;
+
+function returnFocusToReader(panel) {
+  if (!panel) return;
+  const reveal = () => {
+    try {
+      panel.reveal(vscode.ViewColumn.One, false);
+      focusReaderEditor(vscode);
+    } catch {
+      // The user may have closed the reader while the delayed focus callback
+      // was pending.
+    }
+  };
+  reveal();
+  setTimeout(reveal, 250);
+  setTimeout(reveal, 1_000);
+}
+
+function focusReaderEditor(vscodeApi) {
+  const groups = vscodeApi.window?.tabGroups?.all || [];
+  const isReader = (tab) => {
+    const label = String(tab?.label || '');
+    const viewType = String(tab?.input?.viewType || '');
+    return /LINUX DO 游客阅读器/.test(label) || /webview/i.test(viewType) && /linuxdo/i.test(label);
+  };
+  const group = groups.find((candidate) => (candidate.tabs || []).some(isReader))
+    || vscodeApi.window?.tabGroups?.activeTabGroup
+    || groups.find((candidate) => candidate.isActive)
+    || groups[0];
+  const tabs = group?.tabs || [];
+  const index = tabs.findIndex(isReader);
+  if (index < 0 || index >= 9) return;
+  const activate = async () => {
+    try {
+      if (group && vscodeApi.window?.tabGroups?.show) await vscodeApi.window.tabGroups.show(group, false);
+      await vscodeApi.commands.executeCommand(`workbench.action.openEditorAtIndex${index + 1}`);
+    } catch {
+      // The reader may already be focused or the active group may have changed.
+    }
+  };
+  void activate();
+}
 
 function deactivate() {
-  return activeBrowserSession?.stop();
+  return Promise.allSettled([
+    activeBrowserSession?.stop(),
+    activeRequestTransport?.stop()
+  ]);
 }
 
 module.exports = {

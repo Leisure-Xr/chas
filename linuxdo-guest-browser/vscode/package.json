@@ -2,7 +2,7 @@
   "name": "linuxdo-guest-browser",
   "displayName": "LINUX DO 游客阅读器",
   "description": "在 VS Code 中以游客身份浏览 LINUX DO 的公开内容。",
-  "version": "0.15.1",
+  "version": "0.16.0",
   "publisher": "lexiao-studio",
   "repository": {
     "type": "git",
@@ -31,6 +31,8 @@
     "onCommand:linuxdoGuest.setCloudflareClearance",
     "onCommand:linuxdoGuest.clearCloudflareClearance",
     "onCommand:linuxdoGuest.setRequestMode",
+    "onCommand:linuxdoGuest.setRequestEngine",
+    "onCommand:linuxdoGuest.openNativeVerification",
     "onCommand:linuxdoGuest.shareCurrentTopic",
     "onCommand:linuxdoGuest.openShareCode",
     "onCommand:linuxdoGuest.shareHelp"
@@ -77,6 +79,16 @@
         "command": "linuxdoGuest.setRequestMode",
         "title": "LINUX DO: 设置请求节奏",
         "icon": "$(dashboard)"
+      },
+      {
+        "command": "linuxdoGuest.setRequestEngine",
+        "title": "LINUX DO: 设置请求引擎",
+        "icon": "$(server-process)"
+      },
+      {
+        "command": "linuxdoGuest.openNativeVerification",
+        "title": "LINUX DO: 打开原生游客验证",
+        "icon": "$(browser)"
       },
       {
         "command": "linuxdoGuest.shareCurrentTopic",
@@ -161,6 +173,21 @@
           "default": "smart",
           "description": "控制游客公开接口的请求节奏；仍会遵守站点返回的 Retry-After。"
         },
+        "linuxdoGuest.requestEngine": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "native",
+            "manual"
+          ],
+          "enumDescriptions": [
+            "新版桌面 VS Code 优先使用内置原生浏览器；不可用时回退到手动参数。",
+            "只使用 VS Code Integrated Browser，Cloudflare 和公开接口保持同一 Chromium 会话。",
+            "使用已保存的 Cookie、User-Agent 和 Node 请求。"
+          ],
+          "default": "auto",
+          "description": "选择游客公开接口使用的请求引擎。原生模式会创建专用 ephemeral 浏览器标签。"
+        },
         "linuxdoGuest.breakReminder.enabled": {
           "type": "boolean",
           "default": false,
@@ -170,7 +197,7 @@
     }
   },
   "scripts": {
-    "check": "bash ../shared/check-game-core.sh && bash ../shared/check-game-ui.sh && node --check src/extension.js && node --check src/guest-session.js && node --check src/request-profile.js && node --check src/reader-history.js && node --check src/share-code.js && node --check src/verification-panel.js && node --check media/game-core.js && node --check media/game-ui.js && node --check media/main.js && npm test",
+    "check": "bash ../shared/check-game-core.sh && bash ../shared/check-game-ui.sh && node --check src/extension.js && node --check src/guest-session.js && node --check src/native-browser-session.js && node --check src/request-profile.js && node --check src/reader-history.js && node --check src/share-code.js && node --check src/verification-panel.js && node --check media/game-core.js && node --check media/game-ui.js && node --check media/main.js && npm test",
     "test": "node --test test/*.test.js",
     "package": "npx --yes @vscode/vsce@3.6.0 package --no-dependencies"
   }

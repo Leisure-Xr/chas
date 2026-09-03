@@ -7,6 +7,8 @@
 - [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)：当前稳定附件为 `linuxdo-guest-browser-vscode-0.15.0.vsix`；仓库源码中的 `0.15.1` 为 Cloudflare 403 误判修复试装版。
 - SHA-256 校验值请以 GitHub Release 0.2.0 的发布说明和根目录 README 为准。
 
+仓库当前还包含尚未发布的 `0.16.0` 开发版：它增加了 VS Code 内置 Integrated Browser 请求引擎。打包后可在本地安装验证；正式下载链接仍以 Release 页面为准。
+
 ## 功能
 
 - 查看最新主题、热门主题和站点分类
@@ -28,7 +30,19 @@
 
 ## 遇到 Cloudflare 403
 
-VS Code 版本不会启动、控制或读取任何外部浏览器。Cloudflare 验证在你自己的 Chrome、Edge 或 Brave 中完成，参数通过 VS Code 的验证设置页手动粘贴。扩展只发送公开 GET 请求，不会保存登录状态。
+`0.16.0` 起，VS Code 默认优先使用 VS Code 自带的 **Integrated Browser（内置 Chromium）**。它不是外部 Chrome，也不会启动 ChromeDriver、读取日常浏览器数据或把游客 Cookie 交给外部程序。Cloudflare 验证直接在 VS Code 的浏览器标签中完成，随后同一个标签内的 `/latest.json`、列表、主题和分页请求会保持同一浏览器会话。
+
+如果你的 VS Code 版本没有 Integrated Browser，或你主动选择了“手动参数”引擎，才会使用下方的 Cookie、User-Agent 和客户端提示。请求引擎可通过命令 `LINUX DO: 设置请求引擎` 切换：
+
+- **自动（推荐）**：优先内置浏览器；内置浏览器不可用时回退已保存的手动参数。
+- **VS Code 原生浏览器**：只使用内置浏览器；连接失败时明确报错，不回退 Node 请求。
+- **手动参数**：只使用验证设置页中的请求档案。
+
+首次使用原生引擎时，扩展会打开一个带随机标识的 `linux.do` 标签，并在同一 VS Code 生命周期内附加调试连接。若页面显示 Cloudflare challenge，请在这个标签中完成验证；标签需要保持打开，关闭后扩展会尝试重新连接一次。重载 VS Code 后旧调试连接不能复用，请重新执行 `LINUX DO: 打开原生游客验证`。关闭阅读器、清除验证或退出扩展时，扩展会停止调试并尽力关闭自己创建的原生浏览器标签；如果 VS Code 当前版本不允许关闭，则不会触碰其他编辑器标签。
+
+连接建立时 VS Code 可能短暂创建一个 `VM...` 调试编辑器。扩展会在连接完成后多次尝试把焦点还给阅读器；这个调试编辑器不能手动关闭，否则某些 VS Code 版本会同时终止 CDP 会话。真正的内置浏览器标签需要在验证期间保持打开。
+
+如果你不希望使用内置浏览器，可以将引擎切换为“手动参数”，按下面的步骤粘贴同一次 `/latest.json` 请求。扩展只发送公开 GET 请求，不会保存登录状态。
 
 ### Windows 获取参数
 
@@ -38,6 +52,7 @@ VS Code 版本不会启动、控制或读取任何外部浏览器。Cloudflare �
 4. 推荐右键该请求，选择 **Copy / 复制 → Copy as cURL**。也可以打开 **Headers / 标头 → Request Headers / 请求标头**，选择 **Copy request headers / 复制请求标头**。要复制整个请求，不要只从不同位置拼出 Cookie 与 User-Agent。
 5. 在 VS Code 执行 `LINUX DO: 设置 Cloudflare 验证`，把内容粘贴到 **Request Headers 或 Copy as cURL**。来源浏览器可保持“自动识别”，也可明确选择 Chrome、Edge、Brave 或 Chromium。
 6. 点击 **保存并测试一次**。插件只解析 cURL，绝不会执行它；测试只发送一次精确的 `/latest.json` 请求，成功后才替换旧档案。测试失败不会覆盖此前有效档案。
+   这次测试会强制使用你刚粘贴的 Cookie、User-Agent 和客户端提示，不会偷偷借用已经打开的原生浏览器会话；因此测试结果对应的就是这组参数本身。
 7. 只有在确认档案完整、但站点当时无法测试时才使用 **仅保存为未验证**。未验证档案不代表 Cloudflare 已接受它。
 
 ![Network 面板选择 latest.json](https://raw.githubusercontent.com/Leisure-Xr/chas/main/linuxdo-guest-browser/vscode/media/docs/cf-network-request.png)
@@ -66,7 +81,7 @@ VS Code 版本不会启动、控制或读取任何外部浏览器。Cloudflare �
 - 检测到 `_t`、`auth_token`、`remember_user_token`、Authorization、CSRF 或论坛 API 凭据时，会拒绝整组导入，而不是尝试删除后继续使用。
 - 已保存值只显示不含秘密的浏览器、版本、平台、Cookie 名称和验证状态摘要，不会回显 Cookie 或完整 User-Agent。
 - **清除 Cookie**、**清除 User-Agent** 和 **全部清除** 都会停用并删除整个原子档案，防止留下无法证明同源的半份参数。
-- 档案只在 VS Code SecretStorage 中保存，不创建临时浏览器目录，也不会读取或控制日常浏览器。
+- 手动档案只在 VS Code SecretStorage 中保存；原生引擎使用 VS Code 自己管理的 ephemeral 存储，不创建可见的临时浏览器目录，也不会读取或控制日常浏览器。
 
 ## 使用
 
