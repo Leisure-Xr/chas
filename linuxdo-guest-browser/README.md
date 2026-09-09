@@ -8,8 +8,8 @@
 
 | IDE | 插件版本 | Release 下载页 | 安装包 | SHA-256 |
 | --- | --- | --- | --- | --- |
-| VS Code | `0.18.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.18.0.vsix) | `linuxdo-guest-browser-vscode-0.18.0.vsix` | `b8de295790294feaeb3816152c1d3b320e41bea35f175d17d32b809561c1acad` |
-| PyCharm | `0.12.0` | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.12.0.zip) | `linuxdo-guest-browser-pycharm-0.12.0.zip` | `6939211e4e9718ea760f2db6c55aca0082bde9898c7b33a5f0b6533ee720f517` |
+| VS Code | `0.18.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.18.0.vsix) | `linuxdo-guest-browser-vscode-0.18.0.vsix` | `a508ef0f7e86e7a0448ac400ce836b9b7ec76b41ccaa7f7b7390dd8c6d97410d` |
+| PyCharm | `0.12.0` | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.12.0.zip) | `linuxdo-guest-browser-pycharm-0.12.0.zip` | `7ca4eb5d9d1c69d55ec52a8631de4efdc61c816c43c9fd1897db312c771a8a50` |
 
 下载后可用
 `certutil -hashfile <文件> SHA256`（Windows）或 `shasum -a 256 <文件>`（macOS/Linux）核对完整性。

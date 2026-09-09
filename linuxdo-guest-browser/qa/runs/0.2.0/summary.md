@@ -2,7 +2,7 @@
 
 门禁：**BLOCKED**
 
-运行记录：4；矩阵结果：PASS 0 / FAIL 0 / BLOCKED 14。
+运行记录：0；矩阵结果：PASS 0 / FAIL 0 / BLOCKED 14。
 
 | 目标 | 平台 | IDE 版本 | 构建 | 结果 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -25,10 +25,7 @@
 
 | Run ID | 目标 | 平台 | IDE | PASS | FAIL | BLOCKED | 工作树 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 20260909T160136Z-vscode-latest-darwin-arm64 | vscode-latest | darwin-arm64 | 1.136.1 | 3 | 0 | 0 | DIRTY |
-| 20260909T160137Z-pycharm-latest-darwin-arm64 | pycharm-latest | darwin-arm64 | 2026.1.4 | 2 | 0 | 0 | DIRTY |
-| 20260909T162846Z-pycharm-latest-darwin-arm64 | pycharm-latest | darwin-arm64 | 2026.1.4 | 0 | 0 | 15 | DIRTY |
-| 20260909T162846Z-vscode-latest-darwin-arm64 | vscode-latest | darwin-arm64 | 1.136.1 | 0 | 0 | 14 | DIRTY |
+| - | - | - | - | 0 | 0 | 0 | - |
 
 ## 判定规则
 
