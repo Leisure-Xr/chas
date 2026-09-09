@@ -23,6 +23,8 @@ node qa/bin/qa.mjs report --release 0.2.0 --gate
 
 `resolve` 只更新显式指定的目标；`--all` 也是一次显式的全量更新。官方元数据写入 `ide-lock.json`，下载后 `provision` 会计算 SHA-256 并补回锁文件。日常测试必须使用锁定版本，不会自动跟随最新版漂移。
 
+IDE 下载和安装保存在忽略提交的 `qa/.cache/`。每次 `run` 的 user-data、插件和日志使用系统临时目录下的短哈希路径，避免 macOS Unix socket 路径上限，也不会复用日常 IDE 状态。
+
 下载默认优先使用系统 `curl` 的断点续传和失败重试；没有 `curl` 时回退到 Node 流式下载器。设置 `LINUXDO_QA_NODE_DOWNLOAD=1` 可以强制测试 Node 路径。中断后重新执行同一条 `provision` 命令即可继续部分文件。
 
 ## 用例维护

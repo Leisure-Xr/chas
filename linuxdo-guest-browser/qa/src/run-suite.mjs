@@ -73,7 +73,7 @@ export async function runSuite(options) {
       sha256: artifactInfo.pluginSha256,
       fileName: basename(artifactInfo.artifact)
     },
-    isolation: { prepared: true, launched: launch, logLocation: 'qa/.cache/runs/<run-id>' },
+    isolation: { prepared: true, launched: launch, logLocation: 'system temporary directory' },
     diagnostics,
     startedAt,
     capabilities,
