@@ -82,10 +82,15 @@ export async function generatedDocsAreCurrent() {
       readFile(GENERATED_CASES_PATH, 'utf8'),
       readFile(GENERATED_COVERAGE_PATH, 'utf8')
     ]);
-    return cases === renderCaseCatalog() && coverage === renderCoverage();
+    return normalizeLineEndings(cases) === renderCaseCatalog() &&
+      normalizeLineEndings(coverage) === renderCoverage();
   } catch {
     return false;
   }
+}
+
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n/g, '\n');
 }
 
 function escapeCell(value) {
