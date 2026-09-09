@@ -42,6 +42,7 @@ test('PyCharm inspection reads product-info and normalizes its build', async () 
     const ide = await inspectIde('pycharm', app);
     assert.equal(ide.version, '2022.3.3');
     assert.equal(ide.build, '223.1');
+    assert.equal(ide.envVarBaseName, 'PYCHARM');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
