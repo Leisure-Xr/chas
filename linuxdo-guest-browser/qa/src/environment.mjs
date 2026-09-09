@@ -95,7 +95,7 @@ async function prepareVsCode(ide, artifact, root, launch) {
   await runCommand(ide.cli, [...isolationArgs, '--install-extension', artifact, '--force']);
   let pid = null;
   if (launch) {
-    pid = spawnDetached(ide.cli, [
+    pid = spawnDetached(ide.launcher, [
       ...isolationArgs,
       '--new-window',
       '--disable-updates',
@@ -126,6 +126,20 @@ async function preparePyCharm(ide, artifact, root, launch) {
     ]);
   }
   return { isolationRoot: root, logRoot: logs, pid };
+}
+
+export async function stopPreparedIde(preparation) {
+  if (!preparation?.pid) return;
+  if (process.platform === 'win32') {
+    await runCommand('taskkill', ['/PID', String(preparation.pid), '/T', '/F']).catch(() => {});
+    return;
+  }
+  try {
+    process.kill(preparation.pid, 'SIGTERM');
+  } catch {
+    return;
+  }
+  await new Promise(resolveDelay => setTimeout(resolveDelay, 1_000));
 }
 
 async function findRoot(input, markers) {

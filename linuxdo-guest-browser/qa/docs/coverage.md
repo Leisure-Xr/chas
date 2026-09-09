@@ -7,6 +7,7 @@
 | cross-product | SHR-003 |
 | jcef | PYC-003, PYC-004, PYC-005, PYC-007, PYC-009, PYC-010, PYC-011 |
 | latest | PYC-011, SHR-005, VSC-012 |
+| launched | SHR-007 |
 | live-network | PYC-003, PYC-004, PYC-005, PYC-007, SHR-002, SHR-003, SHR-006, VSC-004, VSC-005, VSC-006, VSC-007, VSC-009, VSC-010 |
 | package | PYC-001, VSC-001 |
 | source | SHR-001, VSC-002 |
