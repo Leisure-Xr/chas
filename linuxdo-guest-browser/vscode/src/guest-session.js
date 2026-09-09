@@ -8,6 +8,7 @@ const {
   profileSummary,
   sanitizeStoredProfile
 } = require('./request-profile');
+const { NOOP_CONTENT_CACHE_STORE, STALE_CACHE_MAX_AGE_MS } = require('./content-cache');
 
 const SITE_ORIGIN = 'https://linux.do';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -15,12 +16,14 @@ const MAX_RESPONSE_BYTES = 12 * 1024 * 1024;
 const REQUEST_BURST_CAPACITY = 2;
 const REQUEST_REFILL_INTERVAL_MS = 5_000;
 const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
-const STALE_CACHE_MAX_AGE_MS = 6 * 60 * 60_000;
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
 const TRANSIENT_PROTECTION_BACKOFF_MS = Object.freeze([8_000, 15_000, 30_000]);
 const TRANSIENT_PROTECTION_RESET_MS = 10 * 60_000;
 const SMART_CAREFUL_MINIMUM_MS = 15 * 60_000;
 const SMART_BALANCED_STABLE_MS = 10 * 60_000;
+// Writing a snapshot on every response would trade a rate-limit problem for a
+// disk-churn one; batch the writes instead.
+const CACHE_PERSIST_DELAY_MS = 10_000;
 const REQUEST_MODES = Object.freeze({
   fluent: Object.freeze({ capacity: 2, refillIntervalMs: 4_000 }),
   balanced: Object.freeze({ capacity: 2, refillIntervalMs: 5_000 }),
@@ -112,6 +115,13 @@ class GuestRequestSession {
     this.inFlight = new Map();
     this.pendingByLane = new Map();
     this.cache = new Map();
+    this.cacheStore = options.cacheStore || NOOP_CONTENT_CACHE_STORE;
+    this.cachePersistDelayMs = Number.isFinite(options.cachePersistDelayMs)
+      ? Math.max(0, options.cachePersistDelayMs)
+      : CACHE_PERSIST_DELAY_MS;
+    this.cacheLoaded = undefined;
+    this.cachePersistTimer = undefined;
+    this.cachePersistPromise = undefined;
     this.lastRequestAt = 0;
     this.lastSuccessfulRequestAt = 0;
     this.cooldownUntil = 0;
@@ -176,6 +186,9 @@ class GuestRequestSession {
 
   async request(rawPath, options = {}) {
     const url = assertLinuxDoRequestUrl(rawPath);
+    // The snapshot has to be in place before the cache is read: it is the only
+    // thing standing between a cold start that hits 429 and a blocking error.
+    await this.ensureCacheLoaded();
     const key = cacheKeyForUrl(url);
     const now = this.now();
     const cached = this.cache.get(key);
@@ -333,6 +346,7 @@ class GuestRequestSession {
     this.cache.delete(key);
     this.cache.set(key, { data, storedAt: now });
     while (this.cache.size > 80) this.cache.delete(this.cache.keys().next().value);
+    this.schedulePersist();
     return this.returnData(data, { source: 'network', storedAt: now, reason: 'network' });
   }
 
@@ -523,6 +537,63 @@ class GuestRequestSession {
     this.cache.set(key, entry);
   }
 
+  // Read once per session, lazily, so activation never waits on disk.
+  ensureCacheLoaded() {
+    if (!this.cacheLoaded) {
+      this.cacheLoaded = (async () => {
+        let entries = [];
+        try {
+          entries = await this.cacheStore.load();
+        } catch {
+          entries = [];
+        }
+        for (const [key, entry] of entries) {
+          // Anything fetched while the snapshot was loading is newer than it.
+          if (!this.cache.has(key)) this.cache.set(key, entry);
+        }
+      })();
+    }
+    return this.cacheLoaded;
+  }
+
+  schedulePersist() {
+    if (this.cacheStore === NOOP_CONTENT_CACHE_STORE || this.cachePersistTimer) return;
+    this.cachePersistTimer = setTimeout(() => {
+      this.cachePersistTimer = undefined;
+      void this.flushCache();
+    }, this.cachePersistDelayMs);
+    // A pending snapshot must never keep the host process alive.
+    this.cachePersistTimer.unref?.();
+  }
+
+  flushCache() {
+    if (this.cachePersistTimer) {
+      clearTimeout(this.cachePersistTimer);
+      this.cachePersistTimer = undefined;
+    }
+    if (this.cacheStore === NOOP_CONTENT_CACHE_STORE) return Promise.resolve();
+    const entries = [...this.cache.entries()];
+    // Chained so two flushes can never interleave writes to the same file.
+    this.cachePersistPromise = Promise.resolve(this.cachePersistPromise)
+      .catch(() => {})
+      .then(() => this.cacheStore.save(entries))
+      .catch(() => {});
+    return this.cachePersistPromise;
+  }
+
+  async clearPersistedCache() {
+    if (this.cachePersistTimer) {
+      clearTimeout(this.cachePersistTimer);
+      this.cachePersistTimer = undefined;
+    }
+    this.cache.clear();
+    try {
+      await this.cacheStore.clear();
+    } catch {
+      // Nothing actionable; the in-memory copy is gone either way.
+    }
+  }
+
   returnData(data, responseInfo) {
     this.lastResponseInfo = responseInfo;
     return data;
@@ -671,7 +742,14 @@ class GuestRequestSession {
       }
     }
     this.pendingByLane.clear();
+    // Drop the pending write first: letting it fire after the clear would save
+    // an empty snapshot and delete the file we want to survive the reset.
+    if (this.cachePersistTimer) {
+      clearTimeout(this.cachePersistTimer);
+      this.cachePersistTimer = undefined;
+    }
     this.cache.clear();
+    this.cacheLoaded = undefined;
     this.clearTransientProtection();
     if (!preservePacing) {
       this.cooldownUntil = 0;
@@ -1064,6 +1142,7 @@ function isLinuxDoUrl(rawUrl) {
 }
 
 module.exports = {
+  CACHE_PERSIST_DELAY_MS,
   CLEARANCE_SECRET,
   CloudflareError,
   DEFAULT_CACHE_TTL_MS,

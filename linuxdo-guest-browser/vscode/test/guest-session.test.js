@@ -627,6 +627,119 @@ test('refreshing a cached key moves it to the LRU end before capacity eviction',
   assert.equal(session.cache.has('filler-0'), false);
 });
 
+// The rate-limit fallback used to live only in memory, so a window reload
+// turned the next 429 into a blocking error page.  These cover the snapshot
+// that keeps it alive across restarts.
+test('a cold session serves the persisted snapshot instead of a blocking rate-limit error', async () => {
+  const now = 900_000;
+  // Past the five-minute TTL so the request actually reaches the network, but
+  // well inside the six-hour stale window.
+  const storedAt = now - 10 * 60_000;
+  const session = new GuestRequestSession(memorySecrets(), {
+    now: () => now,
+    minRequestIntervalMs: 0,
+    cacheStore: recordingCacheStore([['https://linux.do/latest.json', { data: { ok: true }, storedAt }]]).store,
+    fetchResponse: async () => ({ status: 429, retryAfter: '30', text: '' })
+  });
+  await session.saveManualVerification({ cookieHeader: 'cf_clearance=saved', userAgent: VALID_UA, validate: false });
+
+  assert.deepEqual(await session.request('/latest.json'), { ok: true });
+  assert.deepEqual(session.consumeLastResponseInfo(), {
+    source: 'stale-cache',
+    storedAt,
+    reason: 'rate-limit',
+    retryAt: now + 30_000,
+    status: 429
+  });
+});
+
+test('without a snapshot the same cold 429 still surfaces as a rate-limit error', async () => {
+  const now = 900_000;
+  const session = new GuestRequestSession(memorySecrets(), {
+    now: () => now,
+    minRequestIntervalMs: 0,
+    fetchResponse: async () => ({ status: 429, retryAfter: '30', text: '' })
+  });
+  await session.saveManualVerification({ cookieHeader: 'cf_clearance=saved', userAgent: VALID_UA, validate: false });
+  await assert.rejects(() => session.request('/latest.json'), RateLimitError);
+});
+
+test('a snapshot entry past the stale window is not served', async () => {
+  const now = 900_000;
+  const session = new GuestRequestSession(memorySecrets(), {
+    now: () => now,
+    minRequestIntervalMs: 0,
+    // The store filters by age itself; an entry that slips through must still
+    // lose to isUsableStaleCache.
+    cacheStore: recordingCacheStore([['https://linux.do/latest.json', { data: { ok: true }, storedAt: now - 7 * 60 * 60_000 }]]).store,
+    fetchResponse: async () => ({ status: 429, retryAfter: '30', text: '' })
+  });
+  await session.saveManualVerification({ cookieHeader: 'cf_clearance=saved', userAgent: VALID_UA, validate: false });
+  await assert.rejects(() => session.request('/latest.json'), RateLimitError);
+});
+
+test('successful responses are written back to the snapshot', async () => {
+  const now = 900_000;
+  const recorder = recordingCacheStore();
+  const session = new GuestRequestSession(memorySecrets(), {
+    now: () => now,
+    minRequestIntervalMs: 0,
+    cacheStore: recorder.store,
+    cachePersistDelayMs: 0,
+    fetchResponse: async () => ({ status: 200, contentLength: 11, text: '{"ok":true}' })
+  });
+  assert.deepEqual(await session.request('/latest.json'), { ok: true });
+  await session.flushCache();
+  assert.deepEqual(recorder.saved.at(-1), [['https://linux.do/latest.json', { data: { ok: true }, storedAt: now }]]);
+});
+
+test('stopping the session preserves the snapshot and only the clear command removes it', async () => {
+  const now = 900_000;
+  const recorder = recordingCacheStore();
+  const session = new GuestRequestSession(memorySecrets(), {
+    now: () => now,
+    minRequestIntervalMs: 0,
+    cacheStore: recorder.store,
+    cachePersistDelayMs: 0,
+    fetchResponse: async () => ({ status: 200, contentLength: 11, text: '{"ok":true}' })
+  });
+  await session.request('/latest.json');
+  await session.flushCache();
+
+  // stop() resets in-memory state on every shutdown; wiping the file there
+  // would defeat the whole point of persisting it.
+  await session.stop();
+  assert.equal(recorder.cleared, 0);
+
+  await session.clearPersistedCache();
+  assert.equal(recorder.cleared, 1);
+});
+
+test('a session without a cache store never touches the snapshot path', async () => {
+  const now = 900_000;
+  const session = new GuestRequestSession(memorySecrets(), {
+    now: () => now,
+    minRequestIntervalMs: 0,
+    fetchResponse: async () => ({ status: 200, contentLength: 11, text: '{"ok":true}' })
+  });
+  assert.deepEqual(await session.request('/latest.json'), { ok: true });
+  await assert.doesNotReject(session.flushCache());
+  await assert.doesNotReject(session.clearPersistedCache());
+});
+
+function recordingCacheStore(initial = []) {
+  const recorder = {
+    saved: [],
+    cleared: 0,
+    store: {
+      load: async () => initial,
+      save: async (entries) => { recorder.saved.push(entries); },
+      clear: async () => { recorder.cleared += 1; }
+    }
+  };
+  return recorder;
+}
+
 function memorySecrets() {
   return mapSecrets(new Map());
 }

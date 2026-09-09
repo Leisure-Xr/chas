@@ -13,3 +13,7 @@
 *.class
 *.jar
 *.vsix
+
+# The published packages under dist/ are linked from the READMEs by raw URL,
+# so they have to stay in the repository like the PyCharm ZIP does.
+!linuxdo-guest-browser/dist/*.vsix

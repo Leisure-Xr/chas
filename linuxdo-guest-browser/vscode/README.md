@@ -5,10 +5,10 @@
 ## 下载已发布版本
 
 - [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)
-- [仓库最新 VSIX（0.17.0）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.17.0.vsix)
-- SHA-256：`c5266a4a59493c3d3db20ba06c458a893bd3b960ebc257f12843a2342545c9ad`
+- [仓库最新 VSIX（0.18.0）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.18.0.vsix)
+- SHA-256：`b8de295790294feaeb3816152c1d3b320e41bea35f175d17d32b809561c1acad`
 
-仓库和 `dist/` 目录只保留 `0.17.0` 最新 VSIX，旧版本安装包已清理。
+仓库和 `dist/` 目录只保留 `0.18.0` 最新 VSIX，旧版本安装包已清理。
 
 ## 功能
 
@@ -101,8 +101,11 @@
 | `linuxdoGuest.showAvatars` | `false` | 头像默认改为首字母色块。头像此前是 webview 里的 `<img>` 直连，绕过令牌桶和冷却，一页列表会瞬间并发几十个请求，是最常见的限流来源。关闭时页面 CSP 会去掉 `https:` 图片来源，从浏览器层面杜绝失控请求。 |
 | `linuxdoGuest.postImages` | `"proxy"` | 帖子正文图片改由扩展代理：独立图片令牌桶（流畅每 1.5 秒、均衡每 3 秒、稳妥每 6 秒）、最多 2 并发、滚动进入视口才请求，并与页面请求共享冷却与服务器预算。单张上限 1.5 MB，只缓存在内存中（最多 120 条 / 24 MB）。设为 `"off"` 则完全不加载。 |
 | `linuxdoGuest.nativeIdleReleaseMinutes` | `5` | 原生浏览器引擎空闲多少分钟后释放标签页与调试连接；阅读器隐藏时缩短到 1 分钟。`0` 表示常驻。**释放后重连需要重新完成一次 Cloudflare 验证**，因此不建议设得过小。 |
+| `linuxdoGuest.persistContentCache` | `true` | 把已读页面的公开 JSON 快照写入插件存储目录（最多 80 条 / 4 MB，保留 6 小时）。站点限流时，即使刚重启 VS Code 也能直接显示上次内容加倒计时横幅，而不是整页报错。关闭后立即删除已写入的快照文件。 |
 
 图片的 403 只影响那一张图片，不会进入页面请求的短退避阶梯；图片的 429 或 `Retry-After` 仍会让所有请求一起进入冷却。
+
+站点限流（HTTP 429）时插件不会静默重试，而是按 `Retry-After` 进入冷却并显示倒计时，冷却结束后自动重试一次。这段时间里读过的页面仍可从缓存直接显示；未缓存的页面才会退回错误提示。
 
 ## 加密分享教程
 

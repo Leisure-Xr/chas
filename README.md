@@ -19,7 +19,7 @@
 
 当前主分支还提供了尚未单独发布的验证构建包：
 
-- [VS Code 0.17.0 VSIX](linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.17.0.vsix)：默认使用 VS Code 内置 Chromium 请求引擎；头像默认关闭、正文图片走限速代理，原生引擎空闲 5 分钟自动释放。
+- [VS Code 0.18.0 VSIX](linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.18.0.vsix)：默认使用 VS Code 内置 Chromium 请求引擎；头像默认关闭、正文图片走限速代理，原生引擎空闲 5 分钟自动释放；已读页面的公开 JSON 写入快照，站点限流时重启后仍可继续阅读。
 - [PyCharm 0.12.0 ZIP](linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.12.0.zip)：精修单色隐私阅读布局，帖子正文图片保持原色；最低支持 2022.3，加密分享不再阻塞界面，隐私布局与游戏脚本的注入开销大幅下降。
 
 两个验证包的 SHA-256 和安装说明见 [插件使用说明](linuxdo-guest-browser/README.md)。
