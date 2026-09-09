@@ -3,6 +3,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { CACHE_ROOT, PROJECT_ROOT } from './paths.mjs';
 import { extractArchive } from './archive.mjs';
 import { runCommand, spawnDetached } from './process.mjs';
+import { compareVersions } from './versions.mjs';
 
 export async function inspectIde(product, idePath) {
   if (product === 'vscode') return inspectVsCode(idePath);
@@ -93,9 +94,10 @@ export async function prepareIsolatedIde({ ide, artifact, runId, launch = false 
 async function prepareVsCode(ide, artifact, root, launch) {
   const userData = resolve(root, 'user-data');
   const extensions = resolve(root, 'extensions');
-  await mkdir(userData, { recursive: true });
-  await mkdir(extensions, { recursive: true });
+  const sharedData = resolve(root, 'shared-data');
+  await Promise.all([userData, extensions, sharedData].map(path => mkdir(path, { recursive: true })));
   const isolationArgs = ['--user-data-dir', userData, '--extensions-dir', extensions];
+  if (compareVersions(ide.version, '1.137.0') >= 0) isolationArgs.push('--shared-data-dir', sharedData);
   await runCommand(ide.cli, [...isolationArgs, '--install-extension', artifact, '--force']);
   let pid = null;
   if (launch) {
@@ -103,6 +105,8 @@ async function prepareVsCode(ide, artifact, root, launch) {
       ...isolationArgs,
       '--new-window',
       '--disable-updates',
+      '--disable-telemetry',
+      '--disable-crash-reporter',
       '--disable-workspace-trust',
       '--skip-welcome',
       PROJECT_ROOT
