@@ -43,7 +43,7 @@ export function spawnDetached(command, args = [], options = {}) {
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env || process.env,
-      detached: true,
+      detached: false,
       stdio: 'ignore',
       windowsHide: false
     });
