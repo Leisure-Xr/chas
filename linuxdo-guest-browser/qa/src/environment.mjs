@@ -20,7 +20,11 @@ export async function inspectVsCode(idePath) {
   const manifest = JSON.parse(await readFile(packagePath, 'utf8'));
   const productPath = resolve(dirname(packagePath), 'product.json');
   const product = await exists(productPath) ? JSON.parse(await readFile(productPath, 'utf8')) : {};
-  const macLauncher = resolve(root, 'Contents', 'MacOS', 'Code');
+  const macLauncher = await firstExisting([
+    resolve(root, 'Contents', 'MacOS', 'Code'),
+    resolve(root, 'Contents', 'MacOS', 'Electron'),
+    resolve(root, 'Contents', 'MacOS', 'Visual Studio Code')
+  ]);
   const macCli = resolve(root, 'Contents', 'Resources', 'app', 'bin', 'code');
   const windowsLauncher = resolve(root, 'Code.exe');
   return {
@@ -28,7 +32,7 @@ export async function inspectVsCode(idePath) {
     root,
     version: manifest.version,
     build: product.commit || manifest.commit || null,
-    launcher: await exists(macLauncher) ? macLauncher : windowsLauncher,
+    launcher: macLauncher || windowsLauncher,
     cli: await exists(macCli) ? macCli : windowsLauncher
   };
 }
@@ -95,7 +99,7 @@ async function prepareVsCode(ide, artifact, root, launch) {
   await runCommand(ide.cli, [...isolationArgs, '--install-extension', artifact, '--force']);
   let pid = null;
   if (launch) {
-    pid = spawnDetached(ide.launcher, [
+    pid = await spawnDetached(ide.launcher, [
       ...isolationArgs,
       '--new-window',
       '--disable-updates',
@@ -116,7 +120,7 @@ async function preparePyCharm(ide, artifact, root, launch) {
   await extractArchive(artifact, plugins);
   let pid = null;
   if (launch) {
-    pid = spawnDetached(ide.launcher, [
+    pid = await spawnDetached(ide.launcher, [
       `-Didea.config.path=${config}`,
       `-Didea.system.path=${system}`,
       `-Didea.plugins.path=${plugins}`,
@@ -162,6 +166,13 @@ async function exists(path) {
   } catch {
     return false;
   }
+}
+
+async function firstExisting(paths) {
+  for (const path of paths) {
+    if (await exists(path)) return path;
+  }
+  return null;
 }
 
 function platformName() {
