@@ -80,7 +80,8 @@ export function capabilitiesFor(ide, target) {
 
 export async function prepareIsolatedIde({ ide, artifact, runId, launch = false }) {
   const shortRunId = createHash('sha256').update(runId).digest('hex').slice(0, 12);
-  const root = resolve(tmpdir(), 'linuxdo-qa-runs', shortRunId, ide.product);
+  const temporaryRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
+  const root = resolve(temporaryRoot, 'ldqa', shortRunId, ide.product);
   await mkdir(root, { recursive: true });
   const prepared = ide.product === 'vscode'
     ? await prepareVsCode(ide, artifact, root, launch)
