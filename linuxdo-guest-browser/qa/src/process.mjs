@@ -39,13 +39,18 @@ export function runCommand(command, args = [], options = {}) {
 }
 
 export function spawnDetached(command, args = [], options = {}) {
-  const child = spawn(command, args, {
-    cwd: options.cwd,
-    env: options.env || process.env,
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: false
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env || process.env,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false
+    });
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve(child.pid);
+    });
   });
-  child.unref();
-  return child.pid;
 }
