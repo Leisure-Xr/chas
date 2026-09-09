@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { CACHE_ROOT, PROJECT_ROOT } from './paths.mjs';
+import { PROJECT_ROOT } from './paths.mjs';
 import { extractArchive } from './archive.mjs';
 import { runCommand, spawnDetached } from './process.mjs';
 import { compareVersions } from './versions.mjs';
@@ -77,7 +79,8 @@ export function capabilitiesFor(ide, target) {
 }
 
 export async function prepareIsolatedIde({ ide, artifact, runId, launch = false }) {
-  const root = resolve(CACHE_ROOT, 'runs', safeName(runId), ide.product);
+  const shortRunId = createHash('sha256').update(runId).digest('hex').slice(0, 12);
+  const root = resolve(tmpdir(), 'linuxdo-qa-runs', shortRunId, ide.product);
   await mkdir(root, { recursive: true });
   const prepared = ide.product === 'vscode'
     ? await prepareVsCode(ide, artifact, root, launch)
@@ -188,8 +191,4 @@ function platformName() {
 function architectureMatches(value) {
   if (!value) return true;
   return value === process.arch || (value === 'aarch64' && process.arch === 'arm64') || (value === 'x64' && process.arch === 'x64');
-}
-
-function safeName(value) {
-  return String(value).replace(/[^a-zA-Z0-9._-]/g, '-');
 }
