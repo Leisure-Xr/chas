@@ -1,0 +1,255 @@
+{
+  "schemaVersion": 1,
+  "resolvedAt": "2026-09-09T16:44:28.547Z",
+  "targets": [
+    {
+      "id": "vscode-1.85",
+      "product": "vscode",
+      "line": "1.85",
+      "role": "minimum",
+      "expectedCapabilities": [
+        "vscode-manual-boundary"
+      ],
+      "status": "resolved",
+      "version": "1.85.2",
+      "build": null,
+      "downloads": {
+        "darwin-arm64": {
+          "url": "https://update.code.visualstudio.com/1.85.2/darwin-arm64/stable",
+          "fileName": "vscode-1.85.2-darwin-arm64.zip",
+          "checksumUrl": null,
+          "sha256": "a4be4bb51ee4e1b79adba13659567e3df29e6be6495878b46a52a2697ef1b030",
+          "verifiedAt": "2026-09-09T16:46:18.570Z"
+        },
+        "darwin-x64": {
+          "url": "https://update.code.visualstudio.com/1.85.2/darwin/stable",
+          "fileName": "vscode-1.85.2-darwin-x64.zip",
+          "checksumUrl": null,
+          "sha256": null
+        },
+        "win32-x64": {
+          "url": "https://update.code.visualstudio.com/1.85.2/win32-x64-archive/stable",
+          "fileName": "vscode-1.85.2-win32-x64.zip",
+          "checksumUrl": null,
+          "sha256": null
+        }
+      }
+    },
+    {
+      "id": "vscode-1.113",
+      "product": "vscode",
+      "line": "1.113",
+      "role": "pre-native-boundary",
+      "expectedCapabilities": [
+        "vscode-manual-boundary"
+      ],
+      "status": "resolved",
+      "version": "1.113.0",
+      "build": null,
+      "downloads": {
+        "darwin-arm64": {
+          "url": "https://update.code.visualstudio.com/1.113.0/darwin-arm64/stable",
+          "fileName": "vscode-1.113.0-darwin-arm64.zip",
+          "checksumUrl": null,
+          "sha256": "9bdc19fbb7b2b936c692bf938c252b48649caf52f479ab4a0bb3748c969c8f36",
+          "verifiedAt": "2026-09-09T17:21:00.695Z"
+        },
+        "darwin-x64": {
+          "url": "https://update.code.visualstudio.com/1.113.0/darwin/stable",
+          "fileName": "vscode-1.113.0-darwin-x64.zip",
+          "checksumUrl": null,
+          "sha256": null
+        },
+        "win32-x64": {
+          "url": "https://update.code.visualstudio.com/1.113.0/win32-x64-archive/stable",
+          "fileName": "vscode-1.113.0-win32-x64.zip",
+          "checksumUrl": null,
+          "sha256": null
+        }
+      }
+    },
+    {
+      "id": "vscode-1.114",
+      "product": "vscode",
+      "line": "1.114",
+      "role": "native-boundary",
+      "expectedCapabilities": [
+        "vscode-native"
+      ],
+      "status": "resolved",
+      "version": "1.114.0",
+      "build": null,
+      "downloads": {
+        "darwin-arm64": {
+          "url": "https://update.code.visualstudio.com/1.114.0/darwin-arm64/stable",
+          "fileName": "vscode-1.114.0-darwin-arm64.zip",
+          "checksumUrl": null,
+          "sha256": "9d690da2bcafb03d923e4739bde435dbe0d63d78163c98df5b051c0bb3e36c2e",
+          "verifiedAt": "2026-09-09T17:33:55.184Z"
+        },
+        "darwin-x64": {
+          "url": "https://update.code.visualstudio.com/1.114.0/darwin/stable",
+          "fileName": "vscode-1.114.0-darwin-x64.zip",
+          "checksumUrl": null,
+          "sha256": null
+        },
+        "win32-x64": {
+          "url": "https://update.code.visualstudio.com/1.114.0/win32-x64-archive/stable",
+          "fileName": "vscode-1.114.0-win32-x64.zip",
+          "checksumUrl": null,
+          "sha256": null
+        }
+      }
+    },
+    {
+      "id": "vscode-latest",
+      "product": "vscode",
+      "line": "latest",
+      "role": "latest",
+      "expectedCapabilities": [
+        "vscode-native",
+        "latest"
+      ],
+      "status": "resolved",
+      "version": "1.137.0",
+      "build": null,
+      "downloads": {
+        "darwin-arm64": {
+          "url": "https://update.code.visualstudio.com/1.137.0/darwin-arm64/stable",
+          "fileName": "vscode-1.137.0-darwin-arm64.zip",
+          "checksumUrl": null,
+          "sha256": "16ee5cddb1ea19234e1f2516da07d57e07d7cab6ab45a5515dab077656cbc65e",
+          "verifiedAt": "2026-09-09T17:34:23.782Z"
+        },
+        "darwin-x64": {
+          "url": "https://update.code.visualstudio.com/1.137.0/darwin/stable",
+          "fileName": "vscode-1.137.0-darwin-x64.zip",
+          "checksumUrl": null,
+          "sha256": null
+        },
+        "win32-x64": {
+          "url": "https://update.code.visualstudio.com/1.137.0/win32-x64-archive/stable",
+          "fileName": "vscode-1.137.0-win32-x64.zip",
+          "checksumUrl": null,
+          "sha256": null
+        }
+      }
+    },
+    {
+      "id": "pycharm-2022.3",
+      "product": "pycharm",
+      "line": "2022.3",
+      "role": "minimum",
+      "expectedCapabilities": [
+        "jcef"
+      ],
+      "status": "resolved",
+      "version": "2022.3.3",
+      "build": "223.8836.43",
+      "downloads": {
+        "darwin-arm64": {
+          "url": "https://download.jetbrains.com/python/pycharm-professional-2022.3.3-aarch64.dmg",
+          "fileName": "pycharm-professional-2022.3.3-aarch64.dmg",
+          "checksumUrl": "https://download.jetbrains.com/python/pycharm-professional-2022.3.3-aarch64.dmg.sha256",
+          "sha256": "d53b7ea764cd89cea81ebefe630a151627d4d71657868bd35296fd994524105a",
+          "verifiedAt": "2026-09-09T17:34:44.782Z"
+        },
+        "darwin-x64": {
+          "url": "https://download.jetbrains.com/python/pycharm-professional-2022.3.3.dmg",
+          "fileName": "pycharm-professional-2022.3.3.dmg",
+          "checksumUrl": "https://download.jetbrains.com/python/pycharm-professional-2022.3.3.dmg.sha256",
+          "sha256": "290ab690c193563e0b2afc88e9d01feca319e2bc366a3677c8870ac8ba8d7e6f"
+        },
+        "win32-x64": {
+          "url": "https://download.jetbrains.com/python/pycharm-professional-2022.3.3.exe",
+          "fileName": "pycharm-professional-2022.3.3.exe",
+          "checksumUrl": "https://download.jetbrains.com/python/pycharm-professional-2022.3.3.exe.sha256",
+          "sha256": "1a71d2e8f7bc608fc1cf969cc7df85d5b2904f8824d126a17c9234a21de5638e"
+        }
+      }
+    },
+    {
+      "id": "pycharm-2024.2",
+      "product": "pycharm",
+      "line": "2024.2",
+      "role": "intermediate",
+      "expectedCapabilities": [
+        "jcef"
+      ],
+      "status": "resolved",
+      "version": "2024.2.6",
+      "build": "242.26775.22",
+      "downloads": {
+        "darwin-arm64": {
+          "url": "https://download.jetbrains.com/python/pycharm-professional-2024.2.6-aarch64.dmg",
+          "fileName": "pycharm-professional-2024.2.6-aarch64.dmg",
+          "checksumUrl": "https://download.jetbrains.com/python/pycharm-professional-2024.2.6-aarch64.dmg.sha256",
+          "sha256": "09d8be1a1da9c74bea37a2c179ead196277620dfbe52f6fa8264aaada28877f8",
+          "verifiedAt": "2026-09-09T17:35:03.110Z"
+        },
+        "darwin-x64": {
+          "url": "https://download.jetbrains.com/python/pycharm-professional-2024.2.6.dmg",
+          "fileName": "pycharm-professional-2024.2.6.dmg",
+          "checksumUrl": "https://download.jetbrains.com/python/pycharm-professional-2024.2.6.dmg.sha256",
+          "sha256": "d3165855b60c28a9f80ff168034ac6d649da871abeb9519f48a7556e743a1202"
+        },
+        "win32-x64": {
+          "url": "https://download.jetbrains.com/python/pycharm-professional-2024.2.6.exe",
+          "fileName": "pycharm-professional-2024.2.6.exe",
+          "checksumUrl": "https://download.jetbrains.com/python/pycharm-professional-2024.2.6.exe.sha256",
+          "sha256": "861563f905014bc3f2764af214cfe89c3c27916423deb91c27209adc88d542ea"
+        }
+      }
+    },
+    {
+      "id": "pycharm-latest",
+      "product": "pycharm",
+      "line": "latest",
+      "role": "latest",
+      "expectedCapabilities": [
+        "jcef",
+        "latest"
+      ],
+      "status": "resolved",
+      "version": "2026.2.2",
+      "build": "262.10315.174",
+      "downloads": {
+        "darwin-arm64": {
+          "url": "https://download.jetbrains.com/python/pycharm-2026.2.2-aarch64.dmg",
+          "fileName": "pycharm-2026.2.2-aarch64.dmg",
+          "checksumUrl": "https://download.jetbrains.com/python/pycharm-2026.2.2-aarch64.dmg.sha256",
+          "sha256": "33af0e3cce9b62f95f997acf997037bbc122da9b1c0bff8e1a820931689b9a66",
+          "verifiedAt": "2026-09-09T17:35:25.719Z"
+        },
+        "darwin-x64": {
+          "url": "https://download.jetbrains.com/python/pycharm-2026.2.2.dmg",
+          "fileName": "pycharm-2026.2.2.dmg",
+          "checksumUrl": "https://download.jetbrains.com/python/pycharm-2026.2.2.dmg.sha256",
+          "sha256": "d39426b23cbca302296a0f226e2c2e259abd0aee4dddb726c31e834204a8ef21"
+        },
+        "win32-x64": {
+          "url": "https://download.jetbrains.com/python/pycharm-2026.2.2.exe",
+          "fileName": "pycharm-2026.2.2.exe",
+          "checksumUrl": "https://download.jetbrains.com/python/pycharm-2026.2.2.exe.sha256",
+          "sha256": "2e0fa1f92967f8bcebe0b2748654fd8eeec8f1755dc2d5696a0637187601f82d"
+        }
+      }
+    }
+  ],
+  "localBaselines": [
+    {
+      "product": "vscode",
+      "version": "1.136.1",
+      "build": "a44adf7f53e00964ab890f9f8758a334f1fc15bc",
+      "platform": "darwin",
+      "arch": "arm64"
+    },
+    {
+      "product": "pycharm",
+      "version": "2026.1.4",
+      "build": "261.26222.68",
+      "platform": "darwin",
+      "arch": "arm64"
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+name: linuxdo-guest-browser tests
+
+on:
+  push:
+    paths:
+      - "linuxdo-guest-browser/**"
+      - ".github/workflows/linuxdo-guest-browser-tests.yml"
+  pull_request:
+    paths:
+      - "linuxdo-guest-browser/**"
+      - ".github/workflows/linuxdo-guest-browser-tests.yml"
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Release identifier whose committed matrix records should be gated"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: linuxdo-guest-browser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Test QA runner and packaged artifacts
+        run: npm --prefix qa test
+      - name: Validate test cases, generated docs, and run records
+        run: node qa/bin/qa.mjs validate
+      - name: Verify generated documentation is committed
+        run: |
+          node qa/bin/qa.mjs docs
+          git diff --exit-code -- qa/docs
+      - name: Run VS Code source checks
+        working-directory: linuxdo-guest-browser/vscode
+        run: npm run check
+      - name: Build VSIX
+        working-directory: linuxdo-guest-browser/vscode
+        run: npm run package
+
+  windows-portability:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: linuxdo-guest-browser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Test Windows QA adapters and archive inspection
+        run: npm --prefix qa test
+      - name: Validate test definitions and committed records
+        run: node qa/bin/qa.mjs validate
+
+  pycharm-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: linuxdo-guest-browser/pycharm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+      - name: Compile, test, and build against the pinned PyCharm SDK
+        run: gradle --no-daemon check buildPlugin
+      - name: Verify committed release package
+        run: ./scripts/verify-package.sh ../dist/linuxdo-guest-browser-pycharm-0.12.0.zip
+      - name: Verify newly built ZIP integrity
+        run: find build/distributions -name '*.zip' -print -exec unzip -tq {} \;
+
+  release-gate:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release != '' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: linuxdo-guest-browser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Enforce committed macOS and Windows matrix results
+        run: node qa/bin/qa.mjs report --release "${{ inputs.release }}" --gate
+      - name: Upload release summaries and evidence indexes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linuxdo-guest-browser-${{ inputs.release }}-qa
+          path: linuxdo-guest-browser/qa/runs/${{ inputs.release }}/
+          if-no-files-found: error

@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "runId": "20260909T162846Z-pycharm-latest-darwin-arm64",
+  "release": "0.2.0",
+  "commit": "a03ee4726d9b65583e7f72e56f870974a6305dee",
+  "workingTreeDirty": true,
+  "product": "pycharm",
+  "matrixTarget": "pycharm-latest",
+  "platform": "darwin",
+  "arch": "arm64",
+  "host": {
+    "os": "darwin",
+    "release": "25.5.0"
+  },
+  "ide": {
+    "version": "2026.1.4",
+    "build": "261.26222.68"
+  },
+  "plugin": {
+    "version": "0.12.0",
+    "sha256": "6939211e4e9718ea760f2db6c55aca0082bde9898c7b33a5f0b6533ee720f517",
+    "fileName": "linuxdo-guest-browser-pycharm-0.12.0.zip"
+  },
+  "isolation": {
+    "prepared": true,
+    "launched": false,
+    "logLocation": "qa/.cache/runs/<run-id>"
+  },
+  "diagnostics": null,
+  "startedAt": "2026-09-09T16:28:46.639Z",
+  "capabilities": [
+    "package",
+    "source",
+    "visible-desktop",
+    "live-network",
+    "cross-product",
+    "jcef",
+    "latest"
+  ],
+  "results": [
+    {
+      "caseId": "PYC-002",
+      "type": "guided",
+      "priority": "P0",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "PYC-003",
+      "type": "guided",
+      "priority": "P0",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "PYC-004",
+      "type": "guided",
+      "priority": "P0",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "PYC-005",
+      "type": "guided",
+      "priority": "P1",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "PYC-006",
+      "type": "guided",
+      "priority": "P1",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "PYC-007",
+      "type": "guided",
+      "priority": "P1",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "PYC-008",
+      "type": "guided",
+      "priority": "P1",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "PYC-009",
+      "type": "guided",
+      "priority": "P1",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "PYC-010",
+      "type": "guided",
+      "priority": "P0",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "PYC-011",
+      "type": "guided",
+      "priority": "P1",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "SHR-002",
+      "type": "guided",
+      "priority": "P0",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "SHR-003",
+      "type": "guided",
+      "priority": "P1",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "SHR-004",
+      "type": "guided",
+      "priority": "P1",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "SHR-005",
+      "type": "guided",
+      "priority": "P1",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    },
+    {
+      "caseId": "SHR-006",
+      "type": "guided",
+      "priority": "P1",
+      "status": "BLOCKED",
+      "durationMs": 0,
+      "note": "需要可见桌面和人工交互确认，本次以非交互模式运行。",
+      "evidence": []
+    }
+  ]
+}

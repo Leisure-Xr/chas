@@ -72,6 +72,20 @@ cd pycharm
 
 可以通过 `PYCHARM_HOME` 指定其他 PyCharm 安装位置。
 
+## 兼容性测试
+
+[`qa/`](qa/) 是代码化的 VS Code / PyCharm 真实兼容性测试工程。它维护锁定版本矩阵、P0/P1 用例、隔离安装、人工交互引导、脱敏证据索引和发布门禁：
+
+```bash
+node qa/bin/qa.mjs validate
+node qa/bin/qa.mjs inspect --product vscode --ide "/Applications/Visual Studio Code.app"
+node qa/bin/qa.mjs run --product vscode --target vscode-latest \
+  --ide "/Applications/Visual Studio Code.app" --release 0.2.0 --mode all --interactive --launch
+node qa/bin/qa.mjs report --release 0.2.0 --gate
+```
+
+自动化单测或包结构校验不能代替真实 IDE 测试。当前 `0.2.0` 的本机发布包与自动回归已通过，但历史 IDE、真实联网 GUI 和 Windows 节点仍未完成，因此[兼容性门禁保持 BLOCKED](qa/runs/0.2.0/summary.md)，不能把声明范围写成已全部实测。
+
 ## 隐私
 
 - 不要求或保存论坛账号、密码和登录令牌。
