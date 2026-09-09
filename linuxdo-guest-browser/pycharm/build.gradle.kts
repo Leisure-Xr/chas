@@ -15,13 +15,18 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        local(System.getenv("PYCHARM_HOME") ?: "/Applications/PyCharm.app")
+        val localPycharm = System.getenv("PYCHARM_HOME")
+        if (localPycharm.isNullOrBlank()) {
+            create("PY", providers.gradleProperty("platformVersion").getOrElse("2026.1.4"))
+        } else {
+            local(localPycharm)
+        }
     }
 }
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(17))
+        languageVersion.set(JavaLanguageVersion.of(21))
     }
 }
 
@@ -36,4 +41,33 @@ intellijPlatform {
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
+    options.release.set(17)
+}
+
+val compatibilityTestClasses = listOf(
+    "studio.lexiao.linuxdo.ShareCodeTest",
+    "studio.lexiao.linuxdo.ReaderHistoryTest",
+    "studio.lexiao.linuxdo.PluginDescriptorTest"
+)
+
+val compatibilityTests = compatibilityTestClasses.map { testClass ->
+    tasks.register<JavaExec>("run${testClass.substringAfterLast('.')}") {
+        group = "verification"
+        description = "Runs $testClass with assertions enabled."
+        dependsOn(tasks.named("testClasses"))
+        classpath = sourceSets["test"].runtimeClasspath
+        mainClass.set(testClass)
+        enableAssertions = true
+        workingDir = projectDir
+    }
+}
+
+tasks.register("compatibilityTest") {
+    group = "verification"
+    description = "Runs the standalone compatibility regression tests."
+    dependsOn(compatibilityTests)
+}
+
+tasks.named("check") {
+    dependsOn("compatibilityTest")
 }

@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "runId": "20260909T160137Z-pycharm-latest-darwin-arm64",
+  "release": "0.2.0",
+  "commit": "a03ee4726d9b65583e7f72e56f870974a6305dee",
+  "workingTreeDirty": true,
+  "product": "pycharm",
+  "matrixTarget": "pycharm-latest",
+  "platform": "darwin",
+  "arch": "arm64",
+  "host": {
+    "os": "darwin",
+    "release": "25.5.0"
+  },
+  "ide": {
+    "version": "2026.1.4",
+    "build": "261.26222.68"
+  },
+  "plugin": {
+    "version": "0.12.0",
+    "sha256": "6939211e4e9718ea760f2db6c55aca0082bde9898c7b33a5f0b6533ee720f517",
+    "fileName": "linuxdo-guest-browser-pycharm-0.12.0.zip"
+  },
+  "isolation": {
+    "prepared": true,
+    "launched": false,
+    "logLocation": "qa/.cache/runs/<run-id>"
+  },
+  "diagnostics": null,
+  "startedAt": "2026-09-09T16:01:37.810Z",
+  "capabilities": [
+    "package",
+    "source",
+    "visible-desktop",
+    "live-network",
+    "jcef",
+    "latest"
+  ],
+  "results": [
+    {
+      "caseId": "PYC-001",
+      "type": "automated",
+      "priority": "P0",
+      "status": "PASS",
+      "durationMs": 61,
+      "note": "PyCharm ZIP 0.12.0 declares builds 223-263.* and passed package verification.",
+      "evidence": []
+    },
+    {
+      "caseId": "SHR-001",
+      "type": "automated",
+      "priority": "P0",
+      "status": "PASS",
+      "durationMs": 1,
+      "note": "Verified 4 shared resource copies.",
+      "evidence": []
+    }
+  ]
+}
