@@ -61,7 +61,8 @@ export async function inspectPyCharm(idePath) {
     build: String(info.buildNumber || '').replace(/^PY-/, '') || null,
     launcher,
     productCode: info.productCode,
-    envVarBaseName: info.envVarBaseName || 'PYCHARM'
+    envVarBaseName: info.envVarBaseName || 'PYCHARM',
+    vmOptionsPath: launch?.vmOptionsFilePath ? resolve(dirname(infoPath), launch.vmOptionsFilePath) : null
   };
 }
 
@@ -130,6 +131,7 @@ async function preparePyCharm(ide, artifact, root, launch) {
   let pid = null;
   if (launch) {
     const properties = resolve(root, 'idea.properties');
+    const vmOptions = resolve(root, 'pycharm.vmoptions');
     const propertyPath = value => value.replaceAll('\\', '/');
     await writeFile(properties, [
       `idea.config.path=${propertyPath(config)}`,
@@ -139,8 +141,14 @@ async function preparePyCharm(ide, artifact, root, launch) {
       'ide.no.platform.update=true',
       ''
     ].join('\n'), 'utf8');
+    if (!ide.vmOptionsPath) throw new Error('PyCharm product-info.json does not declare a VM options file');
+    await writeFile(vmOptions, await readFile(ide.vmOptionsPath, 'utf8'), 'utf8');
     pid = await spawnDetached(ide.launcher, [PROJECT_ROOT], {
-      env: { ...process.env, [`${ide.envVarBaseName}_PROPERTIES`]: properties }
+      env: {
+        ...process.env,
+        [`${ide.envVarBaseName}_PROPERTIES`]: properties,
+        [`${ide.envVarBaseName}_VM_OPTIONS`]: vmOptions
+      }
     });
   }
   return { isolationRoot: root, logRoot: logs, pid };
