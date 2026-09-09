@@ -247,6 +247,27 @@ p {
   font-weight: 600;
 }
 
+.proxy-image {
+  max-width: 100%;
+  min-height: 24px;
+}
+
+.proxy-image-loading,
+.proxy-image-failed {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  border: 1px dashed var(--vscode-panel-border, rgba(128, 128, 128, 0.4));
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, transparent);
+}
+
+.proxy-image-failed {
+  border-style: solid;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
 .topic-text {
   min-width: 0;
 }

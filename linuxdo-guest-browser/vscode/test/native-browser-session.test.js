@@ -174,6 +174,124 @@ test('transport helpers classify challenges, stale sessions and debug strings', 
   assert.equal(isStaleDebugSessionError(new Error('network timeout')), false);
 });
 
+test('binary responses survive chunking byte for byte', async () => {
+  // Invalid UTF-8 on purpose: the old text() round trip turned these into U+FFFD.
+  const body = Buffer.concat([
+    Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]),
+    Buffer.alloc(150_000, 0xab),
+    Buffer.from([0x80, 0x81, 0xfe, 0xff])
+  ]);
+  const fakeSession = debugSession('main', 'LINUX DO');
+  let acceptSeen = '';
+  const session = new NativeBrowserSession(fakeVscode().api, {
+    markerFactory: () => 'binary',
+    idleReleaseMs: 0,
+    evaluateRequest: async (_debugSession, expression) => {
+      if (expression.includes('await fetch(')) {
+        acceptSeen = expression.match(/Accept:"([^"]+)"/)?.[1] || '';
+        return taggedJson({
+          status: 200,
+          contentLength: body.length,
+          byteLength: body.length,
+          contentType: 'image/jpeg',
+          tooLarge: false
+        });
+      }
+      const range = expression.match(/\.subarray\((\d+),(\d+)\)/);
+      if (range) return taggedBytes(body.subarray(Number(range[1]), Number(range[2])));
+      if (expression.startsWith('delete ')) return { result: 'true' };
+      throw new Error(`Unexpected expression: ${expression.slice(0, 80)}`);
+    }
+  });
+  session.ensureAttached = async () => fakeSession;
+  session.initialChallengeWaitDone = true;
+
+  const response = await session.fetchResponse('https://linux.do/uploads/a.jpg', {
+    binary: true,
+    accept: 'image/*'
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.text, '');
+  assert.equal(Buffer.compare(response.body, body), 0);
+  assert.equal(acceptSeen, 'image/*');
+});
+
+test('idle release tears the session down and the next request reattaches', async () => {
+  const fixture = fakeVscode();
+  let fire;
+  const session = new NativeBrowserSession(fixture.api, {
+    markerFactory: () => 'idle',
+    idleReleaseMs: 1_000,
+    sleep: async () => {},
+    setTimer: (callback) => { fire = callback; return { id: 'timer' }; },
+    clearTimer: () => { fire = undefined; },
+    evaluateRequest: async (_debugSession, expression) => {
+      if (expression.includes('await fetch(')) {
+        return taggedJson({ status: 200, contentLength: 2, byteLength: 2, contentType: 'application/json' });
+      }
+      if (expression.includes('.subarray(')) return taggedBytes(Buffer.from('{}', 'utf8'));
+      if (expression.startsWith('delete ')) return { result: 'true' };
+      return taggedBytes(Buffer.from('https://linux.do', 'utf8'));
+    }
+  });
+
+  await session.fetchResponse('https://linux.do/latest.json');
+  assert.equal(fixture.debugStarts.length, 1);
+  assert.ok(session.evaluationSession, 'expected an attached evaluation session');
+  assert.ok(fire, 'expected an armed idle timer');
+
+  await fire();
+  assert.equal(session.evaluationSession, undefined);
+  assert.equal(session.rootSession, undefined);
+  assert.equal(fixture.closedTabs.length >= 1, true);
+
+  await session.fetchResponse('https://linux.do/latest.json');
+  assert.equal(fixture.debugStarts.length, 2, 'expected a transparent reattach');
+});
+
+test('idle release defers while a request is still in flight', async () => {
+  const session = new NativeBrowserSession(fakeVscode().api, {
+    markerFactory: () => 'busy',
+    idleReleaseMs: 1_000,
+    setTimer: () => ({ id: 'timer' }),
+    clearTimer: () => {}
+  });
+  let released = 0;
+  session.resetDebugSession = async () => { released += 1; };
+  session.evaluationSession = debugSession('main', 'LINUX DO');
+  session.activeRequests = 1;
+
+  await session.releaseForIdle();
+  assert.equal(released, 0, 'an in-flight request must win over the idle timer');
+
+  session.activeRequests = 0;
+  await session.releaseForIdle();
+  assert.equal(released, 1);
+});
+
+test('terminated sessions are pruned and the listener survives a stop', async () => {
+  const fixture = fakeVscode();
+  const session = new NativeBrowserSession(fixture.api, { markerFactory: () => 'prune', idleReleaseMs: 0 });
+  const stale = debugSession('stale', 'child');
+  const other = debugSession('other', 'child');
+  session.sessions = [stale, other];
+  session.evaluationSession = other;
+
+  session.handleSessionTermination(stale);
+  assert.deepEqual(session.sessions.map((entry) => entry.id), ['other']);
+  assert.equal(session.evaluationSession, other, 'unrelated terminations must not clear the session');
+
+  session.handleSessionTermination(other);
+  assert.deepEqual(session.sessions, []);
+  assert.equal(session.evaluationSession, undefined);
+
+  await session.stop();
+  assert.equal(session.terminationListener, undefined);
+  session.ensureTerminationListener();
+  assert.ok(session.terminationListener, 'a stopped session must re-register its termination listener');
+});
+
+
 function fakeVscode(options = {}) {
   const startListeners = [];
   const terminateListeners = [];

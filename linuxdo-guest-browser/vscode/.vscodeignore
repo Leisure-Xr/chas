@@ -2,4 +2,6 @@
 .gitignore
 node_modules/**
 test/**
+media/docs/**
+CHANGELOG.md
 *.vsix

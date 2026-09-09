@@ -8,7 +8,6 @@ import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowFactory;
 import com.intellij.ui.JBColor;
@@ -95,8 +94,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         }
 
         GuestBrowserPanel panel = new GuestBrowserPanel();
-        Disposer.register(project, panel);
         Content content = ContentFactory.getInstance().createContent(panel, "", false);
+        content.setDisposer(panel);
         toolWindow.getContentManager().addContent(content);
     }
 
@@ -696,7 +695,23 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             ShareSettings settings = promptShareSettings();
             if (settings == null) return;
             long now = System.currentTimeMillis();
-            String code = ShareCode.create(topic, settings.password(), settings.duration(), now);
+            shareButton.setEnabled(false);
+            status.setText("正在生成加密分享…");
+            CompletableFuture
+                    .supplyAsync(() -> ShareCode.create(topic, settings.password(), settings.duration(), now))
+                    .whenComplete((code, error) -> SwingUtilities.invokeLater(() -> {
+                        if (disposed) return;
+                        updateNavigationState(browser.getCefBrowser().getURL());
+                        if (error != null) {
+                            status.setText("游客模式");
+                            JOptionPane.showMessageDialog(this, failureMessage(error), "无法生成分享", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                        showShareResult(code, settings, now);
+                    }));
+        }
+
+        private void showShareResult(String code, ShareSettings settings, long now) {
             CopyPasteManager.getInstance().setContents(new StringSelection(code));
             String expiry = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
                     .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(now + settings.duration()));
@@ -827,12 +842,27 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             char[] passwordChars = passwordField.getPassword();
             String password = new String(passwordChars);
             Arrays.fill(passwordChars, '\0');
-            try {
-                ShareCode.Decoded decoded = ShareCode.parse(input.toString(), password, System.currentTimeMillis());
-                navigateTo(decoded.topic().url());
-            } catch (IllegalArgumentException error) {
-                JOptionPane.showMessageDialog(this, error.getMessage(), "无法打开分享", JOptionPane.ERROR_MESSAGE);
-            }
+            String content = input.toString();
+            openShareButton.setEnabled(false);
+            status.setText("正在解密分享内容…");
+            CompletableFuture
+                    .supplyAsync(() -> ShareCode.parse(content, password, System.currentTimeMillis()))
+                    .whenComplete((decoded, error) -> SwingUtilities.invokeLater(() -> {
+                        if (disposed) return;
+                        openShareButton.setEnabled(true);
+                        if (error != null) {
+                            status.setText("游客模式");
+                            JOptionPane.showMessageDialog(this, failureMessage(error), "无法打开分享", JOptionPane.ERROR_MESSAGE);
+                            return;
+                        }
+                        navigateTo(decoded.topic().url());
+                    }));
+        }
+
+        private static String failureMessage(Throwable error) {
+            Throwable cause = error.getCause() == null ? error : error.getCause();
+            String message = cause.getMessage();
+            return message == null || message.isBlank() ? cause.toString() : message;
         }
 
         private void showShareHelp() {
@@ -857,7 +887,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (disposed || cefBrowser == null) {
                 return;
             }
-            String css = BASE_PAGE_STYLE + (demoMode ? DEMO_PAGE_STYLE : "");
+            boolean readerMode = demoMode;
+            String css = BASE_PAGE_STYLE + (readerMode ? DEMO_PAGE_STYLE : "");
             String script = "(function(){"
                     + "var id='lexiao-guest-reader-style';"
                     + "var style=document.getElementById(id);"
@@ -865,9 +896,11 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     + "style.textContent=\"" + escapeJavaScript(css) + "\";"
                     + "var loadingId='lexiao-guest-loading-privacy';"
                     + "var loadingStyle=document.getElementById(loadingId);"
-                    + "if(loadingStyle){loadingStyle.textContent=\"" + escapeJavaScript(demoMode ? DEMO_LOADING_STYLE : "") + "\";}"
+                    + "if(loadingStyle){loadingStyle.textContent=\"" + escapeJavaScript(readerMode ? DEMO_LOADING_STYLE : "") + "\";}"
                     + "})();\n"
-                    + READER_MODE_SCRIPT.replace("__LEXIAO_DEMO_MODE__", Boolean.toString(demoMode));
+                    + "if(window.__lexiaoReaderModeApplied!==" + readerMode + "){\n"
+                    + READER_MODE_SCRIPT.replace("__LEXIAO_DEMO_MODE__", Boolean.toString(readerMode))
+                    + "\nwindow.__lexiaoReaderModeApplied=" + readerMode + ";}";
             cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
         }
 
@@ -1058,12 +1091,17 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (disposed || !breakOverlayVisible || cefBrowser == null) {
                 return;
             }
-            String script = GAME_CORE_SCRIPT + "\n" + GAME_UI_SCRIPT + "\n" + BREAK_OVERLAY_SCRIPT.replace(
+            String bundle = "if(!window.__lexiaoGameBundleLoaded){\n"
+                    + GAME_CORE_SCRIPT + "\n" + GAME_UI_SCRIPT
+                    + "\nwindow.__lexiaoGameBundleLoaded=true;}";
+            String overlay = BREAK_OVERLAY_SCRIPT.replace(
                     "__LEXIAO_RECOMMENDED_GAME__",
                     "\"" + escapeJavaScript(recommendedGame) + "\""
             ).replace("__LEXIAO_REMINDER_MODE__", Boolean.toString(breakOverlayReminderMode))
                     .replace("__LEXIAO_BEST_SCORES__", gameBestScoresJson());
-            cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
+            String url = cefBrowser.getURL();
+            cefBrowser.executeJavaScript(bundle, url, 0);
+            cefBrowser.executeJavaScript(overlay, url, 0);
         }
 
         private String gameBestScoresJson() {

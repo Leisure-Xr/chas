@@ -31,15 +31,31 @@
   }
 
   scanAddedNode(document.body);
+  var pendingRoots = new Set();
+  var pendingFrame = 0;
+
+  function scanPendingRoots() {
+    pendingFrame = 0;
+    var roots = pendingRoots;
+    pendingRoots = new Set();
+    roots.forEach(scanAddedNode);
+  }
+
   var observer = new MutationObserver(function (records) {
     records.forEach(function (record) {
-      record.addedNodes.forEach(scanAddedNode);
+      record.addedNodes.forEach(function (node) {
+        if (node instanceof Element) pendingRoots.add(node);
+      });
     });
+    if (!pendingFrame && pendingRoots.size) pendingFrame = requestAnimationFrame(scanPendingRoots);
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
   window.__lexiaoReaderModeCleanup = function () {
     observer.disconnect();
+    if (pendingFrame) cancelAnimationFrame(pendingFrame);
+    pendingFrame = 0;
+    pendingRoots.clear();
     document.querySelectorAll('[data-lexiao-private]').forEach(function (element) {
       delete element.dataset.lexiaoPrivate;
     });

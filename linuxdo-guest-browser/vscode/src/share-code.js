@@ -21,7 +21,22 @@ const PASSWORD_GROUPS = [
   '!@#$%*-_=+'
 ];
 
-function createShareCode(topic, password, durationMs = 60 * 60 * 1000, now = Date.now(), options = {}) {
+function deriveKey(password, salt) {
+  return crypto.pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, KEY_BYTES, 'sha256');
+}
+
+// 600k iterations block the extension host for a noticeable fraction of a
+// second; the async variant runs on the libuv pool instead.
+function deriveKeyAsync(password, salt) {
+  return new Promise((resolve, reject) => {
+    crypto.pbkdf2(password, salt, PBKDF2_ITERATIONS, KEY_BYTES, 'sha256', (error, key) => {
+      if (error) reject(error);
+      else resolve(key);
+    });
+  });
+}
+
+function prepareShareCode(topic, password, durationMs, now, options = {}) {
   const normalized = normalizeTopic(topic);
   const normalizedPassword = normalizePassword(password);
   const duration = Number(durationMs);
@@ -31,10 +46,26 @@ function createShareCode(topic, password, durationMs = 60 * 60 * 1000, now = Dat
   }
   if (!Number.isInteger(createdAt) || createdAt <= 0) throw new Error('分享时间无效。');
 
-  const salt = fixedLengthBytes(options.salt || crypto.randomBytes(SALT_BYTES), SALT_BYTES, '分享盐');
-  const nonce = fixedLengthBytes(options.nonce || crypto.randomBytes(NONCE_BYTES), NONCE_BYTES, '分享随机数');
-  const key = crypto.pbkdf2Sync(normalizedPassword, salt, PBKDF2_ITERATIONS, KEY_BYTES, 'sha256');
-  const payload = createPayload(normalized, createdAt, createdAt + duration);
+  return {
+    normalizedPassword,
+    salt: fixedLengthBytes(options.salt || crypto.randomBytes(SALT_BYTES), SALT_BYTES, '分享盐'),
+    nonce: fixedLengthBytes(options.nonce || crypto.randomBytes(NONCE_BYTES), NONCE_BYTES, '分享随机数'),
+    payload: createPayload(normalized, createdAt, createdAt + duration)
+  };
+}
+
+async function createShareCodeAsync(topic, password, durationMs = 60 * 60 * 1000, now = Date.now(), options = {}) {
+  const prepared = prepareShareCode(topic, password, durationMs, now, options);
+  const key = await deriveKeyAsync(prepared.normalizedPassword, prepared.salt);
+  return sealShareCode(prepared, key);
+}
+
+function createShareCode(topic, password, durationMs = 60 * 60 * 1000, now = Date.now(), options = {}) {
+  const prepared = prepareShareCode(topic, password, durationMs, now, options);
+  return sealShareCode(prepared, deriveKey(prepared.normalizedPassword, prepared.salt));
+}
+
+function sealShareCode({ salt, nonce, payload }, key) {
   const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
   cipher.setAAD(AAD);
   const sealed = Buffer.concat([
@@ -46,7 +77,18 @@ function createShareCode(topic, password, durationMs = 60 * 60 * 1000, now = Dat
   return `${PREFIX}.${salt.toString('base64url')}.${nonce.toString('base64url')}.${sealed.toString('base64url')}`;
 }
 
+async function parseShareCodeAsync(input, password, now = Date.now()) {
+  const prepared = prepareParseShareCode(input, password);
+  const key = await deriveKeyAsync(prepared.normalizedPassword, prepared.salt);
+  return openShareCode(prepared, key, now);
+}
+
 function parseShareCode(input, password, now = Date.now()) {
+  const prepared = prepareParseShareCode(input, password);
+  return openShareCode(prepared, deriveKey(prepared.normalizedPassword, prepared.salt), now);
+}
+
+function prepareParseShareCode(input, password) {
   const code = String(input || '').trim();
   if (code.startsWith('LDGS1.')) {
     throw new Error('旧版分享内容没有密码加密，已停止支持。请让发送方使用新版插件重新生成。');
@@ -70,7 +112,10 @@ function parseShareCode(input, password, now = Date.now()) {
   }
   if (sealed.length <= TAG_BYTES || sealed.length > 4096) throw new Error('加密分享内容格式不正确。');
 
-  const key = crypto.pbkdf2Sync(normalizedPassword, salt, PBKDF2_ITERATIONS, KEY_BYTES, 'sha256');
+  return { normalizedPassword, salt, nonce, sealed };
+}
+
+function openShareCode({ nonce, sealed }, key, now) {
   let payload;
   try {
     const ciphertext = sealed.subarray(0, sealed.length - TAG_BYTES);
@@ -192,7 +237,9 @@ module.exports = {
   PBKDF2_ITERATIONS,
   PREFIX,
   createShareCode,
+  createShareCodeAsync,
   generatePassword,
   parseShareCode,
+  parseShareCodeAsync,
   validatePassword
 };

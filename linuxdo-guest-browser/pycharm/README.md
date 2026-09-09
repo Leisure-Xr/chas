@@ -5,10 +5,16 @@
 ## 下载已发布版本
 
 - [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)
-- [仓库最新 ZIP（0.11.0）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.11.0.zip)
-- SHA-256（当前构建包）：`ec549a566d1bbd18e4c1a13fd394332ccf2572ae00602da23aaf7c4b52e36346`
+- [仓库最新 ZIP（0.12.0）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.12.0.zip)
+- SHA-256（当前构建包）：`6939211e4e9718ea760f2db6c55aca0082bde9898c7b33a5f0b6533ee720f517`
 
-仓库和 `dist/` 目录只保留 `0.11.0` 最新 ZIP，旧版本安装包已清理。
+仓库和 `dist/` 目录只保留 `0.12.0` 最新 ZIP，旧版本安装包已清理。
+
+`0.12.0` 起最低支持 PyCharm 2022.3（构建号 `223`），上限提高到 `263.*`（2026.3）。需要 JetBrains Runtime 自带 JCEF；工具窗口会在缺少 JCEF 时给出提示。注意：`223` 为声明的兼容下限，当前构建仍在本机 2026.1 SDK 上完成，未在 2022.3 SDK 上实测。
+
+`0.12.0` 还把加密分享的 60 万轮 PBKDF2 移出 EDT，生成和导入分享时界面不再卡顿；游戏与隐私布局脚本改为按页只注入一次（此前每次显示休息面板和每次页面加载都会重新注入约 70 KB JS），隐私布局的 DOM 观察器改为按帧批处理并对根节点去重，长列表滚动时的渲染开销明显下降。
+
+浏览器的释放时机改为注册在工具窗口内容上（`Content.setDisposer`），这是 JetBrains 文档推荐的写法，插件被动态卸载或内容被移除时也能正确回收；此前挂在 `Project` 上属于官方明确不建议的用法。**但请注意：隐藏或折叠工具窗口并不会释放内嵌 Chromium** —— IntelliJ 只在内容被移出 `ContentManager` 或项目关闭时才触发释放，所以实际的常驻内存与 `0.11.0` 相同。如果需要在不看时回收这部分内存，目前只能关闭项目。
 
 工具窗口默认使用自适应的单色隐私阅读布局，不添加伪代码、文件标签或行号装饰。主题使用简洁标题，作者只显示单色纯用户名。帖子正文以外的图片、SVG、视频、头像、徽章、表情、用户卡、用户头衔和状态装饰全部隐藏；标题、标签、链接、状态、边框和背景统一为 IDE 黑白灰。帖子正文中的截图、附件、Onebox 和技术图片保持原色。
 
@@ -59,7 +65,7 @@ PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 可安装 ZIP 会生成在：
 
 ```text
-build/distributions/linuxdo-guest-browser-pycharm-0.11.0.zip
+build/distributions/linuxdo-guest-browser-pycharm-0.12.0.zip
 ```
 
 通过 **Settings > Plugins > 齿轮菜单 > Install Plugin from Disk** 安装，然后打开 **View > Tool Windows > LINUX DO**。

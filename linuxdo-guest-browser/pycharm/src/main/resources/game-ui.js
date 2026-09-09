@@ -112,7 +112,11 @@
   }
 
   function schedule(callback, delay) {
-    var id = setTimeout(callback, delay);
+    var id = setTimeout(function () {
+      var index = timers.indexOf(id);
+      if (index >= 0) timers.splice(index, 1);
+      callback();
+    }, delay);
     timers.push(id);
     return id;
   }
@@ -379,6 +383,7 @@
     var status = element('p', 'status', '长度 3 · 速度 1');
     var state = game.state();
     var lastStep = performance.now();
+    var pausedFrameDrawn = false;
     ui.body.append(canvas, directionPad(function (direction) { game.queueDirection(direction); }), status);
     observeGameSize(ui, canvas, 'square', function () { draw(performance.now(), false); });
 
@@ -399,6 +404,12 @@
     function draw(now, scheduleNext) {
       now = now || performance.now();
       if (scheduleNext === undefined) scheduleNext = true;
+      var paused = gameRuntime.state().paused;
+      if (scheduleNext && paused && pausedFrameDrawn) {
+        if (!state.finished) frameId = requestAnimationFrame(function (next) { draw(next, true); });
+        return;
+      }
+      pausedFrameDrawn = paused;
       var context = prepareCanvas(canvas);
       if (!context) return;
       var width = canvas.clientWidth;
@@ -415,7 +426,7 @@
       var pulse = reducedMotion() ? 1 : 0.9 + Math.sin(now / 170) * 0.08;
       context.fillStyle = '#6ab56a';
       context.beginPath(); context.arc((state.food.x + 0.5) * cell, (state.food.y + 0.5) * cell, cell * 0.28 * pulse, 0, Math.PI * 2); context.fill();
-      var progress = gameRuntime.state().paused ? 1 : Math.min(1, (now - lastStep) / state.interval);
+      var progress = paused ? 1 : Math.min(1, (now - lastStep) / state.interval);
       state.snake.slice().reverse().forEach(function (part, reverseIndex) {
         var index = state.snake.length - reverseIndex - 1;
         var old = state.previous[index] || part;
@@ -447,6 +458,7 @@
     var status = element('p', 'status', '单条道路内自由转向');
     var state = game.state();
     var previousTime;
+    var pausedFrameDrawn = false;
     ui.body.append(canvas, holdControls(input), status);
     observeGameSize(ui, canvas, 'racer', draw);
     inputReset = function () { input.reset(); game.setSteer(0); };
@@ -455,14 +467,16 @@
       if (previousTime === undefined) previousTime = time;
       var delta = (time - previousTime) / 1000;
       previousTime = time;
-      if (!gameRuntime.state().paused && !state.finished) {
+      var paused = gameRuntime.state().paused;
+      if (!paused && !state.finished) {
         game.setSteer(input.axis('left', 'right'));
         stepper.advance(delta, function (step) { state = game.step(step); });
         status.textContent = state.events.some(function (event) { return event.type === 'near-miss'; }) ? '擦肩 +5' : '速度 ' + Math.round(state.difficulty.speed * 100);
         setScore(ui, state.score);
         if (state.finished) finishGame(ui, '发生碰撞', '得分 ' + state.score);
       } else stepper.reset();
-      draw();
+      if (!paused || !pausedFrameDrawn) draw();
+      pausedFrameDrawn = paused;
       if (!state.finished) frameId = requestAnimationFrame(frame);
     }
 
@@ -503,6 +517,7 @@
     var jumpButton = holdButton('跳跃', function () { game.pressJump(); }, function () { game.releaseJump(); }, 'primary jump-button');
     var state = game.state();
     var previousTime;
+    var pausedFrameDrawn = false;
     ui.body.append(canvas, jumpButton, status);
     observeGameSize(ui, canvas, 'jumper', draw);
     inputReset = function () { game.releaseJump(); };
@@ -511,13 +526,15 @@
       if (previousTime === undefined) previousTime = time;
       var delta = (time - previousTime) / 1000;
       previousTime = time;
-      if (!gameRuntime.state().paused && !state.finished) {
+      var paused = gameRuntime.state().paused;
+      if (!paused && !state.finished) {
         stepper.advance(delta, function (step) { state = game.step(step); });
         status.textContent = '速度 ' + Math.round(state.difficulty.speed * 100) + ' · ' + Math.floor(state.elapsed) + ' 秒';
         setScore(ui, state.score);
         if (state.finished) finishGame(ui, '碰到障碍', '得分 ' + state.score);
       } else stepper.reset();
-      draw();
+      if (!paused || !pausedFrameDrawn) draw();
+      pausedFrameDrawn = paused;
       if (!state.finished) frameId = requestAnimationFrame(frame);
     }
 

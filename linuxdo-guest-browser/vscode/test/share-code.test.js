@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { createShareCode, generatePassword, parseShareCode } = require('../src/share-code');
+const { createShareCode, createShareCodeAsync, generatePassword, parseShareCode, parseShareCodeAsync } = require('../src/share-code');
 
 const TOPIC = { id: 12345, slug: 'hello-linux-do', title: '公开主题' };
 const PASSWORD = 'Correct-Horse-电池-9!';
@@ -65,4 +65,21 @@ test('encrypted payload contains only public topic metadata', () => {
   });
   const decoded = parseShareCode(code, PASSWORD, NOW);
   assert.doesNotMatch(JSON.stringify(decoded), /cookie|userAgent|secret/i);
+});
+
+test('the async variants match the synchronous fixed vectors exactly', async () => {
+  const sync = fixedCode();
+  const asyncCode = await createShareCodeAsync(TOPIC, PASSWORD, 60 * 60 * 1000, NOW, {
+    salt: FIXED_SALT,
+    nonce: FIXED_NONCE
+  });
+  assert.equal(asyncCode, sync);
+  assert.equal(asyncCode, CROSS_PLATFORM_FIXTURE);
+
+  const parsed = await parseShareCodeAsync(asyncCode, PASSWORD, NOW + 1_000);
+  assert.equal(parsed.id, TOPIC.id);
+  assert.equal(parsed.title, TOPIC.title);
+  assert.deepEqual(parsed, parseShareCode(sync, PASSWORD, NOW + 1_000));
+
+  await assert.rejects(() => parseShareCodeAsync(asyncCode, 'Wrong-Password-1234', NOW + 1_000), /密码不正确/);
 });

@@ -26,6 +26,19 @@ const REQUEST_MODES = Object.freeze({
   balanced: Object.freeze({ capacity: 2, refillIntervalMs: 5_000 }),
   careful: Object.freeze({ capacity: 1, refillIntervalMs: 8_000 })
 });
+// Images get their own bucket and pump.  Sharing the page bucket would let a
+// topic with eight inline images spend forty seconds of navigation budget, and
+// sharing the serial queue would let an image already sleeping for its token
+// block a navigation that arrives later.
+const IMAGE_MODES = Object.freeze({
+  fluent: Object.freeze({ capacity: 3, refillIntervalMs: 1_500 }),
+  balanced: Object.freeze({ capacity: 2, refillIntervalMs: 3_000 }),
+  careful: Object.freeze({ capacity: 1, refillIntervalMs: 6_000 })
+});
+const IMAGE_CONCURRENCY = 2;
+const MAX_IMAGE_BYTES = 1.5 * 1024 * 1024;
+const IMAGE_ACCEPT = 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8';
+const IMAGE_YIELD_INTERVAL_MS = 250;
 const CLEARANCE_SECRET = 'linuxdoGuest.cloudflare.clearance';
 const GUEST_COOKIE_SECRET = 'linuxdoGuest.cloudflare.guestCookies';
 const USER_AGENT_SECRET = 'linuxdoGuest.cloudflare.userAgent';
@@ -72,6 +85,15 @@ class SupersededRequestError extends Error {
   }
 }
 
+class ImageUnavailableError extends Error {
+  constructor(reason, message, retryAt = 0) {
+    super(message || '这张图片暂时无法加载。');
+    this.name = 'ImageUnavailableError';
+    this.reason = reason;
+    this.retryAt = Number(retryAt) || 0;
+  }
+}
+
 class GuestRequestSession {
   constructor(secrets, options = {}) {
     this.secrets = secrets;
@@ -109,6 +131,12 @@ class GuestRequestSession {
     this.serverBudgetUntil = 0;
     this.serverBudget = undefined;
     this.lastResponseInfo = { source: 'network', storedAt: 0, reason: 'network' };
+    this.imageQueue = [];
+    this.imagePumps = 0;
+    this.imageGeneration = 0;
+    this.imageBucketMode = this.bucketMode;
+    this.imageBucketTokens = IMAGE_MODES[this.imageBucketMode].capacity;
+    this.imageBucketUpdatedAt = this.now();
   }
 
   get isRunning() {
@@ -500,7 +528,142 @@ class GuestRequestSession {
     return data;
   }
 
+  async requestImage(rawPath) {
+    const url = assertLinuxDoRequestUrl(rawPath);
+    const now = this.now();
+    // Reject during cooldown instead of queueing, so a page full of images
+    // cannot fill the pump with jobs that are already doomed.
+    if (now < this.cooldownUntil) {
+      throw new ImageUnavailableError('cooldown', '站点正在限流，暂时不加载图片。', this.cooldownUntil);
+    }
+    if (now < this.transientProtectionUntil) {
+      throw new ImageUnavailableError('cooldown', 'Cloudflare 正在临时拦截，暂时不加载图片。', this.transientProtectionUntil);
+    }
+    return new Promise((resolve, reject) => {
+      this.imageQueue.push({ url, resolve, reject });
+      this.startImagePumps();
+    });
+  }
+
+  startImagePumps() {
+    while (this.imagePumps < IMAGE_CONCURRENCY && this.imageQueue.length > this.imagePumps) {
+      this.imagePumps += 1;
+      void this.runImagePump().finally(() => { this.imagePumps -= 1; });
+    }
+  }
+
+  async runImagePump() {
+    while (this.imageQueue.length) {
+      const job = this.imageQueue.shift();
+      try {
+        job.resolve(await this.performImageRequest(job.url, this.imageGeneration));
+      } catch (error) {
+        job.reject(error);
+      }
+    }
+  }
+
+  async performImageRequest(url, generation) {
+    // Reading always wins.  Images wait behind the page queue rather than
+    // competing with it through lane priorities.
+    while (this.requestQueue.length || this.isDrainingQueue) {
+      if (generation !== this.imageGeneration) {
+        throw new ImageUnavailableError('superseded', '图片请求已取消。');
+      }
+      await this.sleep(IMAGE_YIELD_INTERVAL_MS);
+    }
+    if (generation !== this.imageGeneration) {
+      throw new ImageUnavailableError('superseded', '图片请求已取消。');
+    }
+
+    let now = this.now();
+    if (now < this.cooldownUntil) {
+      throw new ImageUnavailableError('cooldown', '站点正在限流，暂时不加载图片。', this.cooldownUntil);
+    }
+    if (now < this.transientProtectionUntil) {
+      throw new ImageUnavailableError('cooldown', 'Cloudflare 正在临时拦截，暂时不加载图片。', this.transientProtectionUntil);
+    }
+    const serverWait = Math.max(0, this.serverBudgetUntil - now);
+    if (serverWait > 0) await this.sleep(serverWait);
+    await this.acquireImagePermit();
+
+    const verification = await this.getStoredVerification();
+    const response = await this.fetchResponse(url, verification, { binary: true, accept: IMAGE_ACCEPT });
+    now = this.now();
+    this.applyServerBudget(response, now);
+
+    if (response.networkError) {
+      throw new ImageUnavailableError('network', '图片请求失败。');
+    }
+    if (Number(response.status) === 429 || isExplicitRateLimitResponse(response)) {
+      const cooldownMs = retryAfterMilliseconds(response.retryAfter, now, DEFAULT_RATE_LIMIT_COOLDOWN_MS);
+      this.setRateLimitCooldown(response.status || 429, now, cooldownMs);
+      throw new ImageUnavailableError('cooldown', '站点开始限流，已暂停加载图片。', this.cooldownUntil);
+    }
+    // A hotlink or CDN 403 on one image must never enter the page backoff
+    // ladder; that would let a single broken upload stall reading for 30s.
+    if (Number(response.status) === 403) {
+      throw new ImageUnavailableError('blocked', '这张图片被拒绝访问。');
+    }
+    if (Number(response.status) >= 400) {
+      throw new ImageUnavailableError('network', `图片请求返回 HTTP ${response.status}。`);
+    }
+    if (response.tooLarge) {
+      throw new ImageUnavailableError('too-large', '图片超过大小上限。');
+    }
+    const contentType = String(response.contentType || '').split(';')[0].trim().toLowerCase();
+    if (!/^image\//.test(contentType)) {
+      throw new ImageUnavailableError('blocked', '返回的不是图片内容。');
+    }
+    const body = Buffer.isBuffer(response.body) ? response.body : Buffer.from(response.body || '');
+    if (!body.length) throw new ImageUnavailableError('network', '图片内容为空。');
+    if (body.length > MAX_IMAGE_BYTES) throw new ImageUnavailableError('too-large', '图片超过大小上限。');
+    // Deliberately no recordSuccessfulRequest: an image loading must not push
+    // the smart mode toward fluent for page requests.
+    return { contentType, body };
+  }
+
+  async acquireImagePermit() {
+    for (;;) {
+      const now = this.now();
+      this.refillImageBucket(now);
+      if (this.imageBucketTokens >= 1) {
+        this.imageBucketTokens -= 1;
+        return now;
+      }
+      const pacing = IMAGE_MODES[this.imageBucketMode];
+      await this.sleep(Math.ceil((1 - this.imageBucketTokens) * pacing.refillIntervalMs));
+    }
+  }
+
+  refillImageBucket(now) {
+    const mode = this.getEffectiveRequestMode();
+    if (mode !== this.imageBucketMode) {
+      this.imageBucketMode = mode;
+      this.imageBucketTokens = Math.min(this.imageBucketTokens, IMAGE_MODES[mode].capacity);
+      this.imageBucketUpdatedAt = now;
+      return;
+    }
+    const pacing = IMAGE_MODES[mode];
+    const elapsed = Math.max(0, now - this.imageBucketUpdatedAt);
+    if (elapsed > 0) {
+      this.imageBucketTokens = Math.min(pacing.capacity, this.imageBucketTokens + elapsed / pacing.refillIntervalMs);
+      this.imageBucketUpdatedAt = now;
+    }
+  }
+
+  cancelPendingImages() {
+    // Bumping the generation also releases jobs already inside a pump that are
+    // sleeping behind the page queue.
+    this.imageGeneration += 1;
+    const pending = this.imageQueue.splice(0, this.imageQueue.length);
+    for (const job of pending) {
+      job.reject(new ImageUnavailableError('superseded', '图片请求已取消。'));
+    }
+  }
+
   resetRequestState(preservePacing = false) {
+    this.cancelPendingImages();
     for (const token of this.pendingByLane.values()) {
       if (!token.started) {
         token.cancelled = true;
@@ -523,6 +686,9 @@ class GuestRequestSession {
       this.lastExplicitRateLimitAt = 0;
       this.smartStableSince = this.now();
       this.resetTokenBucket(this.now());
+      this.imageBucketMode = this.getEffectiveRequestMode();
+      this.imageBucketTokens = IMAGE_MODES[this.imageBucketMode].capacity;
+      this.imageBucketUpdatedAt = this.now();
     }
     this.lastResponseInfo = { source: 'network', storedAt: 0, reason: 'network' };
   }
@@ -623,19 +789,69 @@ function retryAfterMilliseconds(value, now, fallback) {
   return fallback;
 }
 
-async function fetchGuestResponse(url, verification = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+function buildGuestHeaders(verification = {}, { accept = 'application/json', referer = `${SITE_ORIGIN}/latest` } = {}) {
   const headers = {
-    Accept: 'application/json',
+    Accept: accept,
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-    Referer: `${SITE_ORIGIN}/latest`,
+    Referer: referer,
     'User-Agent': verification.userAgent || defaultUserAgent()
   };
   if (verification.cookieHeader) headers.Cookie = verification.cookieHeader;
   for (const [name, value] of Object.entries(verification.clientHints || {})) {
     if (/^(?:sec-ch-ua(?:-[a-z-]+)?|accept-language)$/i.test(name) && value) headers[name] = String(value);
   }
+  return headers;
+}
+
+async function fetchGuestBinary(url, verification = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const headers = buildGuestHeaders(verification, { accept: IMAGE_ACCEPT, referer: `${SITE_ORIGIN}/` });
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      cache: 'no-store',
+      headers,
+      signal: controller.signal
+    });
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    const base = {
+      status: response.status,
+      contentLength,
+      retryAfter: response.headers.get('retry-after') || '',
+      rateLimit: response.headers.get('ratelimit') || '',
+      rateLimitPolicy: response.headers.get('ratelimit-policy') || '',
+      rateLimitLimit: response.headers.get('ratelimit-limit') || response.headers.get('x-ratelimit-limit') || '',
+      rateLimitRemaining: response.headers.get('ratelimit-remaining') || response.headers.get('x-ratelimit-remaining') || '',
+      rateLimitReset: response.headers.get('ratelimit-reset') || response.headers.get('x-ratelimit-reset') || '',
+      discourseRateLimitCode: response.headers.get('discourse-rate-limit-error-code')
+        || response.headers.get('x-discourse-rate-limit-error-code') || '',
+      contentType: response.headers.get('content-type') || '',
+      cfMitigated: response.headers.get('cf-mitigated') || '',
+      cfRay: response.headers.get('cf-ray') || ''
+    };
+    if (contentLength > MAX_IMAGE_BYTES) {
+      return { ...base, tooLarge: true, text: '', body: Buffer.alloc(0) };
+    }
+    const body = Buffer.from(await response.arrayBuffer());
+    if (body.length > MAX_IMAGE_BYTES) {
+      return { ...base, tooLarge: true, text: '', body: Buffer.alloc(0) };
+    }
+    return { ...base, text: '', body };
+  } catch (error) {
+    if (error?.name === 'AbortError') return { networkError: 'timeout' };
+    return { networkError: error instanceof Error ? error.message : String(error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchGuestResponse(url, verification = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const headers = buildGuestHeaders(verification);
 
   try {
     const response = await fetch(url, {
@@ -856,6 +1072,11 @@ module.exports = {
   GUEST_COOKIE_NAMES,
   GUEST_COOKIE_SECRET,
   GuestRequestSession,
+  IMAGE_ACCEPT,
+  IMAGE_CONCURRENCY,
+  IMAGE_MODES,
+  ImageUnavailableError,
+  MAX_IMAGE_BYTES,
   MAX_RESPONSE_BYTES,
   REQUEST_BURST_CAPACITY,
   REQUEST_REFILL_INTERVAL_MS,
@@ -868,10 +1089,12 @@ module.exports = {
   USER_AGENT_SECRET,
   REQUEST_PROFILE_SECRET,
   assertLinuxDoRequestUrl,
+  buildGuestHeaders,
   cookieHeaderFromPairs,
   cacheTtlForUrl,
   cacheKeyForUrl,
   defaultUserAgent,
+  fetchGuestBinary,
   fetchGuestResponse,
   isLinuxDoUrl,
   parseCookieHeader,

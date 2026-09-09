@@ -16,7 +16,9 @@ class VerificationPanel {
       'linuxdoGuest.verification',
       'LINUX DO 验证设置',
       vscode.ViewColumn.One,
-      { enableScripts: true, retainContextWhenHidden: true }
+      // The form re-posts 'ready' after a reload and refresh() rebuilds every
+      // field from getState(), so retaining the hidden context buys nothing.
+      { enableScripts: true, retainContextWhenHidden: false }
     );
     VerificationPanel.current = new VerificationPanel(panel, context, handlers);
     return VerificationPanel.current;
@@ -25,9 +27,13 @@ class VerificationPanel {
   constructor(panel, context, handlers) {
     this.panel = panel;
     this.handlers = handlers;
+    this.disposables = [];
     panel.webview.html = getHtml(panel.webview);
-    panel.onDidDispose(() => { VerificationPanel.current = undefined; }, null, context.subscriptions);
-    panel.webview.onDidReceiveMessage((message) => void this.handleMessage(message), null, context.subscriptions);
+    panel.onDidDispose(() => {
+      VerificationPanel.current = undefined;
+      for (const disposable of this.disposables.splice(0)) disposable.dispose();
+    }, null, this.disposables);
+    panel.webview.onDidReceiveMessage((message) => void this.handleMessage(message), null, this.disposables);
   }
 
   async refresh(status) {

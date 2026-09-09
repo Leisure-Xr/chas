@@ -28,9 +28,14 @@
   let historyEntries = [];
   let historyFeedbackTimer;
   let rateLimitTimer;
+  let imageObserver;
+  let imageCounter = 0;
+  let avatarsEnabled = false;
+  const pendingImageIds = new Set();
   const pageCache = new Map();
   const historyOverlay = createHistoryOverlay();
 
+  avatarsEnabled = document.body.dataset.avatars === 'on';
   document.body.classList.toggle('compact', savedState.compact !== false);
 
   document.querySelectorAll('[data-view]').forEach((button) => {
@@ -172,6 +177,16 @@
         break;
       case 'historyCopied':
         showHistoryFeedback('URL 已复制');
+        break;
+      case 'visibility':
+        // Countdown intervals only matter to a reader who can see them.
+        if (!message.visible) clearInterval(rateLimitTimer);
+        break;
+      case 'imageData':
+        applyProxyImage(message.id, message.dataUri);
+        break;
+      case 'imageError':
+        failProxyImage(message.id, message.reason, message.retryAt);
         break;
       case 'loading':
         renderLoading();
@@ -584,6 +599,7 @@
     };
     currentPageCacheable = true;
     displayedEntryId = Number(meta.entryId) || currentEntryId;
+    hydrateProxyImages(posts);
     updateLoadMoreFooter();
   }
 
@@ -598,6 +614,8 @@
       avatar.alt = '';
       avatar.loading = 'lazy';
       header.append(avatar);
+    } else {
+      header.append(node('span', 'avatar post-avatar avatar-fallback', (post.displayName || post.username || '?').slice(0, 1).toUpperCase()));
     }
     const identity = node('div', 'post-identity');
     identity.append(node('strong', '', post.displayName || post.username), node('span', '', `@${post.username || 'unknown'}`));
@@ -640,6 +658,7 @@
         topicState.loadedPostCount += 1;
       }
     }
+    hydrateProxyImages(postList);
     updateLoadMoreFooter();
   }
 
@@ -872,11 +891,15 @@
     if (!snapshot) return false;
     disconnectLoadMoreObserver();
     disconnectTopicListObserver();
+    disconnectImageObserver();
     content.replaceChildren(...snapshot.nodes);
     topicState = cloneTopicState(snapshot.topicState);
     topicListState = cloneTopicListState(snapshot.topicListState);
     currentPageCacheable = true;
     displayedEntryId = Number(entryId);
+    // Resolved data URIs survive in the snapshot; anything never loaded still
+    // carries data-linuxdo-src and needs a fresh observer.
+    hydrateProxyImages();
     if (topicState) updateLoadMoreFooter();
     if (topicListState) updateTopicListFooter();
     requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo({ top: snapshot.scrollY, behavior: 'instant' })));
@@ -891,6 +914,84 @@
   function cloneTopicListState(value) {
     if (!value) return undefined;
     return { ...value, loading: false };
+  }
+
+  // Viewport gating is the single largest reduction in request volume: a topic
+  // only ever asks for the images the reader actually scrolls to.
+  function hydrateProxyImages(root) {
+    const scope = root || content;
+    const pending = scope.querySelectorAll('img[data-linuxdo-src]:not([data-image-id])');
+    if (!pending.length) return;
+    if (!imageObserver) {
+      imageObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          imageObserver.unobserve(entry.target);
+          requestProxyImage(entry.target);
+        });
+      }, { rootMargin: '200px 0px' });
+    }
+    pending.forEach((image) => imageObserver.observe(image));
+  }
+
+  function requestProxyImage(element) {
+    const url = element.getAttribute('data-linuxdo-src');
+    if (!url || element.dataset.imageId) return;
+    const id = `${currentEntryId || 0}:${++imageCounter}`;
+    element.dataset.imageId = id;
+    pendingImageIds.add(id);
+    element.classList.add('proxy-image-loading');
+    vscode.postMessage({ type: 'imageRequest', id, url });
+  }
+
+  function findProxyImage(id) {
+    if (!id || !pendingImageIds.has(id)) return undefined;
+    return content.querySelector(`img[data-image-id="${cssEscape(id)}"]`) || undefined;
+  }
+
+  function applyProxyImage(id, dataUri) {
+    const element = findProxyImage(id);
+    pendingImageIds.delete(id);
+    if (!element || !dataUri) return;
+    element.classList.remove('proxy-image-loading', 'proxy-image-failed');
+    element.removeAttribute('data-linuxdo-src');
+    element.src = dataUri;
+  }
+
+  function failProxyImage(id, reason, retryAt) {
+    const element = findProxyImage(id);
+    pendingImageIds.delete(id);
+    if (!element) return;
+    element.classList.remove('proxy-image-loading');
+    element.classList.add('proxy-image-failed');
+    delete element.dataset.imageId;
+    element.title = imageErrorLabel(reason, retryAt);
+  }
+
+  function imageErrorLabel(reason, retryAt) {
+    if (reason === 'cooldown') {
+      const seconds = Math.max(0, Math.ceil((Number(retryAt) - Date.now()) / 1000));
+      return seconds ? `站点限流中，约 ${seconds} 秒后可重试加载` : '站点限流中，稍后可重试加载';
+    }
+    if (reason === 'too-large') return '图片超过大小上限，点击可在浏览器打开';
+    if (reason === 'blocked') return '图片被拒绝访问';
+    if (reason === 'unsupported') return '不支持的图片地址';
+    return '图片加载失败，点击可重试';
+  }
+
+  function disconnectImageObserver() {
+    if (imageObserver) {
+      imageObserver.disconnect();
+      imageObserver = undefined;
+    }
+    if (pendingImageIds.size) {
+      vscode.postMessage({ type: 'imageCancel', ids: [...pendingImageIds] });
+      pendingImageIds.clear();
+    }
+  }
+
+  function cssEscape(value) {
+    return String(value).replace(/["\\]/g, '\\$&');
   }
 
   function sanitizeCooked(html) {
@@ -921,10 +1022,48 @@
         element.removeAttribute('src');
       }
       if (element.tagName === 'IMG') {
-        element.loading = 'lazy';
+        deferImage(element);
       }
     });
     return template.content;
+  }
+
+  // Discourse embeds dozens of emoji images per post.  Proxying those would
+  // make the request load worse than doing nothing, so they become text.
+  function isEmojiImage(element) {
+    if (/\bemoji\b/i.test(element.className || '')) return true;
+    const source = element.getAttribute('src') || '';
+    try {
+      return new URL(source, 'https://linux.do').pathname.startsWith('/images/emoji/');
+    } catch {
+      return false;
+    }
+  }
+
+  function deferImage(element) {
+    const source = element.getAttribute('src') || '';
+    if (isEmojiImage(element)) {
+      element.replaceWith(document.createTextNode(element.getAttribute('alt') || ''));
+      return;
+    }
+    if (!source || (!avatarsEnabled && /\bavatar\b/i.test(element.className || ''))) {
+      element.remove();
+      return;
+    }
+    let absolute;
+    try {
+      absolute = new URL(source, 'https://linux.do').toString();
+    } catch {
+      element.remove();
+      return;
+    }
+    element.removeAttribute('src');
+    element.setAttribute('data-linuxdo-src', absolute);
+    element.classList.add('proxy-image');
+    // Reserve layout up front so bytes landing later do not reflow the post.
+    const width = Number(element.getAttribute('width'));
+    const height = Number(element.getAttribute('height'));
+    if (width > 0 && height > 0) element.style.aspectRatio = `${width} / ${height}`;
   }
 
   function safeHttpUrl(value) {
@@ -985,6 +1124,7 @@
     clearInterval(rateLimitTimer);
     disconnectLoadMoreObserver();
     disconnectTopicListObserver();
+    disconnectImageObserver();
     topicState = undefined;
     topicListState = undefined;
     currentPageCacheable = false;

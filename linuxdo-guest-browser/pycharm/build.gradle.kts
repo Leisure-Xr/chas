@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "studio.lexiao"
-version = "0.11.0"
+version = "0.12.0"
 
 repositories {
     mavenCentral()
@@ -28,8 +28,8 @@ java {
 intellijPlatform {
     pluginConfiguration {
         ideaVersion {
-            sinceBuild.set("242")
-            untilBuild.set("262.*")
+            sinceBuild.set("223")
+            untilBuild.set("263.*")
         }
     }
 }

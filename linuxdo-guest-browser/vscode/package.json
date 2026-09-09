@@ -2,7 +2,7 @@
   "name": "linuxdo-guest-browser",
   "displayName": "LINUX DO 游客阅读器",
   "description": "在 VS Code 中以游客身份浏览 LINUX DO 的公开内容。",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "publisher": "lexiao-studio",
   "repository": {
     "type": "git",
@@ -192,12 +192,36 @@
           "type": "boolean",
           "default": false,
           "description": "开启后，在阅读器运行期间每隔随机 31–60 分钟提醒休息，并可进入五个内置小游戏。"
+        },
+        "linuxdoGuest.showAvatars": {
+          "type": "boolean",
+          "default": false,
+          "description": "显示用户头像。关闭时使用首字母色块，一页列表可少发几十个不受节奏控制的图片请求，显著降低被限流的概率。"
+        },
+        "linuxdoGuest.postImages": {
+          "type": "string",
+          "enum": [
+            "proxy",
+            "off"
+          ],
+          "enumDescriptions": [
+            "由扩展代理帖子正文图片：统一限速、带游客参数并在内存中缓存。",
+            "完全不加载帖子正文图片。"
+          ],
+          "default": "proxy",
+          "description": "选择帖子正文图片的加载方式。代理模式只在图片滚动进入视口时请求。"
+        },
+        "linuxdoGuest.nativeIdleReleaseMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "原生浏览器引擎空闲多少分钟后自动释放标签页与调试连接（0 表示不释放）。释放后下次请求会自动重连，但需要重新完成一次 Cloudflare 验证。"
         }
       }
     }
   },
   "scripts": {
-    "check": "bash ../shared/check-game-core.sh && bash ../shared/check-game-ui.sh && node --check src/extension.js && node --check src/guest-session.js && node --check src/native-browser-session.js && node --check src/request-profile.js && node --check src/reader-history.js && node --check src/share-code.js && node --check src/verification-panel.js && node --check media/game-core.js && node --check media/game-ui.js && node --check media/main.js && npm test",
+    "check": "bash ../shared/check-game-core.sh && bash ../shared/check-game-ui.sh && node --check src/extension.js && node --check src/guest-session.js && node --check src/native-browser-session.js && node --check src/image-proxy.js && node --check src/request-profile.js && node --check src/reader-history.js && node --check src/share-code.js && node --check src/verification-panel.js && node --check media/game-core.js && node --check media/game-ui.js && node --check media/main.js && npm test",
     "test": "node --test test/*.test.js",
     "package": "npx --yes @vscode/vsce@3.6.0 package --no-dependencies"
   }

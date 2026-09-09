@@ -12,16 +12,19 @@ const {
   SITE_ORIGIN,
   USER_AGENT_SECRET,
   REQUEST_PROFILE_SECRET,
+  fetchGuestBinary,
   fetchGuestResponse,
   isLinuxDoUrl
 } = require('./guest-session');
 const {
+  DEFAULT_IDLE_RELEASE_MS,
   GuestRequestTransport,
   NativeBrowserSession,
   NativeBrowserUnavailableError
 } = require('./native-browser-session');
+const { ImageProxy, imageErrorReason } = require('./image-proxy');
 const { createRequestProfile, parseCapturedRequest } = require('./request-profile');
-const { createShareCode, generatePassword, parseShareCode, validatePassword } = require('./share-code');
+const { createShareCodeAsync, generatePassword, parseShareCodeAsync, validatePassword } = require('./share-code');
 const {
   addHistoryEntry,
   createHistoryEntry,
@@ -49,6 +52,12 @@ const REQUEST_ENGINE_OPTIONS = [
   { label: 'VS Code 原生浏览器', value: 'native', description: '使用隔离的 Integrated Browser 会话，不回退到 Node 请求。' },
   { label: '手动参数', value: 'manual', description: '继续使用 Cookie、User-Agent 与 Node 请求。' }
 ];
+const HIDDEN_IDLE_RELEASE_MS = 60_000;
+
+let avatarsEnabled = false;
+let postImagesMode = 'proxy';
+let nativeIdleReleaseMs = DEFAULT_IDLE_RELEASE_MS;
+let activeImageProxy;
 
 class LinuxDoApi {
   constructor(browserSession) {
@@ -198,7 +207,9 @@ function normalizeMoreTopicsPath(value) {
 }
 
 function avatarUrl(template, size) {
-  if (!template) {
+  // Avatars are the bulk of the per-page request count; off by default they
+  // become an initial-letter block that costs nothing.
+  if (!template || !avatarsEnabled) {
     return '';
   }
   const value = String(template).replace('{size}', String(size));
@@ -267,16 +278,55 @@ class GuestReaderPanel {
     this.currentAction = undefined;
     this.history = [];
     this.browsingHistory = normalizeStoredHistory(context.globalState.get(HISTORY_STATE_KEY));
+    this.pendingImages = new Map();
+    this.disposables = [];
     this.panel.webview.html = this.getHtml();
+    // A panel-scoped store; pushing onto context.subscriptions would retain
+    // every closed reader for the life of the extension host.
     this.panel.onDidDispose(() => {
       this.cancelScheduledRetry();
+      this.pendingImages.clear();
+      for (const disposable of this.disposables.splice(0)) disposable.dispose();
       GuestReaderPanel.current = undefined;
       void Promise.allSettled([
         this.browserSession.stop(),
         activeRequestTransport?.stop()
       ]);
-    }, null, context.subscriptions);
-    this.panel.webview.onDidReceiveMessage((message) => this.handleMessage(message), null, context.subscriptions);
+    }, null, this.disposables);
+    this.panel.webview.onDidReceiveMessage((message) => this.handleMessage(message), null, this.disposables);
+    this.panel.onDidChangeViewState(({ webviewPanel }) => {
+      this.post({ type: 'visibility', visible: webviewPanel.visible });
+      // A hidden reader is exactly the case where holding a Chromium tab open
+      // is pure waste, so shorten the native idle timer while it is away.
+      activeRequestTransport?.setIdleReleaseMs?.(webviewPanel.visible ? nativeIdleReleaseMs : HIDDEN_IDLE_RELEASE_MS);
+    }, null, this.disposables);
+  }
+
+  async loadProxyImage(rawId, rawUrl) {
+    const id = String(rawId || '');
+    const url = String(rawUrl || '');
+    if (!id || !url || !activeImageProxy) return;
+    if (postImagesMode === 'off') {
+      this.post({ type: 'imageError', id, reason: 'blocked' });
+      return;
+    }
+    this.pendingImages.set(id, url);
+    try {
+      const dataUri = await activeImageProxy.load(url);
+      // A late reply for a page the reader already left must not touch the DOM.
+      if (this.pendingImages.get(id) !== url) return;
+      this.pendingImages.delete(id);
+      this.post({ type: 'imageData', id, dataUri });
+    } catch (error) {
+      if (this.pendingImages.get(id) !== url) return;
+      this.pendingImages.delete(id);
+      this.post({
+        type: 'imageError',
+        id,
+        reason: imageErrorReason(error),
+        retryAt: Number(error?.retryAt) || 0
+      });
+    }
   }
 
   updateBreakReminderSetting() {
@@ -335,6 +385,12 @@ class GuestReaderPanel {
         break;
       case 'external':
         await this.openExternal(message.url);
+        break;
+      case 'imageRequest':
+        await this.loadProxyImage(message.id, message.url);
+        break;
+      case 'imageCancel':
+        for (const id of message.ids || []) this.pendingImages.delete(String(id));
         break;
       case 'cloudflareSetup':
         await configureCloudflare(this.context, this.browserSession, () => this.refresh(false));
@@ -416,7 +472,7 @@ class GuestReaderPanel {
     if (password === undefined) return;
     let code;
     try {
-      code = createShareCode(action, password, duration.milliseconds);
+      code = await createShareCodeAsync(action, password, duration.milliseconds);
     } catch (error) {
       vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
       return;
@@ -571,14 +627,14 @@ class GuestReaderPanel {
     try {
       const data = await loader();
       if (current === this.sequence) {
-        if (activeRequestTransport?.lastEngine === 'native') returnFocusToReader(this.panel);
+        if (activeRequestTransport?.lastEngine === 'native' && activeNativeBrowserSession?.consumeFocusStolen()) returnFocusToReader(this.panel);
         onSuccess?.(data);
         if (this.currentAction?.entryId) this.currentAction.hasRenderedResult = true;
         this.post({ type: resultType, data, entryId: this.currentAction?.entryId, cacheInfo: this.browserSession.consumeLastResponseInfo(), ...meta });
       }
     } catch (error) {
       if (current === this.sequence) {
-        if (activeRequestTransport?.lastEngine === 'native') returnFocusToReader(this.panel);
+        if (activeRequestTransport?.lastEngine === 'native' && activeNativeBrowserSession?.consumeFocusStolen()) returnFocusToReader(this.panel);
         if (error instanceof CloudflareError) {
           this.post({ type: 'cloudflareRequired', message: error.message, hasClearance: error.hasClearance });
         } else {
@@ -690,16 +746,19 @@ class GuestReaderPanel {
     const gameUiUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'game-ui.js'));
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'main.js'));
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'styles.css'));
+    // With avatars off the webview cannot reach the network for images at all,
+    // so a future sanitizeCooked bug cannot reintroduce unpaced requests.
+    const imageSources = `${webview.cspSource} data:${avatarsEnabled ? ' https:' : ''}`;
     return `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${imageSources}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <link rel="stylesheet" href="${styleUri}">
   <title>LINUX DO 游客阅读器</title>
 </head>
-<body>
+<body data-avatars="${avatarsEnabled ? 'on' : 'off'}">
   <header class="toolbar">
     <button id="back" type="button" class="icon-button back-button" title="返回 (Alt+左箭头)" aria-label="返回" disabled>←</button>
     <button id="history" type="button" class="icon-button" title="浏览历史" aria-label="浏览历史">◴</button>
@@ -969,7 +1028,7 @@ async function openShareCode(context, browserSession) {
   });
   if (password === undefined) return;
   try {
-    const topic = parseShareCode(code, password);
+    const topic = await parseShareCodeAsync(code, password);
     const panel = GuestReaderPanel.createOrShow(context, browserSession, 'latest');
     panel.openSharedTopic(topic);
   } catch (error) {
@@ -1095,9 +1154,18 @@ function randomNonce() {
   return value;
 }
 
+function readImageSettings() {
+  const configuration = vscode.workspace.getConfiguration('linuxdoGuest');
+  avatarsEnabled = configuration.get('showAvatars', false);
+  postImagesMode = configuration.get('postImages', 'proxy') === 'off' ? 'off' : 'proxy';
+  nativeIdleReleaseMs = Math.max(0, Number(configuration.get('nativeIdleReleaseMinutes', 5)) || 0) * 60_000;
+}
+
 function activate(context) {
+  readImageSettings();
   const provider = new GuestTreeProvider();
   const nativeBrowserSession = new NativeBrowserSession(vscode, {
+    idleReleaseMs: nativeIdleReleaseMs,
     onStatus: (message) => {
       GuestReaderPanel.current?.post({ type: 'nativeStatus', message });
       vscode.window.setStatusBarMessage(`LINUX DO：${message}`, 8_000);
@@ -1115,16 +1183,18 @@ function activate(context) {
   const requestTransport = new GuestRequestTransport({
     nativeBrowser: nativeBrowserSession,
     manualFetch: fetchGuestResponse,
+    manualBinaryFetch: fetchGuestBinary,
     mode: vscode.workspace.getConfiguration('linuxdoGuest').get('requestEngine', 'auto')
   });
   const browserSession = new GuestRequestSession(context.secrets, {
     requestMode: vscode.workspace.getConfiguration('linuxdoGuest').get('requestMode', 'smart'),
-    fetchResponse: (url, verification) => requestTransport.fetchResponse(url, verification),
+    fetchResponse: (url, verification, options) => requestTransport.fetchResponse(url, verification, options),
     onQueueWait: ({ waitMs, reason }) => GuestReaderPanel.current?.post({ type: 'queueWait', waitMs, reason })
   });
   activeBrowserSession = browserSession;
   activeNativeBrowserSession = nativeBrowserSession;
   activeRequestTransport = requestTransport;
+  activeImageProxy = new ImageProxy({ session: browserSession });
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('linuxdoGuest.explorer', provider),
     vscode.commands.registerCommand('linuxdoGuest.open', () => {
@@ -1163,6 +1233,27 @@ function activate(context) {
       if (event.affectsConfiguration('linuxdoGuest.requestEngine')) {
         requestTransport.setMode(vscode.workspace.getConfiguration('linuxdoGuest').get('requestEngine', 'auto'));
         browserSession.resetRequestState();
+        activeImageProxy?.clear();
+      }
+      if (event.affectsConfiguration('linuxdoGuest.nativeIdleReleaseMinutes')) {
+        readImageSettings();
+        requestTransport.setIdleReleaseMs(nativeIdleReleaseMs);
+      }
+      if (event.affectsConfiguration('linuxdoGuest.postImages')) {
+        readImageSettings();
+        activeImageProxy?.clear();
+      }
+      // The CSP and the body flag are baked into the document, so the panel has
+      // to be rebuilt; the webview re-posts 'ready' and reloads the page.
+      if (event.affectsConfiguration('linuxdoGuest.showAvatars')) {
+        readImageSettings();
+        activeImageProxy?.clear();
+        const reader = GuestReaderPanel.current;
+        if (reader) {
+          reader.ready = false;
+          reader.initialAction = reader.currentAction;
+          reader.panel.webview.html = reader.getHtml();
+        }
       }
     }),
     provider.changeEmitter,
@@ -1186,8 +1277,7 @@ function returnFocusToReader(panel) {
     }
   };
   reveal();
-  setTimeout(reveal, 250);
-  setTimeout(reveal, 1_000);
+  setTimeout(reveal, 300);
 }
 
 function focusReaderEditor(vscodeApi) {

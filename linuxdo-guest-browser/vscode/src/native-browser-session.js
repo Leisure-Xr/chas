@@ -9,12 +9,16 @@ const NATIVE_DEBUG_SESSION_TYPE = 'pwa-editor-browser';
 const MINIMUM_NATIVE_BROWSER_VERSION = '1.114.0';
 const RESPONSE_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 12 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 1.5 * 1024 * 1024;
 const RESPONSE_CHUNK_BYTES = 60_000;
 const CONFIGURATION_SETTLE_MS = 1_000;
 const CONFIGURATION_RESTORE_MS = 500;
 const DEBUG_TARGET_SETTLE_MS = 3_000;
 const CHALLENGE_SETTLE_ATTEMPTS = 15;
 const CHALLENGE_SETTLE_INTERVAL_MS = 2_000;
+const DEFAULT_IDLE_RELEASE_MS = 5 * 60_000;
+const MAX_TRACKED_SESSIONS = 50;
+const IMAGE_ACCEPT = 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8';
 
 class NativeBrowserUnavailableError extends Error {
   constructor(message, cause) {
@@ -39,6 +43,16 @@ class NativeBrowserSession {
       context: 'repl'
     }));
     this.markerFactory = options.markerFactory || (() => crypto.randomBytes(8).toString('hex'));
+    this.setTimer = options.setTimer || ((callback, ms) => {
+      const timer = setTimeout(callback, ms);
+      timer.unref?.();
+      return timer;
+    });
+    this.clearTimer = options.clearTimer || ((timer) => clearTimeout(timer));
+    this.idleReleaseMs = normalizeIdleReleaseMs(options.idleReleaseMs);
+    this.idleTimer = undefined;
+    this.activeRequests = 0;
+    this.focusStolen = false;
     this.supportedPromise = undefined;
     this.attachPromise = undefined;
     this.rootSession = undefined;
@@ -46,10 +60,59 @@ class NativeBrowserSession {
     this.sessionTracker = undefined;
     this.browserTab = undefined;
     this.debugTabs = [];
-    this.terminationListener = this.vscode.debug.onDidTerminateDebugSession?.((session) => this.handleSessionTermination(session));
+    this.terminationListener = undefined;
     this.sessions = [];
     this.requestCounter = 0;
+    this.ensureTerminationListener();
     this.createSessionIdentity();
+  }
+
+  ensureTerminationListener() {
+    if (this.terminationListener) return;
+    this.terminationListener = this.vscode.debug.onDidTerminateDebugSession?.((session) => this.handleSessionTermination(session));
+  }
+
+  setIdleReleaseMs(value) {
+    this.idleReleaseMs = normalizeIdleReleaseMs(value);
+    if (this.idleTimer) {
+      this.cancelIdleRelease();
+      if (!this.activeRequests) this.scheduleIdleRelease();
+    }
+  }
+
+  cancelIdleRelease() {
+    if (!this.idleTimer) return;
+    this.clearTimer(this.idleTimer);
+    this.idleTimer = undefined;
+  }
+
+  scheduleIdleRelease() {
+    if (this.idleReleaseMs <= 0 || !this.evaluationSession) return;
+    this.cancelIdleRelease();
+    // Returning the promise keeps the teardown awaitable; the catch keeps a
+    // timer-driven failure from surfacing as an unhandled rejection.
+    this.idleTimer = this.setTimer(() => {
+      this.idleTimer = undefined;
+      return this.releaseForIdle().catch(() => {});
+    }, this.idleReleaseMs);
+  }
+
+  async releaseForIdle() {
+    // A request that started while the timer was pending must win; re-arm and
+    // let its own finally block schedule the next attempt.
+    if (this.activeRequests > 0 || this.attachPromise) {
+      this.scheduleIdleRelease();
+      return;
+    }
+    if (!this.evaluationSession && !this.rootSession) return;
+    await this.resetDebugSession(true);
+    this.onStatus?.('原生浏览器已空闲释放，下次请求会自动重连。');
+  }
+
+  consumeFocusStolen() {
+    const stolen = this.focusStolen;
+    this.focusStolen = false;
+    return stolen;
   }
 
   createSessionIdentity() {
@@ -73,38 +136,47 @@ class NativeBrowserSession {
     return this.supportedPromise;
   }
 
-  async fetchResponse(url) {
+  async fetchResponse(url, options = {}) {
     const target = url instanceof URL ? url : new URL(String(url), SITE_ORIGIN);
     if (target.origin !== SITE_ORIGIN || target.username || target.password || target.hash) {
       throw new Error('拒绝通过原生浏览器访问非 LINUX DO 接口。');
     }
 
-    let retriedFreshSession = false;
-    for (;;) {
-      try {
-        const session = await this.ensureAttached();
-        if (!this.initialChallengeWaitDone) {
-          await this.waitForChallengeToSettle(session);
-          this.initialChallengeWaitDone = true;
+    this.cancelIdleRelease();
+    this.activeRequests += 1;
+    try {
+      let retriedFreshSession = false;
+      for (;;) {
+        try {
+          const session = await this.ensureAttached();
+          if (!this.initialChallengeWaitDone) {
+            await this.waitForChallengeToSettle(session);
+            this.initialChallengeWaitDone = true;
+          }
+          const response = await this.fetchThroughPage(session, target, options);
+          // A blocked image is just a broken image.  Never hijack the user's
+          // focus with a verification tab in the middle of scrolling.
+          if (!options.binary && response.status === 403 && isChallengeResponse(response)) {
+            this.onStatus?.('Cloudflare 需要验证，请在已打开的原生浏览器标签中完成。');
+            await this.revealVerification();
+          }
+          return { ...response, nativeBrowser: true };
+        } catch (error) {
+          if (!retriedFreshSession && isStaleDebugSessionError(error)) {
+            retriedFreshSession = true;
+            await this.resetDebugSession(true);
+            continue;
+          }
+          if (error instanceof NativeBrowserUnavailableError) throw error;
+          throw new NativeBrowserUnavailableError(
+            `VS Code 原生浏览器连接失败：${error instanceof Error ? error.message : String(error)}`,
+            error
+          );
         }
-        const response = await this.fetchThroughPage(session, target);
-        if (response.status === 403 && isChallengeResponse(response)) {
-          this.onStatus?.('Cloudflare 需要验证，请在已打开的原生浏览器标签中完成。');
-          await this.revealVerification();
-        }
-        return { ...response, nativeBrowser: true };
-      } catch (error) {
-        if (!retriedFreshSession && isStaleDebugSessionError(error)) {
-          retriedFreshSession = true;
-          await this.resetDebugSession(true);
-          continue;
-        }
-        if (error instanceof NativeBrowserUnavailableError) throw error;
-        throw new NativeBrowserUnavailableError(
-          `VS Code 原生浏览器连接失败：${error instanceof Error ? error.message : String(error)}`,
-          error
-        );
       }
+    } finally {
+      this.activeRequests -= 1;
+      if (!this.activeRequests) this.scheduleIdleRelease();
     }
   }
 
@@ -123,11 +195,17 @@ class NativeBrowserSession {
     }
 
     this.onStatus?.('正在准备 VS Code 原生游客浏览器...');
+    this.ensureTerminationListener();
+    this.focusStolen = true;
     await this.openEphemeralBrowser();
     this.sessions = [];
     this.sessionTracker?.dispose();
     this.sessionTracker = this.vscode.debug.onDidStartDebugSession((session) => {
-      if (String(session.type).includes('editor-browser')) this.sessions.push(session);
+      if (!String(session.type).includes('editor-browser')) return;
+      this.sessions.push(session);
+      // linux.do spawns a child target per iframe and worker; waitForSession
+      // only ever scans this array, so cap it.
+      while (this.sessions.length > MAX_TRACKED_SESSIONS) this.sessions.shift();
     });
 
     const tabsBeforeDebug = listAllTabs(this.vscode);
@@ -221,20 +299,22 @@ class NativeBrowserSession {
     }
   }
 
-  async fetchThroughPage(session, url) {
+  async fetchThroughPage(session, url, options = {}) {
+    const binary = Boolean(options.binary);
     const requestId = `${this.now()}_${++this.requestCounter}`;
     const metaExpression = createFetchExpression({
       url: url.toString(),
       storeName: this.storeName,
       requestId,
       timeoutMs: RESPONSE_TIMEOUT_MS,
-      maxBytes: MAX_RESPONSE_BYTES
+      maxBytes: binary ? MAX_IMAGE_BYTES : MAX_RESPONSE_BYTES,
+      accept: options.accept || ''
     });
     let meta;
     try {
       meta = JSON.parse(await this.evaluateEncoded(session, metaExpression));
       if (meta.networkError || meta.tooLarge || !Number.isInteger(meta.byteLength) || meta.byteLength < 0) {
-        return { ...meta, text: '' };
+        return { ...meta, text: '', body: Buffer.alloc(0) };
       }
       const chunks = [];
       for (let offset = 0; offset < meta.byteLength; offset += RESPONSE_CHUNK_BYTES) {
@@ -248,7 +328,7 @@ class NativeBrowserSession {
       }
       const body = Buffer.concat(chunks);
       if (body.length !== meta.byteLength) throw new Error('原生浏览器响应分块长度不一致。');
-      return { ...meta, text: body.toString('utf8') };
+      return { ...meta, body, text: binary ? '' : body.toString('utf8') };
     } finally {
       try {
         await this.evaluateRaw(session, `delete globalThis[${JSON.stringify(this.storeName)}]?.[${JSON.stringify(requestId)}]`);
@@ -288,6 +368,7 @@ class NativeBrowserSession {
   }
 
   async revealVerification() {
+    this.focusStolen = true;
     if (!this.opened) {
       await this.ensureAttached();
       return;
@@ -299,13 +380,17 @@ class NativeBrowserSession {
   }
 
   handleSessionTermination(session) {
-    if (![this.rootSession?.id, this.evaluationSession?.id].includes(session?.id)) return;
+    if (!session) return;
+    this.sessions = this.sessions.filter((candidate) => candidate.id !== session.id);
+    if (session.id !== this.rootSession?.id && session.id !== this.evaluationSession?.id) return;
     this.rootSession = undefined;
     this.evaluationSession = undefined;
     this.initialChallengeWaitDone = false;
+    this.cancelIdleRelease();
   }
 
   async resetDebugSession(newIdentity = false) {
+    this.cancelIdleRelease();
     const root = this.rootSession;
     const browserTab = this.browserTab;
     const debugTabs = this.debugTabs;
@@ -351,9 +436,10 @@ class NativeBrowserSession {
 }
 
 class GuestRequestTransport {
-  constructor({ nativeBrowser, manualFetch, mode = 'auto' }) {
+  constructor({ nativeBrowser, manualFetch, manualBinaryFetch, mode = 'auto' }) {
     this.nativeBrowser = nativeBrowser;
     this.manualFetch = manualFetch;
+    this.manualBinaryFetch = manualBinaryFetch;
     this.mode = normalizeTransportMode(mode);
     this.lastEngine = 'manual';
   }
@@ -366,25 +452,33 @@ class GuestRequestTransport {
     // Candidate verification must test the exact Cookie/User-Agent pair the
     // user entered.  Do not silently validate it with the already-running
     // native browser session, whose cookies may be different.
+    const manualFetch = options.binary ? this.manualBinaryFetch : this.manualFetch;
     if (this.mode === 'manual' || options.forceManual) {
       this.lastEngine = 'manual';
-      return this.manualFetch(url, verification);
+      return manualFetch(url, verification);
     }
     const supported = await this.nativeBrowser.isSupported();
     if (!supported) {
       if (this.mode === 'native') throw new NativeBrowserUnavailableError('当前 VS Code 不支持原生集成浏览器请求。');
       this.lastEngine = 'manual';
-      return this.manualFetch(url, verification);
+      return manualFetch(url, verification);
     }
     try {
-      const response = await this.nativeBrowser.fetchResponse(url);
+      const response = await this.nativeBrowser.fetchResponse(url, {
+        binary: options.binary,
+        accept: options.accept
+      });
       this.lastEngine = 'native';
       return response;
     } catch (error) {
       if (this.mode !== 'auto' || !(error instanceof NativeBrowserUnavailableError)) throw error;
       this.lastEngine = 'manual';
-      return this.manualFetch(url, verification);
+      return manualFetch(url, verification);
     }
+  }
+
+  setIdleReleaseMs(value) {
+    this.nativeBrowser.setIdleReleaseMs?.(value);
   }
 
   async stop() {
@@ -392,8 +486,13 @@ class GuestRequestTransport {
   }
 }
 
-function createFetchExpression({ url, storeName, requestId, timeoutMs, maxBytes }) {
-  return `(async()=>{const encode=(text)=>{const bytes=new TextEncoder().encode(text);let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));return 'LDNB64:'+btoa(binary)};const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),${Number(timeoutMs)});try{const response=await fetch(${JSON.stringify(url)},{method:'GET',credentials:'include',cache:'no-store',redirect:'follow',signal:controller.signal});const text=await response.text();const bytes=new TextEncoder().encode(text);const meta={status:response.status,contentLength:bytes.length,byteLength:bytes.length,retryAfter:response.headers.get('retry-after')||'',rateLimit:response.headers.get('ratelimit')||'',rateLimitPolicy:response.headers.get('ratelimit-policy')||'',rateLimitLimit:response.headers.get('ratelimit-limit')||response.headers.get('x-ratelimit-limit')||'',rateLimitRemaining:response.headers.get('ratelimit-remaining')||response.headers.get('x-ratelimit-remaining')||'',rateLimitReset:response.headers.get('ratelimit-reset')||response.headers.get('x-ratelimit-reset')||'',discourseRateLimitCode:response.headers.get('discourse-rate-limit-error-code')||response.headers.get('x-discourse-rate-limit-error-code')||'',contentType:response.headers.get('content-type')||'',cfMitigated:response.headers.get('cf-mitigated')||'',cfRay:response.headers.get('cf-ray')||'',tooLarge:bytes.length>${Number(maxBytes)}};if(!meta.tooLarge){const store=globalThis[${JSON.stringify(storeName)}]||(globalThis[${JSON.stringify(storeName)}]=Object.create(null));store[${JSON.stringify(requestId)}]=bytes}return encode(JSON.stringify(meta))}catch(error){return encode(JSON.stringify({networkError:error?.name==='AbortError'?'timeout':String(error?.message||error)}))}finally{clearTimeout(timer)}})()`;
+function createFetchExpression({ url, storeName, requestId, timeoutMs, maxBytes, accept = '' }) {
+  // Read the body as bytes.  Decoding to a string and re-encoding replaces every
+  // byte that is not valid UTF-8 with U+FFFD, which silently corrupts images.
+  const init = accept
+    ? `{method:'GET',credentials:'include',cache:'no-store',redirect:'follow',signal:controller.signal,headers:{Accept:${JSON.stringify(accept)}}}`
+    : `{method:'GET',credentials:'include',cache:'no-store',redirect:'follow',signal:controller.signal}`;
+  return `(async()=>{const encode=(text)=>{const bytes=new TextEncoder().encode(text);let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));return 'LDNB64:'+btoa(binary)};const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),${Number(timeoutMs)});try{const response=await fetch(${JSON.stringify(url)},${init});const bytes=new Uint8Array(await response.arrayBuffer());const meta={status:response.status,contentLength:bytes.length,byteLength:bytes.length,retryAfter:response.headers.get('retry-after')||'',rateLimit:response.headers.get('ratelimit')||'',rateLimitPolicy:response.headers.get('ratelimit-policy')||'',rateLimitLimit:response.headers.get('ratelimit-limit')||response.headers.get('x-ratelimit-limit')||'',rateLimitRemaining:response.headers.get('ratelimit-remaining')||response.headers.get('x-ratelimit-remaining')||'',rateLimitReset:response.headers.get('ratelimit-reset')||response.headers.get('x-ratelimit-reset')||'',discourseRateLimitCode:response.headers.get('discourse-rate-limit-error-code')||response.headers.get('x-discourse-rate-limit-error-code')||'',contentType:response.headers.get('content-type')||'',cfMitigated:response.headers.get('cf-mitigated')||'',cfRay:response.headers.get('cf-ray')||'',tooLarge:bytes.length>${Number(maxBytes)}};if(!meta.tooLarge){const store=globalThis[${JSON.stringify(storeName)}]||(globalThis[${JSON.stringify(storeName)}]=Object.create(null));store[${JSON.stringify(requestId)}]=bytes}return encode(JSON.stringify(meta))}catch(error){return encode(JSON.stringify({networkError:error?.name==='AbortError'?'timeout':String(error?.message||error)}))}finally{clearTimeout(timer)}})()`;
 }
 
 function createChunkExpression({ storeName, requestId, start, end }) {
@@ -467,6 +566,13 @@ function normalizeTransportMode(value) {
   return ['auto', 'native', 'manual'].includes(value) ? value : 'auto';
 }
 
+function normalizeIdleReleaseMs(value) {
+  if (value === undefined || value === null) return DEFAULT_IDLE_RELEASE_MS;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.max(30_000, Math.round(parsed));
+}
+
 function compareVersions(left, right) {
   const leftParts = String(left).split('.').map((value) => Number(value) || 0);
   const rightParts = String(right).split('.').map((value) => Number(value) || 0);
@@ -488,7 +594,10 @@ function delay(milliseconds) {
 module.exports = {
   CHALLENGE_SETTLE_ATTEMPTS,
   CHALLENGE_SETTLE_INTERVAL_MS,
+  DEFAULT_IDLE_RELEASE_MS,
   GuestRequestTransport,
+  IMAGE_ACCEPT,
+  MAX_IMAGE_BYTES,
   MAX_RESPONSE_BYTES,
   MINIMUM_NATIVE_BROWSER_VERSION,
   NativeBrowserSession,

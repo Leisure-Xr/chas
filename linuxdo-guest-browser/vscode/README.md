@@ -5,10 +5,10 @@
 ## 下载已发布版本
 
 - [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)
-- [仓库最新 VSIX（0.16.0）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.16.0.vsix)
-- SHA-256：`f6c4d9ebcf2fd89c06108e055008b144f8d6d87fb3bfc6e487915e344dfbc49c`
+- [仓库最新 VSIX（0.17.0）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.17.0.vsix)
+- SHA-256：`c5266a4a59493c3d3db20ba06c458a893bd3b960ebc257f12843a2342545c9ad`
 
-仓库和 `dist/` 目录只保留 `0.16.0` 最新 VSIX，旧版本安装包已清理。
+仓库和 `dist/` 目录只保留 `0.17.0` 最新 VSIX，旧版本安装包已清理。
 
 ## 功能
 
@@ -22,6 +22,8 @@
 - 在 VS Code 内阅读帖子
 - 使用返回按钮或 `Alt+左箭头` 回到上一个列表、分类或搜索结果
 - 公开接口可选智能、流畅、均衡和稳妥四档请求节奏；正常导航优先于手动续载和自动续载
+- 头像默认关闭，帖子正文图片由扩展代理并统一限速，图片流量不再绕过请求节奏
+- 原生浏览器引擎空闲后自动释放标签页与调试连接，下次请求自动重连
 - 返回时保留此前已加载的主题、帖子和滚动位置
 - 首页、热门和分类列表滚动到底自动续页
 - 长主题滚动到底自动续载，每批最多加载 20 条帖子
@@ -31,7 +33,7 @@
 
 ## 遇到 Cloudflare 403
 
-`0.16.0` 起，VS Code 默认优先使用 VS Code 自带的 **Integrated Browser（内置 Chromium）**。它不是外部 Chrome，也不会启动 ChromeDriver、读取日常浏览器数据或把游客 Cookie 交给外部程序。Cloudflare 验证直接在 VS Code 的浏览器标签中完成，随后同一个标签内的 `/latest.json`、列表、主题和分页请求会保持同一浏览器会话。
+`0.17.0` 起，VS Code 默认优先使用 VS Code 自带的 **Integrated Browser（内置 Chromium）**。它不是外部 Chrome，也不会启动 ChromeDriver、读取日常浏览器数据或把游客 Cookie 交给外部程序。Cloudflare 验证直接在 VS Code 的浏览器标签中完成，随后同一个标签内的 `/latest.json`、列表、主题和分页请求会保持同一浏览器会话。
 
 如果你的 VS Code 版本没有 Integrated Browser，或你主动选择了“手动参数”引擎，才会使用下方的 Cookie、User-Agent 和客户端提示。请求引擎可通过命令 `LINUX DO: 设置请求引擎` 切换：
 
@@ -91,6 +93,16 @@
 阅读器工具栏中的时钟按钮用于开启或关闭休息提醒，方格按钮可以随时打开小游戏。分享按钮右侧的链接按钮用于“打开加密分享”，也可在活动栏中选择同名入口。也可以在 VS Code 设置中搜索 `LINUX DO 休息提醒` 修改开关。提醒开启后会随机等待 31–60 分钟；选择“10 分钟后提醒”只会执行一次短暂延后。
 
 工具栏中的历史按钮会打开不影响当前阅读状态的历史层。它最多保存 60 条成功加载的公开页面，显示页面标题、完整 URL 和访问时间；可以搜索标题或 URL、重新打开页面、单独复制 URL，也可以确认后清空全部历史。同一主题的楼层 URL 会归一化为一条记录，Cloudflare 挑战地址和登录地址不会入库，常见站点标题后缀会自动清理。历史只保存在 VS Code 的本地全局状态中，不包含 Cookie、UA、帖子内容或滚动位置。
+
+### 图片与资源占用设置
+
+| 设置项 | 默认 | 说明 |
+| --- | --- | --- |
+| `linuxdoGuest.showAvatars` | `false` | 头像默认改为首字母色块。头像此前是 webview 里的 `<img>` 直连，绕过令牌桶和冷却，一页列表会瞬间并发几十个请求，是最常见的限流来源。关闭时页面 CSP 会去掉 `https:` 图片来源，从浏览器层面杜绝失控请求。 |
+| `linuxdoGuest.postImages` | `"proxy"` | 帖子正文图片改由扩展代理：独立图片令牌桶（流畅每 1.5 秒、均衡每 3 秒、稳妥每 6 秒）、最多 2 并发、滚动进入视口才请求，并与页面请求共享冷却与服务器预算。单张上限 1.5 MB，只缓存在内存中（最多 120 条 / 24 MB）。设为 `"off"` 则完全不加载。 |
+| `linuxdoGuest.nativeIdleReleaseMinutes` | `5` | 原生浏览器引擎空闲多少分钟后释放标签页与调试连接；阅读器隐藏时缩短到 1 分钟。`0` 表示常驻。**释放后重连需要重新完成一次 Cloudflare 验证**，因此不建议设得过小。 |
+
+图片的 403 只影响那一张图片，不会进入页面请求的短退避阶梯；图片的 429 或 `Retry-After` 仍会让所有请求一起进入冷却。
 
 ## 加密分享教程
 

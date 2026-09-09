@@ -638,3 +638,121 @@ function mapSecrets(values) {
     delete: async (key) => values.delete(key)
   };
 }
+
+// Images pace themselves against the wall clock, so the image tests drive a
+// virtual clock and defer through real macrotasks.  An instantly-resolving
+// sleep would starve the macrotask queue inside the yield loop.
+function imageSession(options = {}) {
+  let clock = options.start || 1_700_000_000_000;
+  const session = new GuestRequestSession(options.secrets || memorySecrets(), {
+    now: () => clock,
+    sleep: async (ms) => {
+      clock += Math.max(1, Number(ms) || 0);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+    fetchResponse: options.fetchResponse,
+    requestMode: options.requestMode
+  });
+  return { session, advance: (ms) => { clock += ms; }, currentTime: () => clock };
+}
+
+const PNG_BODY = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+
+test('an image 403 never enters the page protection backoff', async () => {
+  const { session } = imageSession({
+    fetchResponse: async () => ({ status: 403, contentType: 'text/html', text: '', body: Buffer.alloc(0) })
+  });
+  await assert.rejects(
+    () => session.requestImage('https://linux.do/uploads/blocked.png'),
+    (error) => error.name === 'ImageUnavailableError' && error.reason === 'blocked'
+  );
+  // A hotlink or CDN 403 on one image must not stall reading for 8/15/30 s.
+  assert.equal(session.transientProtectionCount, 0);
+  assert.equal(session.transientProtectionUntil, 0);
+  assert.equal(session.cooldownUntil, 0);
+});
+
+test('an image 429 pauses every lane through the shared cooldown', async () => {
+  const { session, currentTime } = imageSession({
+    fetchResponse: async () => ({ status: 429, retryAfter: '30', contentType: 'text/html', text: '', body: Buffer.alloc(0) })
+  });
+  await assert.rejects(
+    () => session.requestImage('https://linux.do/uploads/limited.png'),
+    (error) => error.reason === 'cooldown'
+  );
+  assert.ok(session.cooldownUntil >= currentTime() + 30_000);
+  await assert.rejects(() => session.request('/latest.json'), RateLimitError);
+});
+
+test('images are refused during cooldown without reaching the network', async () => {
+  let calls = 0;
+  const { session, currentTime } = imageSession({
+    fetchResponse: async () => { calls += 1; return { status: 200, contentType: 'image/png', body: PNG_BODY }; }
+  });
+  session.setRateLimitCooldown(429, currentTime(), 60_000);
+  await assert.rejects(
+    () => session.requestImage('https://linux.do/uploads/a.png'),
+    (error) => error.reason === 'cooldown' && error.retryAt === session.cooldownUntil
+  );
+  assert.equal(calls, 0);
+  assert.equal(session.imageQueue.length, 0);
+});
+
+test('the image lane keeps its own bucket and never exceeds two in flight', async () => {
+  let active = 0;
+  let peak = 0;
+  const { session } = imageSession({
+    fetchResponse: async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      active -= 1;
+      return { status: 200, contentType: 'image/png', body: PNG_BODY };
+    }
+  });
+  const results = await Promise.all([1, 2, 3, 4, 5].map(
+    (index) => session.requestImage(`https://linux.do/uploads/${index}.png`)
+  ));
+  assert.equal(results.length, 5);
+  assert.equal(results.every((entry) => entry.contentType === 'image/png'), true);
+  assert.ok(peak <= 2, `expected at most 2 concurrent image fetches, saw ${peak}`);
+  // Page pacing state must be untouched by image traffic.
+  assert.equal(session.bucketTokens, REQUEST_MODES[session.bucketMode].capacity);
+  assert.equal(session.lastSuccessfulRequestAt, 0);
+  assert.equal(session.lastRequestAt, 0);
+});
+
+test('non-image bodies and oversized images are rejected by reason', async () => {
+  const html = imageSession({
+    fetchResponse: async () => ({ status: 200, contentType: 'text/html; charset=utf-8', body: Buffer.from('<html>') })
+  });
+  await assert.rejects(
+    () => html.session.requestImage('https://linux.do/uploads/challenge.png'),
+    (error) => error.reason === 'blocked'
+  );
+
+  const big = imageSession({
+    fetchResponse: async () => ({ status: 200, contentType: 'image/png', tooLarge: true, body: Buffer.alloc(0) })
+  });
+  await assert.rejects(
+    () => big.session.requestImage('https://linux.do/uploads/big.png'),
+    (error) => error.reason === 'too-large'
+  );
+});
+
+test('resetting request state cancels queued and yielding images alike', async () => {
+  const { session } = imageSession({
+    fetchResponse: async () => ({ status: 200, contentType: 'image/png', body: PNG_BODY })
+  });
+  // A non-empty page queue parks every image in the yield loop.
+  session.requestQueue.push({ token: { priority: 10, cancelled: false }, order: 0 });
+  const settled = Promise.allSettled([1, 2, 3, 4, 5].map(
+    (index) => session.requestImage(`https://linux.do/uploads/${index}.png`)
+  ));
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  session.resetRequestState();
+  const results = await settled;
+  assert.equal(results.length, 5);
+  assert.equal(results.every((entry) => entry.status === 'rejected' && entry.reason.reason === 'superseded'), true);
+  assert.equal(session.imageQueue.length, 0);
+});
