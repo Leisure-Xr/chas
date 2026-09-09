@@ -1,5 +1,5 @@
 import { defineCase } from '../case-definition.mjs';
-import { checkSharedCopies } from '../checks.mjs';
+import { checkIdeStarted, checkSharedCopies } from '../checks.mjs';
 
 export const sharedCases = [
   defineCase({
@@ -80,5 +80,15 @@ export const sharedCases = [
       { action: '加载任意游客列表和公开主题。', expected: '按页面类型、URL 和导航状态判断，不依赖固定标题或主题编号。' }
     ],
     expected: '用例不会因站点正常内容变化产生误报。'
+  }),
+  defineCase({
+    id: 'SHR-007',
+    title: '真实 IDE 进程启动并写入隔离日志',
+    product: 'shared',
+    priority: 'P0',
+    type: 'automated',
+    capabilities: ['launched'],
+    expected: '目标 IDE 保持运行并在隔离目录写入启动日志。',
+    run: checkIdeStarted
   })
 ];

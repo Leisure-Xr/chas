@@ -5,7 +5,7 @@ import { basename, resolve } from 'node:path';
 import { checkPyCharmArtifact, checkVsCodeArtifact } from './checks.mjs';
 import { casesFor } from './cases/index.mjs';
 import { RESULT_STATUSES } from './case-definition.mjs';
-import { capabilitiesFor, inspectIde, prepareIsolatedIde } from './environment.mjs';
+import { capabilitiesFor, inspectIde, prepareIsolatedIde, stopPreparedIde } from './environment.mjs';
 import { LOCK_PATH, REPOSITORY_ROOT, RUNS_ROOT } from './paths.mjs';
 import { readJson, writeJson } from './json-file.mjs';
 import { assertReleaseId } from './identifiers.mjs';
@@ -34,20 +34,28 @@ export async function runSuite(options) {
   const runId = `${timestamp()}-${targetId}-${process.platform}-${process.arch}`;
   const preparation = await prepareIsolatedIde({ ide, artifact: artifactInfo.artifact, runId, launch });
   const capabilities = capabilitiesFor(ide, target);
+  if (launch) capabilities.push('launched');
   const selected = casesFor(product, process.platform, capabilities)
     .filter(testCase => mode === 'all' || testCase.type === mode);
   if (!selected.length) throw new Error(`No ${mode} cases apply to ${targetId}`);
 
   const prompt = interactive ? createInterface({ input: stdin, output: stdout }) : null;
   const results = [];
+  let diagnostics = null;
   try {
     for (const testCase of selected) results.push(await executeCase(testCase, { ide, target, preparation }, prompt));
   } finally {
     prompt?.close();
+    if (launch) {
+      try {
+        diagnostics = await collectLogSummary(preparation.logRoot, runId);
+      } finally {
+        await stopPreparedIde(preparation);
+      }
+    }
   }
   const { stdout: commitOutput } = await runCommand('git', ['rev-parse', 'HEAD'], { cwd: REPOSITORY_ROOT });
   const { stdout: statusOutput } = await runCommand('git', ['status', '--porcelain', '--', 'linuxdo-guest-browser'], { cwd: REPOSITORY_ROOT });
-  const diagnostics = launch ? await collectLogSummary(preparation.logRoot, runId) : null;
   const record = {
     schemaVersion: 1,
     runId,

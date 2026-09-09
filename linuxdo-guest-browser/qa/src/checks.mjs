@@ -24,6 +24,20 @@ export async function checkSharedCopies() {
   return { detail: `Verified ${pairs.length} shared resource copies.` };
 }
 
+export async function checkIdeStarted({ preparation }) {
+  if (!preparation?.pid) throw new Error('IDE launch did not return a process ID');
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (!processIsAlive(preparation.pid)) throw new Error('IDE process exited during startup');
+    if (await containsLogFile(preparation.logRoot)) {
+      await new Promise(resolveDelay => setTimeout(resolveDelay, 2_000));
+      if (!processIsAlive(preparation.pid)) throw new Error('IDE process exited immediately after creating its startup log');
+      return { detail: 'Real IDE process started and wrote an isolated startup log.' };
+    }
+    await new Promise(resolveDelay => setTimeout(resolveDelay, 1_000));
+  }
+  throw new Error('IDE did not create an isolated startup log within 30 seconds');
+}
+
 export async function runVsCodeUnitTests() {
   const testRoot = resolve(PROJECT_ROOT, 'vscode', 'test');
   const tests = (await readdir(testRoot))
@@ -116,4 +130,28 @@ function capture(value, pattern, label) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function containsLogFile(root) {
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+  for (const entry of entries) {
+    if (entry.isFile() && /\.(?:log|txt)$/i.test(entry.name)) return true;
+    if (entry.isDirectory() && await containsLogFile(resolve(root, entry.name))) return true;
+  }
+  return false;
 }
