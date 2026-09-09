@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "runId": "20260909T182227Z-vscode-latest-darwin-arm64",
+  "release": "0.2.0",
+  "commit": "afea3ff8e772d70fcba121c6a82d7288147f6ae1",
+  "workingTreeDirty": false,
+  "product": "vscode",
+  "matrixTarget": "vscode-latest",
+  "platform": "darwin",
+  "arch": "arm64",
+  "host": {
+    "os": "darwin",
+    "release": "25.5.0"
+  },
+  "ide": {
+    "version": "1.137.0",
+    "build": "645f29cc3176500b4b5762ba887cf2a7f0ffdf2c"
+  },
+  "plugin": {
+    "version": "0.18.0",
+    "sha256": "a508ef0f7e86e7a0448ac400ce836b9b7ec76b41ccaa7f7b7390dd8c6d97410d",
+    "fileName": "linuxdo-guest-browser-vscode-0.18.0.vsix"
+  },
+  "isolation": {
+    "prepared": true,
+    "launched": true,
+    "logLocation": "system temporary directory"
+  },
+  "diagnostics": {
+    "filesScanned": 20,
+    "fatalCount": 0,
+    "evidence": {
+      "fileName": "ide-log-summary.txt",
+      "bytes": 468,
+      "sha256": "fba335e88777271e25619544705624a940b0ee68e078e54a4343358cf3c22ae4",
+      "url": null
+    }
+  },
+  "startedAt": "2026-09-09T18:22:27.433Z",
+  "capabilities": [
+    "package",
+    "source",
+    "visible-desktop",
+    "live-network",
+    "cross-product",
+    "vscode-native",
+    "latest",
+    "vscode-manual",
+    "launched"
+  ],
+  "results": [
+    {
+      "caseId": "SHR-001",
+      "type": "automated",
+      "priority": "P0",
+      "status": "PASS",
+      "durationMs": 1,
+      "note": "Verified 4 shared resource copies.",
+      "evidence": []
+    },
+    {
+      "caseId": "SHR-007",
+      "type": "automated",
+      "priority": "P0",
+      "status": "PASS",
+      "durationMs": 2002,
+      "note": "Real IDE process started and wrote an isolated startup log.",
+      "evidence": []
+    },
+    {
+      "caseId": "VSC-001",
+      "type": "automated",
+      "priority": "P0",
+      "status": "PASS",
+      "durationMs": 9,
+      "note": "VSIX 0.18.0 matches the source manifest.",
+      "evidence": []
+    },
+    {
+      "caseId": "VSC-002",
+      "type": "automated",
+      "priority": "P0",
+      "status": "PASS",
+      "durationMs": 709,
+      "note": "VS Code unit suite passed (107 tests).",
+      "evidence": []
+    }
+  ]
+}
