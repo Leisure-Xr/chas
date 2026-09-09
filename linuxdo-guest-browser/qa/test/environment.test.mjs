@@ -37,12 +37,17 @@ test('PyCharm inspection reads product-info and normalizes its build', async () 
     await writeFile(resolve(executableRoot, 'pycharm'), '');
     await writeFile(resolve(resources, 'product-info.json'), JSON.stringify({
       name: 'PyCharm', version: '2022.3.3', buildNumber: 'PY-223.1', productCode: 'PY',
-      launch: [{ os: 'macOS', arch: 'aarch64', launcherPath: '../MacOS/pycharm' }]
+      launch: [{
+        os: 'macOS', arch: 'aarch64', launcherPath: '../MacOS/pycharm', vmOptionsFilePath: '../bin/pycharm.vmoptions'
+      }]
     }));
+    await mkdir(resolve(app, 'Contents', 'bin'), { recursive: true });
+    await writeFile(resolve(app, 'Contents', 'bin', 'pycharm.vmoptions'), '-Xmx1024m\n');
     const ide = await inspectIde('pycharm', app);
     assert.equal(ide.version, '2022.3.3');
     assert.equal(ide.build, '223.1');
     assert.equal(ide.envVarBaseName, 'PYCHARM');
+    assert.equal(ide.vmOptionsPath, resolve(app, 'Contents', 'bin', 'pycharm.vmoptions'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
