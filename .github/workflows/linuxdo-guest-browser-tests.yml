@@ -30,6 +30,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Install QA dependencies
+        run: npm --prefix qa ci
       - name: Test QA runner and packaged artifacts
         run: npm --prefix qa test
       - name: Validate test cases, generated docs, and run records
@@ -55,6 +57,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Install QA dependencies
+        run: npm --prefix qa ci
       - name: Test Windows QA adapters and archive inspection
         run: npm --prefix qa test
       - name: Validate test definitions and committed records
@@ -92,6 +96,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Install QA dependencies
+        run: npm --prefix qa ci
       - name: Enforce committed macOS and Windows matrix results
         run: node qa/bin/qa.mjs report --release "${{ inputs.release }}" --gate
       - name: Upload release summaries and evidence indexes
