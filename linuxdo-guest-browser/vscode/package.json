@@ -2,7 +2,7 @@
   "name": "linuxdo-guest-browser",
   "displayName": "LINUX DO 游客阅读器",
   "description": "在 VS Code 中以游客身份浏览 LINUX DO 的公开内容。",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "publisher": "lexiao-studio",
   "repository": {
     "type": "git",
@@ -188,6 +188,11 @@
           "default": "auto",
           "description": "选择游客公开接口使用的请求引擎。原生模式会创建专用 ephemeral 浏览器标签。"
         },
+        "linuxdoGuest.persistContentCache": {
+          "type": "boolean",
+          "default": true,
+          "description": "把已读页面的公开 JSON 缓存写入插件存储目录（最多 80 条 / 4 MB，保留 6 小时）。重启后仍能在站点限流时直接显示上次内容，而不是整页报错。关闭后立即删除已写入的缓存文件。"
+        },
         "linuxdoGuest.breakReminder.enabled": {
           "type": "boolean",
           "default": false,
@@ -221,7 +226,7 @@
     }
   },
   "scripts": {
-    "check": "bash ../shared/check-game-core.sh && bash ../shared/check-game-ui.sh && node --check src/extension.js && node --check src/guest-session.js && node --check src/native-browser-session.js && node --check src/image-proxy.js && node --check src/request-profile.js && node --check src/reader-history.js && node --check src/share-code.js && node --check src/verification-panel.js && node --check media/game-core.js && node --check media/game-ui.js && node --check media/main.js && npm test",
+    "check": "bash ../shared/check-game-core.sh && bash ../shared/check-game-ui.sh && node --check src/extension.js && node --check src/guest-session.js && node --check src/native-browser-session.js && node --check src/image-proxy.js && node --check src/content-cache.js && node --check src/request-profile.js && node --check src/reader-history.js && node --check src/share-code.js && node --check src/verification-panel.js && node --check media/game-core.js && node --check media/game-ui.js && node --check media/main.js && npm test",
     "test": "node --test test/*.test.js",
     "package": "npx --yes @vscode/vsce@3.6.0 package --no-dependencies"
   }

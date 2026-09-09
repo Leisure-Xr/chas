@@ -8,7 +8,7 @@
 
 | IDE | 插件版本 | Release 下载页 | 安装包 | SHA-256 |
 | --- | --- | --- | --- | --- |
-| VS Code | `0.17.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.17.0.vsix) | `linuxdo-guest-browser-vscode-0.17.0.vsix` | `c5266a4a59493c3d3db20ba06c458a893bd3b960ebc257f12843a2342545c9ad` |
+| VS Code | `0.18.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.18.0.vsix) | `linuxdo-guest-browser-vscode-0.18.0.vsix` | `b8de295790294feaeb3816152c1d3b320e41bea35f175d17d32b809561c1acad` |
 | PyCharm | `0.12.0` | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.12.0.zip) | `linuxdo-guest-browser-pycharm-0.12.0.zip` | `6939211e4e9718ea760f2db6c55aca0082bde9898c7b33a5f0b6533ee720f517` |
 
 下载后可用
@@ -18,7 +18,7 @@
 
 ### VS Code
 
-打开扩展面板，选择右上角菜单中的 `Install from VSIX...`，然后选择 VSIX 文件。`0.17.0` 验证包安装前请确认 VS Code 版本不低于 `1.114` 才能使用内置浏览器引擎；较旧版本仍可安装，但需要切换到手动参数请求引擎。
+打开扩展面板，选择右上角菜单中的 `Install from VSIX...`，然后选择 VSIX 文件。`0.18.0` 验证包安装前请确认 VS Code 版本不低于 `1.114` 才能使用内置浏览器引擎；较旧版本仍可安装，但需要切换到手动参数请求引擎。
 
 VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。`0.17.0` 默认优先在 VS Code 内置 Integrated Browser 中完成 challenge，并让后续请求保持同一 Chromium 会话；不启动外部 Chrome 或 ChromeDriver。没有该能力时可切换到手动参数。请求可选智能、流畅、均衡和稳妥四档，始终单并发；平滑令牌桶取代 60 秒本地硬窗口，正常导航优先于续载，尚未发送的旧导航会取消。只有明确的 429、`Retry-After` 或限流标记才进入服务器冷却；challenge 与无标记 403 不再被单次判定为档案失效，而是使用独立短退避并保留现有页面。最近 60 条公开页面历史可搜索、重新打开、复制 URL 或全部清除。验证页支持粘贴同一次 `/latest.json` 的完整 Request Headers 或 Chrome、Edge、Brave 的 Copy as cURL，也可同时手动填写 Cookie 与 User-Agent。完整的 Windows DevTools 步骤、接口差异表和示意图见 [VS Code 说明](vscode/README.md)。
 
@@ -79,6 +79,7 @@ cd pycharm
 - PyCharm 会清理其 JCEF 配置中的 `linux.do` Cookie，不影响系统浏览器。
 - 两个插件最多保存最近 60 条公开页面的标题、URL 和访问时间；历史界面可复制 URL 或一键清除。
 - VS Code 代理的帖子图片只缓存在扩展进程内存中（最多 120 条 / 24 MB），不写入磁盘，关闭 VS Code 或切换请求引擎即清空。
+- VS Code 会把已读页面的公开 JSON 快照写入插件存储目录（最多 80 条 / 4 MB，保留 6 小时），用于站点限流时继续显示上次内容；只含论坛公开数据，不含任何凭据。可用 `linuxdoGuest.persistContentCache` 关闭，关闭时立即删除该文件；阅读器历史界面的“全部清除”也会一并删除。
 - 游戏只保存休息提醒开关和五款游戏的最高分整数，不记录游戏过程或使用时长。
 - 不包含分析、遥测或广告代码。
 

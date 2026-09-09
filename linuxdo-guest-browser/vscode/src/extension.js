@@ -23,6 +23,7 @@ const {
   NativeBrowserUnavailableError
 } = require('./native-browser-session');
 const { ImageProxy, imageErrorReason } = require('./image-proxy');
+const { CACHE_FILE_NAME, createContentCacheStore } = require('./content-cache');
 const { createRequestProfile, parseCapturedRequest } = require('./request-profile');
 const { createShareCodeAsync, generatePassword, parseShareCodeAsync, validatePassword } = require('./share-code');
 const {
@@ -540,13 +541,14 @@ class GuestReaderPanel {
 
   async clearBrowsingHistory() {
     const answer = await vscode.window.showWarningMessage(
-      '清除本机保存的全部 LINUX DO 浏览历史？',
+      '清除本机保存的全部 LINUX DO 浏览历史和已缓存的页面内容？',
       { modal: true },
       '清除全部'
     );
     if (answer !== '清除全部') return;
     this.browsingHistory = [];
     await this.context.globalState.update(HISTORY_STATE_KEY, undefined);
+    await this.browserSession.clearPersistedCache();
     this.sendHistory();
   }
 
@@ -1186,9 +1188,18 @@ function activate(context) {
     manualBinaryFetch: fetchGuestBinary,
     mode: vscode.workspace.getConfiguration('linuxdoGuest').get('requestEngine', 'auto')
   });
+  const contentCacheStore = createContentCacheStore({
+    fs: vscode.workspace.fs,
+    directoryUri: context.globalStorageUri,
+    fileUri: vscode.Uri.joinPath(context.globalStorageUri, CACHE_FILE_NAME)
+  });
+  const persistContentCache = vscode.workspace.getConfiguration('linuxdoGuest').get('persistContentCache', true);
+  // Turning the setting off has to remove what an earlier session already wrote.
+  if (!persistContentCache) void contentCacheStore.clear();
   const browserSession = new GuestRequestSession(context.secrets, {
     requestMode: vscode.workspace.getConfiguration('linuxdoGuest').get('requestMode', 'smart'),
     fetchResponse: (url, verification, options) => requestTransport.fetchResponse(url, verification, options),
+    cacheStore: persistContentCache ? contentCacheStore : undefined,
     onQueueWait: ({ waitMs, reason }) => GuestReaderPanel.current?.post({ type: 'queueWait', waitMs, reason })
   });
   activeBrowserSession = browserSession;
@@ -1305,7 +1316,9 @@ function focusReaderEditor(vscodeApi) {
   void activate();
 }
 
-function deactivate() {
+async function deactivate() {
+  // stop() clears the in-memory cache, so the snapshot has to be written first.
+  await Promise.allSettled([activeBrowserSession?.flushCache()]);
   return Promise.allSettled([
     activeBrowserSession?.stop(),
     activeRequestTransport?.stop()
