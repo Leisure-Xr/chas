@@ -9,6 +9,12 @@
 - 访问 VS Code、JetBrains 官方发布源以及 `linux.do` 的网络。
 - 真实联网测试必须使用全新游客配置，不得使用论坛账号或把 Cookie、请求头、完整 User-Agent 放入证据。
 
+首次运行先安装锁定的纯 Node ZIP 解析依赖：
+
+```bash
+npm --prefix qa ci
+```
+
 ## 常用命令
 
 ```bash

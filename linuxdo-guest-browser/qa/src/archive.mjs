@@ -1,20 +1,15 @@
-import { runCommand } from './process.mjs';
+import AdmZip from 'adm-zip';
 
 export async function listArchive(path) {
-  const { stdout } = process.platform === 'win32'
-    ? await runCommand('tar', ['-tf', path])
-    : await runCommand('unzip', ['-Z1', path]);
-  return stdout.split(/\r?\n/).filter(Boolean);
+  return new AdmZip(path).getEntries().map(entry => entry.entryName);
 }
 
 export async function readArchiveEntry(path, entry) {
-  const { stdout } = process.platform === 'win32'
-    ? await runCommand('tar', ['-xOf', path, entry])
-    : await runCommand('unzip', ['-p', path, entry]);
-  return stdout;
+  const value = new AdmZip(path).getEntry(entry);
+  if (!value) throw new Error(`${entry} is missing from ${path}`);
+  return value.getData().toString('utf8');
 }
 
 export async function extractArchive(path, destination) {
-  if (process.platform === 'win32') await runCommand('tar', ['-xf', path, '-C', destination]);
-  else await runCommand('unzip', ['-q', path, '-d', destination]);
+  new AdmZip(path).extractAllTo(destination, true);
 }
