@@ -6,7 +6,7 @@
 
 - [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)
 - [仓库最新 ZIP（0.12.0）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.12.0.zip)
-- SHA-256（当前构建包）：`6939211e4e9718ea760f2db6c55aca0082bde9898c7b33a5f0b6533ee720f517`
+- SHA-256（当前构建包）：`7ca4eb5d9d1c69d55ec52a8631de4efdc61c816c43c9fd1897db312c771a8a50`
 
 仓库和 `dist/` 目录只保留 `0.12.0` 最新 ZIP，旧版本安装包已清理。
 

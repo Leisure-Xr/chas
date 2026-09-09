@@ -6,7 +6,7 @@
 
 - [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)
 - [仓库最新 VSIX（0.18.0）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.18.0.vsix)
-- SHA-256：`b8de295790294feaeb3816152c1d3b320e41bea35f175d17d32b809561c1acad`
+- SHA-256：`a508ef0f7e86e7a0448ac400ce836b9b7ec76b41ccaa7f7b7390dd8c6d97410d`
 
 仓库和 `dist/` 目录只保留 `0.18.0` 最新 VSIX，旧版本安装包已清理。
 
