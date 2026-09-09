@@ -60,7 +60,8 @@ export async function inspectPyCharm(idePath) {
     version: info.version,
     build: String(info.buildNumber || '').replace(/^PY-/, '') || null,
     launcher,
-    productCode: info.productCode
+    productCode: info.productCode,
+    envVarBaseName: info.envVarBaseName || 'PYCHARM'
   };
 }
 
@@ -128,14 +129,19 @@ async function preparePyCharm(ide, artifact, root, launch) {
   await extractArchive(artifact, plugins);
   let pid = null;
   if (launch) {
-    pid = await spawnDetached(ide.launcher, [
-      `-Didea.config.path=${config}`,
-      `-Didea.system.path=${system}`,
-      `-Didea.plugins.path=${plugins}`,
-      `-Didea.log.path=${logs}`,
-      '-Dide.no.platform.update=true',
-      PROJECT_ROOT
-    ]);
+    const properties = resolve(root, 'idea.properties');
+    const propertyPath = value => value.replaceAll('\\', '/');
+    await writeFile(properties, [
+      `idea.config.path=${propertyPath(config)}`,
+      `idea.system.path=${propertyPath(system)}`,
+      `idea.plugins.path=${propertyPath(plugins)}`,
+      `idea.log.path=${propertyPath(logs)}`,
+      'ide.no.platform.update=true',
+      ''
+    ].join('\n'), 'utf8');
+    pid = await spawnDetached(ide.launcher, [PROJECT_ROOT], {
+      env: { ...process.env, [`${ide.envVarBaseName}_PROPERTIES`]: properties }
+    });
   }
   return { isolationRoot: root, logRoot: logs, pid };
 }
