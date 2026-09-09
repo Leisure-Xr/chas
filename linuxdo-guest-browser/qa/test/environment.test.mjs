@@ -35,10 +35,12 @@ test('PyCharm inspection reads product-info and normalizes its build', async () 
     await mkdir(resources, { recursive: true });
     await mkdir(executableRoot, { recursive: true });
     await writeFile(resolve(executableRoot, 'pycharm'), '');
+    const platform = process.platform === 'darwin' ? 'macOS' : process.platform === 'win32' ? 'Windows' : 'Linux';
+    const architecture = process.arch === 'arm64' ? 'aarch64' : process.arch;
     await writeFile(resolve(resources, 'product-info.json'), JSON.stringify({
       name: 'PyCharm', version: '2022.3.3', buildNumber: 'PY-223.1', productCode: 'PY',
       launch: [{
-        os: 'macOS', arch: 'aarch64', launcherPath: '../MacOS/pycharm', vmOptionsFilePath: '../bin/pycharm.vmoptions'
+        os: platform, arch: architecture, launcherPath: '../MacOS/pycharm', vmOptionsFilePath: '../bin/pycharm.vmoptions'
       }]
     }));
     await mkdir(resolve(app, 'Contents', 'bin'), { recursive: true });
