@@ -42,3 +42,11 @@ test('history is capped at sixty entries', () => {
   assert.equal(history.length, MAX_ENTRIES);
   assert.equal(history[0].action.id, 80);
 });
+
+test('history keeps a valid topic when its slug is missing or non-ASCII', () => {
+  const missing = createHistoryEntry({ type: 'topic', id: 123 }, 'Missing slug', undefined, 1);
+  const unicode = createHistoryEntry({ type: 'topic', id: 456, slug: '中文主题' }, 'Unicode slug', undefined, 2);
+  assert.equal(missing.url, 'https://linux.do/t/topic/123');
+  assert.deepEqual(missing.action, { type: 'topic', id: 123, slug: 'topic' });
+  assert.equal(unicode.url, 'https://linux.do/t/topic/456');
+});

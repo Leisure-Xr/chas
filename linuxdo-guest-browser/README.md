@@ -4,12 +4,12 @@
 
 ## 下载
 
-仓库只保留当前最新构建包；进入 GitHub Release [`0.2.0`](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0) 或直接下载下表中的文件：
+仓库只保留当前最新构建包，直接下载下表中的文件；此前的 GitHub Release `0.2.0` 保留为历史发布：
 
 | IDE | 插件版本 | Release 下载页 | 安装包 | SHA-256 |
 | --- | --- | --- | --- | --- |
-| VS Code | `0.18.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.18.0.vsix) | `linuxdo-guest-browser-vscode-0.18.0.vsix` | `a508ef0f7e86e7a0448ac400ce836b9b7ec76b41ccaa7f7b7390dd8c6d97410d` |
-| PyCharm | `0.12.0` | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.12.0.zip) | `linuxdo-guest-browser-pycharm-0.12.0.zip` | `7ca4eb5d9d1c69d55ec52a8631de4efdc61c816c43c9fd1897db312c771a8a50` |
+| VS Code | `0.19.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.19.0.vsix) | `linuxdo-guest-browser-vscode-0.19.0.vsix` | `3d83c65888a67f171997c570ab2f1c95e9cf28246853ab2947a967a68114bd8e` |
+| PyCharm | `0.13.0` | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.13.0.zip) | `linuxdo-guest-browser-pycharm-0.13.0.zip` | `dc62301e7fa8940d2463ff447e44454e6a18589df41fa1eb5e43470bf726148b` |
 
 下载后可用
 `certutil -hashfile <文件> SHA256`（Windows）或 `shasum -a 256 <文件>`（macOS/Linux）核对完整性。
@@ -18,7 +18,7 @@
 
 ### VS Code
 
-打开扩展面板，选择右上角菜单中的 `Install from VSIX...`，然后选择 VSIX 文件。`0.18.0` 验证包安装前请确认 VS Code 版本不低于 `1.114` 才能使用内置浏览器引擎；较旧版本仍可安装，但需要切换到手动参数请求引擎。
+打开扩展面板，选择右上角菜单中的 `Install from VSIX...`，然后选择 VSIX 文件。`0.19.0` 验证包安装前请确认 VS Code 版本不低于 `1.114` 才能使用内置浏览器引擎；较旧版本仍可安装，但需要切换到手动参数请求引擎。
 
 VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。`0.17.0` 默认优先在 VS Code 内置 Integrated Browser 中完成 challenge，并让后续请求保持同一 Chromium 会话；不启动外部 Chrome 或 ChromeDriver。没有该能力时可切换到手动参数。请求可选智能、流畅、均衡和稳妥四档，始终单并发；平滑令牌桶取代 60 秒本地硬窗口，正常导航优先于续载，尚未发送的旧导航会取消。只有明确的 429、`Retry-After` 或限流标记才进入服务器冷却；challenge 与无标记 403 不再被单次判定为档案失效，而是使用独立短退避并保留现有页面。最近 60 条公开页面历史可搜索、重新打开、复制 URL 或全部清除。验证页支持粘贴同一次 `/latest.json` 的完整 Request Headers 或 Chrome、Edge、Brave 的 Copy as cURL，也可同时手动填写 Cookie 与 User-Agent。完整的 Windows DevTools 步骤、接口差异表和示意图见 [VS Code 说明](vscode/README.md)。
 
@@ -26,9 +26,11 @@ VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续�
 
 ### PyCharm
 
-打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。插件支持 PyCharm 2022.3 及以上（构建号 223–263.*）；2022.3 兼容性为声明值，当前构建在 2026.1 SDK 上完成，未在 2022.3 SDK 上实测。
+打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。插件支持 PyCharm 2022.3 及以上（构建号 223–263.*）；已在 2022.3.3、2024.2.6 和 2026.2.2 上完成真实启动与插件加载验证，当前构建使用 2026.1 SDK。
 
-PyCharm 版使用内嵌 JCEF 浏览器，默认采用自适应的单色隐私阅读布局，可从“…”菜单切回原始网页。隐私布局删除伪代码、行号和示例标签，隐藏正文外的图片、SVG、视频、头像、徽章、表情、用户卡与身份装饰，并将标题、标签、链接、状态和纯用户名统一为 IDE 黑白灰；帖子正文里的截图、附件、Onebox 和技术图片保持原色。固定顶栏只保留返回、前进、刷新和“…”；最新、热门、分类及搜索位于导航行，历史、提醒、游戏、分享、导入、教程、布局切换和重置会话只放在“…”菜单。自适应历史弹窗显示最近 60 条公开页面的标题、URL 与访问时间，支持搜索、打开、复制 URL 和全部清除。
+PyCharm 版使用内嵌 JCEF 浏览器，默认采用自适应的单色隐私阅读布局，可从“…”菜单切回原始网页。隐私布局删除伪代码、行号和示例标签，隐藏正文外的图片、SVG、视频、头像、徽章、表情、用户卡与身份装饰，并将标题、标签、链接、状态和纯用户名统一为 IDE 黑白灰；帖子正文里的截图、附件、Onebox 和技术图片保持原色。固定顶栏只保留返回、前进、刷新和“…”；最新、热门、分类及搜索位于导航行，历史、收藏、提醒、游戏、分享、导入、教程、布局切换和重置会话只放在“…”菜单。
+
+两个版本都修复了已打开主题未进入历史的问题，并提供本地收藏夹。收藏夹可创建、重命名和删除多个目录，每个目录保存对应的公开主题；支持搜索、打开、复制 URL 和移除主题，同一主题可放入多个目录。
 
 ### 休息提醒与小游戏
 
@@ -80,11 +82,11 @@ cd pycharm
 node qa/bin/qa.mjs validate
 node qa/bin/qa.mjs inspect --product vscode --ide "/Applications/Visual Studio Code.app"
 node qa/bin/qa.mjs run --product vscode --target vscode-latest \
-  --ide "/Applications/Visual Studio Code.app" --release 0.2.0 --mode all --interactive --launch
-node qa/bin/qa.mjs report --release 0.2.0 --gate
+  --ide "/Applications/Visual Studio Code.app" --release 0.3.0 --mode all --interactive --launch
+node qa/bin/qa.mjs report --release 0.3.0 --gate
 ```
 
-自动化单测或包结构校验不能代替真实 IDE 测试。当前 `0.2.0` 的本机发布包与自动回归已通过，但历史 IDE、真实联网 GUI 和 Windows 节点仍未完成，因此[兼容性门禁保持 BLOCKED](qa/runs/0.2.0/summary.md)，不能把声明范围写成已全部实测。
+自动化单测或包结构校验不能代替真实 IDE 测试。最新构建的版本矩阵与未完成项记录在 [`qa/runs/0.3.0/`](qa/runs/0.3.0/)；Windows 真实 GUI 和人工联网用例补齐前，不能把声明范围写成已全部实测。
 
 ## 隐私
 
@@ -92,6 +94,7 @@ node qa/bin/qa.mjs report --release 0.2.0 --gate
 - VS Code 使用 SecretStorage 保存原子游客请求档案，只包含白名单 Cookie、User-Agent、允许的客户端提示、来源与验证状态。
 - PyCharm 会清理其 JCEF 配置中的 `linux.do` Cookie，不影响系统浏览器。
 - 两个插件最多保存最近 60 条公开页面的标题、URL 和访问时间；历史界面可复制 URL 或一键清除。
+- 收藏夹只保存目录名、公开主题标题、规范 URL 和收藏时间，不保存帖子正文、Cookie、User-Agent 或登录状态。
 - VS Code 代理的帖子图片只缓存在扩展进程内存中（最多 120 条 / 24 MB），不写入磁盘，关闭 VS Code 或切换请求引擎即清空。
 - VS Code 会把已读页面的公开 JSON 快照写入插件存储目录（最多 80 条 / 4 MB，保留 6 小时），用于站点限流时继续显示上次内容；只含论坛公开数据，不含任何凭据。可用 `linuxdoGuest.persistContentCache` 关闭，关闭时立即删除该文件；阅读器历史界面的“全部清除”也会一并删除。
 - 游戏只保存休息提醒开关和五款游戏的最高分整数，不记录游戏过程或使用时长。

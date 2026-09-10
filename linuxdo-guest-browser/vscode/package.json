@@ -2,7 +2,7 @@
   "name": "linuxdo-guest-browser",
   "displayName": "LINUX DO 游客阅读器",
   "description": "在 VS Code 中以游客身份浏览 LINUX DO 的公开内容。",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "publisher": "lexiao-studio",
   "repository": {
     "type": "git",
@@ -226,7 +226,7 @@
     }
   },
   "scripts": {
-    "check": "bash ../shared/check-game-core.sh && bash ../shared/check-game-ui.sh && node --check src/extension.js && node --check src/guest-session.js && node --check src/native-browser-session.js && node --check src/image-proxy.js && node --check src/content-cache.js && node --check src/request-profile.js && node --check src/reader-history.js && node --check src/share-code.js && node --check src/verification-panel.js && node --check media/game-core.js && node --check media/game-ui.js && node --check media/main.js && npm test",
+    "check": "bash ../shared/check-game-core.sh && bash ../shared/check-game-ui.sh && node --check src/extension.js && node --check src/guest-session.js && node --check src/native-browser-session.js && node --check src/image-proxy.js && node --check src/content-cache.js && node --check src/request-profile.js && node --check src/reader-history.js && node --check src/favorites.js && node --check src/share-code.js && node --check src/verification-panel.js && node --check media/game-core.js && node --check media/game-ui.js && node --check media/main.js && npm test",
     "test": "node --test test/*.test.js",
     "package": "npx --yes @vscode/vsce@3.6.0 package --no-dependencies"
   }

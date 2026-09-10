@@ -23,8 +23,8 @@ node qa/bin/qa.mjs resolve --target vscode-1.114
 node qa/bin/qa.mjs provision --target vscode-1.114
 node qa/bin/qa.mjs inspect --product vscode --ide "/Applications/Visual Studio Code.app"
 node qa/bin/qa.mjs run --product vscode --target vscode-latest \
-  --ide "/Applications/Visual Studio Code.app" --release 0.2.0 --mode all --interactive --launch
-node qa/bin/qa.mjs report --release 0.2.0 --gate
+  --ide "/Applications/Visual Studio Code.app" --release 0.3.0 --mode all --interactive --launch
+node qa/bin/qa.mjs report --release 0.3.0 --gate
 ```
 
 `resolve` 只更新显式指定的目标；`--all` 也是一次显式的全量更新。官方元数据写入 `ide-lock.json`，下载后 `provision` 会计算 SHA-256 并补回锁文件。日常测试必须使用锁定版本，不会自动跟随最新版漂移。

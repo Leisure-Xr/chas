@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "studio.lexiao"
-version = "0.12.0"
+version = "0.13.0"
 
 repositories {
     mavenCentral()
@@ -47,6 +47,7 @@ tasks.withType<JavaCompile>().configureEach {
 val compatibilityTestClasses = listOf(
     "studio.lexiao.linuxdo.ShareCodeTest",
     "studio.lexiao.linuxdo.ReaderHistoryTest",
+    "studio.lexiao.linuxdo.ReaderFavoritesTest",
     "studio.lexiao.linuxdo.PluginDescriptorTest"
 )
 
