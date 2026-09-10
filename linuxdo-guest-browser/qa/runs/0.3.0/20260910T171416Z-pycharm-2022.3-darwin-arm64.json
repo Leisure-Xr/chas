@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "runId": "20260910T171416Z-pycharm-2022.3-darwin-arm64",
+  "release": "0.3.0",
+  "commit": "452a4e8253f1f73359c6e19b4e4082582e205a80",
+  "workingTreeDirty": false,
+  "product": "pycharm",
+  "matrixTarget": "pycharm-2022.3",
+  "platform": "darwin",
+  "arch": "arm64",
+  "host": {
+    "os": "darwin",
+    "release": "25.5.0"
+  },
+  "ide": {
+    "version": "2022.3.3",
+    "build": "223.8836.43"
+  },
+  "plugin": {
+    "version": "0.13.0",
+    "sha256": "dc62301e7fa8940d2463ff447e44454e6a18589df41fa1eb5e43470bf726148b",
+    "fileName": "linuxdo-guest-browser-pycharm-0.13.0.zip"
+  },
+  "isolation": {
+    "prepared": true,
+    "launched": true,
+    "logLocation": "system temporary directory"
+  },
+  "diagnostics": {
+    "filesScanned": 1,
+    "fatalCount": 0,
+    "evidence": {
+      "fileName": "ide-log-summary.txt",
+      "bytes": 11633,
+      "sha256": "9089a0bf1c1e36e2bcd0150716922a98d18a4d76fcb4e74321c52d86c669f7a4",
+      "url": null
+    }
+  },
+  "startedAt": "2026-09-10T17:14:16.567Z",
+  "capabilities": [
+    "package",
+    "source",
+    "visible-desktop",
+    "live-network",
+    "cross-product",
+    "jcef",
+    "launched"
+  ],
+  "results": [
+    {
+      "caseId": "PYC-001",
+      "type": "automated",
+      "priority": "P0",
+      "status": "PASS",
+      "durationMs": 4,
+      "note": "PyCharm ZIP 0.13.0 declares builds 223-263.* and passed package verification.",
+      "evidence": []
+    },
+    {
+      "caseId": "SHR-001",
+      "type": "automated",
+      "priority": "P0",
+      "status": "PASS",
+      "durationMs": 1,
+      "note": "Verified 4 shared resource copies.",
+      "evidence": []
+    },
+    {
+      "caseId": "SHR-007",
+      "type": "automated",
+      "priority": "P0",
+      "status": "PASS",
+      "durationMs": 3005,
+      "note": "Real IDE process started and wrote an isolated startup log.",
+      "evidence": []
+    }
+  ]
+}
