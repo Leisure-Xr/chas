@@ -75,6 +75,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
@@ -107,6 +108,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private static final String BREAK_REMINDER_PROPERTY = "linuxdo.guest.breakReminder.enabled";
         private static final String DEMO_MODE_PROPERTY = "linuxdo.guest.demoMode.enabled";
         private static final String HISTORY_PROPERTY = "linuxdo.guest.readerHistory";
+        private static final String FAVORITES_PROPERTY = "linuxdo.guest.favoriteFolders";
         private static final String BREAK_ACTION_PATH = "/__lexiao_break/";
         private static final String GAME_BEST_PROPERTY = "linuxdo.guest.gameBest.";
         private static final int SNOOZE_MINUTES = 10;
@@ -162,6 +164,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private final List<ReaderHistory.Entry> browsingHistory = new ArrayList<>(
                 ReaderHistory.parse(properties.getValue(HISTORY_PROPERTY))
         );
+        private final List<ReaderFavorites.Folder> favoriteFolders = new ArrayList<>(
+                ReaderFavorites.parse(properties.getValue(FAVORITES_PROPERTY))
+        );
         private final Map<String, JToggleButton> navigationButtons = new LinkedHashMap<>();
         private volatile boolean demoMode = properties.getBoolean(DEMO_MODE_PROPERTY, true);
         private volatile boolean breakOverlayVisible;
@@ -174,6 +179,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private volatile String currentPageTitle = "LINUX DO 公开主题";
         private volatile boolean mainLoadFailed;
         private JBPopup historyPopup;
+        private JBPopup favoritesPopup;
         private volatile boolean disposed;
 
         private record ShareSettings(long duration, String password) {}
@@ -331,6 +337,10 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             JPopupMenu menu = new JPopupMenu();
             menu.add(menuAction(demoMode ? "使用原始网页布局" : "使用隐私阅读布局", demoButton::doClick));
             menu.add(menuAction("浏览历史", this::showHistoryPopup));
+            JMenuItem favoriteItem = menuAction("收藏当前主题", this::favoriteCurrentTopic);
+            favoriteItem.setEnabled(shareButton.isEnabled());
+            menu.add(favoriteItem);
+            menu.add(menuAction("收藏夹", this::showFavoritesPopup));
             menu.add(menuAction(breakReminderEnabled ? "关闭休息提醒" : "开启休息提醒", breakReminderButton::doClick));
             menu.add(menuAction("打开小游戏", gameButton::doClick));
             JMenuItem shareItem = menuAction("分享当前主题", shareButton::doClick);
@@ -375,6 +385,16 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
         private void installHistoryStateHandler() {
             browser.getJBCefClient().addDisplayHandler(new CefDisplayHandlerAdapter() {
+                @Override
+                public void onAddressChange(CefBrowser cefBrowser, CefFrame frame, String url) {
+                    if (frame == null || !frame.isMain()) return;
+                    SwingUtilities.invokeLater(() -> {
+                        if (disposed) return;
+                        updateNavigationState(url);
+                        recordHistory(url, historyTitleForUrl(url, safeCurrentTitle()));
+                    });
+                }
+
                 @Override
                 public void onTitleChange(CefBrowser cefBrowser, String title) {
                     if (title == null || title.isBlank()) return;
@@ -684,6 +704,259 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             historyButton.setEnabled(false);
             status.setText("浏览历史已清除");
             if (historyPopup != null) historyPopup.cancel();
+        }
+
+        private void favoriteCurrentTopic() {
+            ShareCode.Topic topic = ShareCode.fromTopicUrl(browser.getCefBrowser().getURL(), safeCurrentTitle());
+            if (topic == null) {
+                status.setText("请先打开一个主题");
+                return;
+            }
+            ReaderFavorites.Folder folder = chooseFavoriteFolder();
+            if (folder == null) return;
+            try {
+                replaceFavoriteFolders(ReaderFavorites.add(
+                        favoriteFolders, folder.id(), topic.url(), topic.title(), System.currentTimeMillis()));
+                status.setText("已收藏到“" + folder.name() + "”");
+            } catch (IllegalArgumentException error) {
+                JOptionPane.showMessageDialog(this, error.getMessage(), "无法收藏", JOptionPane.WARNING_MESSAGE);
+            }
+        }
+
+        private ReaderFavorites.Folder chooseFavoriteFolder() {
+            ArrayList<String> options = favoriteFolders.stream()
+                    .map(ReaderFavorites.Folder::name)
+                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+            String createLabel = "＋ 新建收藏目录";
+            options.add(createLabel);
+            Object selected = JOptionPane.showInputDialog(
+                    this, "选择收藏目录", "收藏当前主题", JOptionPane.PLAIN_MESSAGE,
+                    null, options.toArray(), options.get(0));
+            if (selected == null) return null;
+            if (createLabel.equals(selected.toString())) return promptCreateFavoriteFolder();
+            return favoriteFolders.stream().filter(folder -> folder.name().equals(selected.toString())).findFirst().orElse(null);
+        }
+
+        private ReaderFavorites.Folder promptCreateFavoriteFolder() {
+            while (true) {
+                String name = JOptionPane.showInputDialog(this, "目录名称", "新建收藏目录", JOptionPane.PLAIN_MESSAGE);
+                if (name == null) return null;
+                String id = "folder-" + UUID.randomUUID().toString().replace("-", "");
+                try {
+                    replaceFavoriteFolders(ReaderFavorites.createFolder(
+                            favoriteFolders, name, id, System.currentTimeMillis()));
+                    return favoriteFolders.stream().filter(folder -> folder.id().equals(id)).findFirst().orElse(null);
+                } catch (IllegalArgumentException error) {
+                    JOptionPane.showMessageDialog(this, error.getMessage(), "无法创建目录", JOptionPane.WARNING_MESSAGE);
+                }
+            }
+        }
+
+        private void replaceFavoriteFolders(List<ReaderFavorites.Folder> updated) {
+            favoriteFolders.clear();
+            favoriteFolders.addAll(updated);
+            if (favoriteFolders.isEmpty()) properties.unsetValue(FAVORITES_PROPERTY);
+            else properties.setValue(FAVORITES_PROPERTY, ReaderFavorites.serialize(favoriteFolders));
+        }
+
+        private void showFavoritesPopup() {
+            if (favoritesPopup != null && favoritesPopup.isVisible()) {
+                favoritesPopup.cancel();
+                return;
+            }
+            SearchTextField filter = new SearchTextField(false);
+            filter.getTextEditor().getEmptyText().setText("搜索目录、标题或 URL");
+            JPanel rows = new JPanel();
+            rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
+            JBScrollPane scrollPane = new JBScrollPane(rows);
+            scrollPane.setBorder(JBUI.Borders.customLine(JBColor.border(), 1, 0, 1, 0));
+            scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+            scrollPane.getVerticalScrollBar().setUnitIncrement(JBUI.scale(18));
+
+            JBLabel count = new JBLabel();
+            count.setForeground(JBColor.GRAY);
+            JButton create = new JButton("新建目录");
+            styleToolbarButton(create, "创建收藏目录");
+            create.addActionListener(event -> {
+                if (promptCreateFavoriteFolder() != null) refreshFavoritesPopup();
+            });
+            JPanel footer = new JPanel(new BorderLayout());
+            footer.setBorder(JBUI.Borders.emptyTop(8));
+            footer.add(count, BorderLayout.WEST);
+            footer.add(create, BorderLayout.EAST);
+
+            JPanel panel = new JPanel(new BorderLayout(0, JBUI.scale(10)));
+            panel.setBorder(JBUI.Borders.empty(6, 10, 8, 10));
+            panel.add(filter, BorderLayout.NORTH);
+            panel.add(scrollPane, BorderLayout.CENTER);
+            panel.add(footer, BorderLayout.SOUTH);
+
+            Runnable refreshRows = () -> populateFavoriteRows(rows, count, filter.getText());
+            filter.getTextEditor().getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent event) { refreshRows.run(); }
+
+                @Override
+                public void removeUpdate(DocumentEvent event) { refreshRows.run(); }
+
+                @Override
+                public void changedUpdate(DocumentEvent event) { refreshRows.run(); }
+            });
+            refreshRows.run();
+
+            int popupWidth = Math.min(JBUI.scale(760), Math.max(JBUI.scale(320), getWidth() - JBUI.scale(24)));
+            int popupHeight = Math.min(JBUI.scale(600), Math.max(JBUI.scale(300), getHeight() - JBUI.scale(120)));
+            panel.setPreferredSize(new Dimension(popupWidth, popupHeight));
+            favoritesPopup = JBPopupFactory.getInstance()
+                    .createComponentPopupBuilder(panel, filter.getTextEditor())
+                    .setTitle("收藏夹")
+                    .setResizable(true)
+                    .setMovable(true)
+                    .setRequestFocus(true)
+                    .setCancelOnClickOutside(true)
+                    .setCancelOnOtherWindowOpen(true)
+                    .createPopup();
+            favoritesPopup.showUnderneathOf(overflowButton);
+        }
+
+        private void populateFavoriteRows(JPanel rows, JBLabel count, String rawQuery) {
+            String query = rawQuery == null ? "" : rawQuery.trim().toLowerCase(Locale.ROOT);
+            rows.removeAll();
+            int visibleFolders = 0;
+            int visibleItems = 0;
+            for (ReaderFavorites.Folder folder : favoriteFolders) {
+                boolean folderMatches = folder.name().toLowerCase(Locale.ROOT).contains(query);
+                List<ReaderFavorites.Item> items = folder.items().stream()
+                        .filter(item -> query.isEmpty() || folderMatches
+                                || (item.title() + " " + item.url()).toLowerCase(Locale.ROOT).contains(query))
+                        .toList();
+                if (!query.isEmpty() && !folderMatches && items.isEmpty()) continue;
+                rows.add(createFavoriteFolderPanel(folder, items));
+                visibleFolders += 1;
+                visibleItems += items.size();
+            }
+            if (visibleFolders == 0) {
+                JBLabel empty = new JBLabel(favoriteFolders.isEmpty() ? "还没有收藏目录" : "没有匹配的收藏", SwingConstants.CENTER);
+                empty.setForeground(JBColor.GRAY);
+                empty.setBorder(JBUI.Borders.empty(36, 8));
+                empty.setAlignmentX(CENTER_ALIGNMENT);
+                rows.add(empty);
+            }
+            count.setText(visibleFolders + " 个目录 · " + visibleItems + " 个主题");
+            rows.revalidate();
+            rows.repaint();
+        }
+
+        private JPanel createFavoriteFolderPanel(ReaderFavorites.Folder folder, List<ReaderFavorites.Item> items) {
+            JBLabel name = new JBLabel(folder.name() + "  ·  " + folder.items().size());
+            name.setFont(name.getFont().deriveFont(Font.BOLD));
+            JButton rename = new JButton("重命名");
+            styleToolbarButton(rename, "重命名目录");
+            rename.addActionListener(event -> renameFavoriteFolder(folder));
+            JButton delete = new JButton("删除目录");
+            styleToolbarButton(delete, "删除目录及其中收藏");
+            delete.addActionListener(event -> deleteFavoriteFolder(folder));
+            JPanel actions = new JPanel(new FlowLayout(FlowLayout.TRAILING, 2, 0));
+            actions.add(rename);
+            actions.add(delete);
+            JPanel heading = new JPanel(new BorderLayout(JBUI.scale(8), 0));
+            heading.setBorder(JBUI.Borders.empty(7, 4));
+            heading.add(name, BorderLayout.CENTER);
+            heading.add(actions, BorderLayout.EAST);
+
+            JPanel panel = new JPanel();
+            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            panel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()));
+            heading.setAlignmentX(LEFT_ALIGNMENT);
+            panel.add(heading);
+            if (items.isEmpty()) {
+                JBLabel empty = new JBLabel("这个目录还是空的");
+                empty.setForeground(JBColor.GRAY);
+                empty.setBorder(JBUI.Borders.empty(10, 8));
+                empty.setAlignmentX(LEFT_ALIGNMENT);
+                panel.add(empty);
+            } else {
+                for (ReaderFavorites.Item item : items) panel.add(createFavoriteItemRow(folder, item));
+            }
+            panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+            return panel;
+        }
+
+        private JPanel createFavoriteItemRow(ReaderFavorites.Folder folder, ReaderFavorites.Item item) {
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault());
+            JBLabel title = new JBLabel(clip(item.title(), 76));
+            title.setFont(title.getFont().deriveFont(Font.BOLD));
+            title.setToolTipText(item.title());
+            JBLabel url = new JBLabel(clip(item.url(), 92));
+            url.setForeground(JBColor.namedColor("Link.activeForeground", new JBColor(0x2474A8, 0x589DF6)));
+            url.setToolTipText(item.url());
+            JBLabel time = new JBLabel(formatter.format(Instant.ofEpochMilli(item.savedAt())));
+            time.setForeground(JBColor.GRAY);
+            JPanel text = new JPanel();
+            text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
+            for (JLabel label : List.of(title, url, time)) {
+                label.setAlignmentX(LEFT_ALIGNMENT);
+                text.add(label);
+            }
+
+            JButton open = new JButton("打开");
+            styleToolbarButton(open, "打开收藏主题");
+            open.addActionListener(event -> {
+                if (favoritesPopup != null) favoritesPopup.cancel();
+                navigateTo(item.url());
+            });
+            JButton copy = iconButton(AllIcons.Actions.Copy, "复制 URL");
+            styleToolbarButton(copy, "复制 URL");
+            copy.addActionListener(event -> {
+                CopyPasteManager.getInstance().setContents(new StringSelection(item.url()));
+                status.setText("URL 已复制");
+            });
+            JButton remove = new JButton("移除");
+            styleToolbarButton(remove, "移出此目录");
+            remove.addActionListener(event -> {
+                replaceFavoriteFolders(ReaderFavorites.remove(favoriteFolders, folder.id(), item.url()));
+                refreshFavoritesPopup();
+            });
+            JPanel actions = new JPanel(new FlowLayout(FlowLayout.TRAILING, 2, 0));
+            actions.add(open);
+            actions.add(copy);
+            actions.add(remove);
+            JPanel row = new JPanel(new BorderLayout(JBUI.scale(8), 0));
+            row.setBorder(JBUI.Borders.empty(7, 8));
+            row.add(text, BorderLayout.CENTER);
+            row.add(actions, BorderLayout.EAST);
+            row.setMaximumSize(new Dimension(Integer.MAX_VALUE, JBUI.scale(76)));
+            return row;
+        }
+
+        private void renameFavoriteFolder(ReaderFavorites.Folder folder) {
+            String name = JOptionPane.showInputDialog(this, "新的目录名称", folder.name());
+            if (name == null) return;
+            try {
+                replaceFavoriteFolders(ReaderFavorites.renameFolder(favoriteFolders, folder.id(), name));
+                refreshFavoritesPopup();
+            } catch (IllegalArgumentException error) {
+                JOptionPane.showMessageDialog(this, error.getMessage(), "无法重命名", JOptionPane.WARNING_MESSAGE);
+            }
+        }
+
+        private void deleteFavoriteFolder(ReaderFavorites.Folder folder) {
+            int answer = JOptionPane.showConfirmDialog(
+                    this,
+                    "删除目录“" + folder.name() + "”及其中 " + folder.items().size() + " 个主题？",
+                    "删除收藏目录",
+                    JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE
+            );
+            if (answer != JOptionPane.OK_OPTION) return;
+            replaceFavoriteFolders(ReaderFavorites.deleteFolder(favoriteFolders, folder.id()));
+            refreshFavoritesPopup();
+        }
+
+        private void refreshFavoritesPopup() {
+            if (favoritesPopup != null) favoritesPopup.cancel();
+            favoritesPopup = null;
+            SwingUtilities.invokeLater(this::showFavoritesPopup);
         }
 
         private void shareCurrentTopic() {
@@ -1262,6 +1535,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         public void dispose() {
             stopBreakTimer();
             if (historyPopup != null) historyPopup.cancel();
+            if (favoritesPopup != null) favoritesPopup.cancel();
             breakOverlayVisible = false;
             removeBreakOverlay();
             disposed = true;

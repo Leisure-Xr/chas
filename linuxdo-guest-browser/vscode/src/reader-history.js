@@ -45,8 +45,9 @@ function normalizeAction(value) {
   if (!value || typeof value !== 'object') return undefined;
   if (value.type === 'topic') {
     const id = Number(value.id);
-    const slug = String(value.slug || '').trim();
-    if (!Number.isInteger(id) || id <= 0 || !/^[A-Za-z0-9_-]{1,200}$/.test(slug)) return undefined;
+    const rawSlug = String(value.slug || '').trim();
+    const slug = /^[A-Za-z0-9_-]{1,200}$/.test(rawSlug) ? rawSlug : 'topic';
+    if (!Number.isInteger(id) || id <= 0) return undefined;
     return { type: 'topic', id, slug };
   }
   if (value.type === 'category') {

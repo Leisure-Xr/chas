@@ -44,7 +44,7 @@ export const pycharmCases = [
     id: 'PYC-006', title: '历史记录持久化与清理', product: 'pycharm', priority: 'P1', type: 'guided',
     capabilities: ['visible-desktop'],
     steps: [
-      { action: '访问多个公开页面并从历史搜索、复制和重新打开。', expected: '记录包含清理后的标题、公开 URL 和时间。' },
+      { action: '从列表点击多个由 Discourse SPA 切换的公开主题并从历史搜索、复制和重新打开。', expected: '地址变化后立即产生记录，包含清理后的标题、公开 URL 和时间。' },
       { action: '重启 IDE 后清空历史。', expected: '历史先恢复，清空后完全移除。' }
     ], expected: '最多 60 条历史正确持久化且不含秘密。'
   }),

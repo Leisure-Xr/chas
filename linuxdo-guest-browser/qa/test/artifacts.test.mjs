@@ -4,13 +4,13 @@ import { checkPyCharmArtifact, checkSharedCopies, checkVsCodeArtifact, runVsCode
 
 test('published VSIX matches source metadata', async () => {
   const result = await checkVsCodeArtifact();
-  assert.equal(result.pluginVersion, '0.18.0');
+  assert.equal(result.pluginVersion, '0.19.0');
   assert.match(result.pluginSha256, /^[a-f0-9]{64}$/);
 });
 
 test('published PyCharm ZIP matches source metadata and package contract', async () => {
   const result = await checkPyCharmArtifact();
-  assert.equal(result.pluginVersion, '0.12.0');
+  assert.equal(result.pluginVersion, '0.13.0');
   assert.equal(result.sinceBuild, '223');
   assert.equal(result.untilBuild, '263.*');
 });

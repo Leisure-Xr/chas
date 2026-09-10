@@ -7,6 +7,7 @@
   const searchInput = document.getElementById('search-input');
   const backButton = document.getElementById('back');
   const historyButton = document.getElementById('history');
+  const favoritesButton = document.getElementById('favorites');
   const breakReminderButton = document.getElementById('break-reminder');
   const shareTopicButton = document.getElementById('share-topic');
   const openShareButton = document.getElementById('open-share');
@@ -27,6 +28,8 @@
   let gameController;
   let historyEntries = [];
   let historyFeedbackTimer;
+  let favoriteFolders = [];
+  let favoritesFeedbackTimer;
   let rateLimitTimer;
   let imageObserver;
   let imageCounter = 0;
@@ -34,6 +37,7 @@
   const pendingImageIds = new Set();
   const pageCache = new Map();
   const historyOverlay = createHistoryOverlay();
+  const favoritesOverlay = createFavoritesOverlay();
 
   avatarsEnabled = document.body.dataset.avatars === 'on';
   document.body.classList.toggle('compact', savedState.compact !== false);
@@ -50,6 +54,7 @@
   refreshButton.addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
   backButton.addEventListener('click', () => navigate({ type: 'back' }));
   historyButton.addEventListener('click', showHistory);
+  favoritesButton.addEventListener('click', showFavorites);
   breakReminderButton.addEventListener('click', () => {
     setBreakReminderEnabled(!breakReminderEnabled);
     vscode.postMessage({ type: 'setBreakReminder', enabled: breakReminderEnabled });
@@ -93,7 +98,15 @@
       menu.remove();
       moreToolsButton.setAttribute('aria-expanded', 'false');
     });
-    menu.append(reminder, density);
+    const favorite = node('button', 'more-tools-item', '收藏当前主题');
+    favorite.type = 'button';
+    favorite.disabled = !topicState;
+    favorite.addEventListener('click', () => {
+      vscode.postMessage({ type: 'favoriteAddCurrent' });
+      menu.remove();
+      moreToolsButton.setAttribute('aria-expanded', 'false');
+    });
+    menu.append(favorite, reminder, density);
     document.body.append(menu);
     moreToolsButton.setAttribute('aria-expanded', 'true');
     const close = (event) => {
@@ -109,6 +122,11 @@
     if (event.key === 'Escape' && !historyOverlay.hidden) {
       event.preventDefault();
       closeHistory();
+      return;
+    }
+    if (event.key === 'Escape' && !favoritesOverlay.hidden) {
+      event.preventDefault();
+      closeFavorites();
       return;
     }
     if (event.altKey && event.key === 'ArrowLeft' && !backButton.disabled) {
@@ -177,6 +195,11 @@
         break;
       case 'historyCopied':
         showHistoryFeedback('URL 已复制');
+        break;
+      case 'favoritesData':
+        favoriteFolders = Array.isArray(message.folders) ? message.folders : [];
+        renderFavorites();
+        if (message.feedback) showFavoritesFeedback(message.feedback);
         break;
       case 'visibility':
         // Countdown intervals only matter to a reader who can see them.
@@ -337,6 +360,103 @@
     feedback.textContent = message;
     clearTimeout(historyFeedbackTimer);
     historyFeedbackTimer = setTimeout(() => { feedback.textContent = ''; }, 1800);
+  }
+
+  function createFavoritesOverlay() {
+    const overlay = node('div', 'reader-overlay favorites-overlay');
+    overlay.hidden = true;
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', '收藏夹');
+    const panel = node('section', 'history-panel favorites-panel');
+    const create = node('button', 'secondary-button', '新建目录');
+    create.type = 'button';
+    create.addEventListener('click', () => vscode.postMessage({ type: 'favoriteFolderCreate' }));
+    const heading = node('header', 'history-heading', [
+      node('div', '', [node('h1', '', '收藏夹'), node('p', '', '按目录整理公开主题')]),
+      node('div', 'favorites-heading-actions', [create, iconAction('×', '关闭收藏夹', closeFavorites)])
+    ]);
+    const list = node('div', 'history-list favorites-list');
+    list.id = 'favorites-list';
+    const count = node('span', 'history-count', '0 个主题');
+    count.id = 'favorites-count';
+    const feedback = node('span', 'history-feedback');
+    feedback.id = 'favorites-feedback';
+    panel.append(heading, list, node('footer', 'history-footer', [count, feedback]));
+    overlay.append(panel);
+    overlay.addEventListener('pointerdown', (event) => {
+      if (event.target === overlay) closeFavorites();
+    });
+    document.body.append(overlay);
+    return overlay;
+  }
+
+  function showFavorites() {
+    favoritesOverlay.hidden = false;
+    vscode.postMessage({ type: 'favoritesRequest' });
+  }
+
+  function closeFavorites() {
+    favoritesOverlay.hidden = true;
+    favoritesButton.focus();
+  }
+
+  function renderFavorites() {
+    const list = favoritesOverlay.querySelector('#favorites-list');
+    if (!list) return;
+    list.replaceChildren();
+    let itemCount = 0;
+    if (!favoriteFolders.length) {
+      list.append(node('div', 'history-empty', '还没有收藏目录'));
+    }
+    for (const folder of favoriteFolders) {
+      const items = Array.isArray(folder.items) ? folder.items : [];
+      itemCount += items.length;
+      const section = node('section', 'favorite-folder');
+      const rename = iconAction('✎', `重命名 ${folder.name}`, () => vscode.postMessage({
+        type: 'favoriteFolderRename', folderId: folder.id
+      }));
+      const removeFolder = iconAction('×', `删除 ${folder.name}`, () => vscode.postMessage({
+        type: 'favoriteFolderDelete', folderId: folder.id
+      }));
+      section.append(node('header', 'favorite-folder-heading', [
+        node('div', '', [node('h2', '', folder.name), node('span', '', `${items.length} 个主题`)]),
+        node('div', 'favorite-folder-actions', [rename, removeFolder])
+      ]));
+      if (!items.length) section.append(node('div', 'favorite-folder-empty', '这个目录还是空的'));
+      for (const item of items) {
+        const main = node('button', 'history-entry-main');
+        main.type = 'button';
+        main.title = `打开 ${item.title}`;
+        main.append(
+          node('strong', 'history-entry-title', item.title || 'LINUX DO 公开主题'),
+          node('span', 'history-entry-url', item.url),
+          node('time', 'history-entry-time', formatHistoryTime(item.savedAt))
+        );
+        main.addEventListener('click', () => {
+          closeFavorites();
+          vscode.postMessage({ type: 'favoriteOpen', folderId: folder.id, url: item.url });
+        });
+        const copy = iconAction('⧉', '复制 URL', () => vscode.postMessage({
+          type: 'favoriteCopy', folderId: folder.id, url: item.url
+        }));
+        const remove = iconAction('×', '移出此目录', () => vscode.postMessage({
+          type: 'favoriteRemove', folderId: folder.id, url: item.url
+        }));
+        section.append(node('article', 'history-entry', [main, copy, remove]));
+      }
+      list.append(section);
+    }
+    const count = favoritesOverlay.querySelector('#favorites-count');
+    if (count) count.textContent = `${favoriteFolders.length} 个目录 · ${itemCount} 个主题`;
+  }
+
+  function showFavoritesFeedback(message) {
+    const feedback = favoritesOverlay.querySelector('#favorites-feedback');
+    if (!feedback) return;
+    feedback.textContent = message;
+    clearTimeout(favoritesFeedbackTimer);
+    favoritesFeedbackTimer = setTimeout(() => { feedback.textContent = ''; }, 1800);
   }
 
   function formatHistoryTime(value) {
@@ -577,7 +697,10 @@
     original.className = 'secondary-button';
     original.href = topic.externalUrl;
     original.textContent = '浏览器打开';
-    header.append(titleBox, original);
+    const favorite = node('button', 'secondary-button', '☆ 收藏');
+    favorite.type = 'button';
+    favorite.addEventListener('click', () => vscode.postMessage({ type: 'favoriteAddCurrent' }));
+    header.append(titleBox, node('div', 'topic-actions', [favorite, original]));
     section.append(header);
 
     const posts = node('div', 'post-list');

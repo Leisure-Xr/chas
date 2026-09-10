@@ -56,7 +56,7 @@ export const vscodeCases = [
     id: 'VSC-008', title: '历史记录与重启持久化', product: 'vscode', priority: 'P1', type: 'guided',
     capabilities: ['visible-desktop'],
     steps: [
-      { action: '访问多个列表和主题，搜索并重新打开历史。', expected: '标题、公开 URL 和访问时间正确，楼层 URL 去重。' },
+      { action: '从列表点击多个主题（包含缺失或非 ASCII slug），搜索并重新打开历史。', expected: '每个已打开主题立即出现，标题、公开 URL 和访问时间正确，楼层 URL 去重。' },
       { action: '重启 IDE 后清空历史。', expected: '历史先恢复，清空后记录和公开内容快照一并删除。' }
     ], expected: '历史记录可用且不包含秘密。'
   }),

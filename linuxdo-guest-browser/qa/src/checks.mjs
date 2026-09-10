@@ -102,6 +102,7 @@ export async function checkPyCharmArtifact() {
       'reader-mode.js',
       'studio/lexiao/linuxdo/LinuxDoToolWindowFactory.class',
       'studio/lexiao/linuxdo/ReaderHistory.class',
+      'studio/lexiao/linuxdo/ReaderFavorites.class',
       'studio/lexiao/linuxdo/ShareCode.class'
     ];
     for (const required of requiredInner) assert.ok(jarEntries.includes(required), `${required} missing from plugin JAR`);

@@ -32,10 +32,19 @@ const {
   normalizePublicUrl,
   normalizeStoredHistory
 } = require('./reader-history');
+const {
+  addFavorite,
+  createFavoriteFolder,
+  deleteFavoriteFolder,
+  normalizeFavoriteFolders,
+  removeFavorite,
+  renameFavoriteFolder
+} = require('./favorites');
 const { VerificationPanel } = require('./verification-panel');
 
 const MANUAL_GUEST_COOKIE_NAMES = GUEST_COOKIE_NAMES;
 const HISTORY_STATE_KEY = 'linuxdoGuest.readerHistory';
+const FAVORITES_STATE_KEY = 'linuxdoGuest.favoriteFolders';
 const SHARE_DURATIONS = [
   { label: '1 小时', description: '默认', milliseconds: 60 * 60 * 1000 },
   { label: '10 分钟', milliseconds: 10 * 60 * 1000 },
@@ -279,6 +288,7 @@ class GuestReaderPanel {
     this.currentAction = undefined;
     this.history = [];
     this.browsingHistory = normalizeStoredHistory(context.globalState.get(HISTORY_STATE_KEY));
+    this.favoriteFolders = normalizeFavoriteFolders(context.globalState.get(FAVORITES_STATE_KEY));
     this.pendingImages = new Map();
     this.disposables = [];
     this.panel.webview.html = this.getHtml();
@@ -420,6 +430,30 @@ class GuestReaderPanel {
       case 'historyClear':
         await this.clearBrowsingHistory();
         break;
+      case 'favoritesRequest':
+        this.sendFavorites();
+        break;
+      case 'favoriteAddCurrent':
+        await this.favoriteCurrentTopic();
+        break;
+      case 'favoriteFolderCreate':
+        await this.createFavoriteFolder();
+        break;
+      case 'favoriteFolderRename':
+        await this.renameFavoriteFolder(message.folderId);
+        break;
+      case 'favoriteFolderDelete':
+        await this.deleteFavoriteFolder(message.folderId);
+        break;
+      case 'favoriteOpen':
+        await this.openFavorite(message.folderId, message.url);
+        break;
+      case 'favoriteCopy':
+        await this.copyFavoriteUrl(message.folderId, message.url);
+        break;
+      case 'favoriteRemove':
+        await this.removeFavorite(message.folderId, message.url);
+        break;
       case 'loadMorePosts':
         await this.loadMorePosts(message.topicId, message.postIds, message.source);
         break;
@@ -550,6 +584,146 @@ class GuestReaderPanel {
     await this.context.globalState.update(HISTORY_STATE_KEY, undefined);
     await this.browserSession.clearPersistedCache();
     this.sendHistory();
+  }
+
+  sendFavorites(feedback) {
+    this.post({
+      type: 'favoritesData',
+      feedback,
+      folders: this.favoriteFolders.map((folder) => ({
+        id: folder.id,
+        name: folder.name,
+        items: folder.items.map(({ url, title, savedAt }) => ({ url, title, savedAt }))
+      }))
+    });
+  }
+
+  async favoriteCurrentTopic() {
+    const action = this.currentAction;
+    const entry = action?.type === 'topic' && action.title
+      ? createHistoryEntry(action, action.title)
+      : undefined;
+    if (!entry) {
+      vscode.window.showInformationMessage('请先打开一个主题，再添加收藏。');
+      return;
+    }
+    const folderId = await this.chooseFavoriteFolder();
+    if (!folderId) return;
+    try {
+      this.favoriteFolders = addFavorite(this.favoriteFolders, folderId, entry);
+      await this.persistFavorites();
+      const folder = this.favoriteFolders.find((candidate) => candidate.id === folderId);
+      this.sendFavorites(`已收藏到“${folder?.name || '收藏目录'}”`);
+    } catch (error) {
+      vscode.window.showWarningMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async chooseFavoriteFolder() {
+    const choices = [
+      ...this.favoriteFolders.map((folder) => ({
+        label: folder.name,
+        description: `${folder.items.length} 个主题`,
+        folderId: folder.id
+      })),
+      { label: '$(add) 新建收藏目录', create: true }
+    ];
+    const selected = await vscode.window.showQuickPick(choices, {
+      title: '选择收藏目录',
+      placeHolder: '同一主题可以收藏到多个目录'
+    });
+    if (!selected) return undefined;
+    return selected.create ? this.createFavoriteFolder(true) : selected.folderId;
+  }
+
+  async createFavoriteFolder(returnId = false) {
+    const name = await vscode.window.showInputBox({
+      title: '新建收藏目录',
+      prompt: '目录只保存在本机',
+      placeHolder: '例如：稍后阅读',
+      validateInput: (value) => {
+        const normalized = String(value || '').trim();
+        if (!normalized) return '目录名称不能为空。';
+        if (this.favoriteFolders.some((folder) => folder.name.localeCompare(normalized, undefined, { sensitivity: 'accent' }) === 0)) {
+          return '收藏目录名称已存在。';
+        }
+        return undefined;
+      }
+    });
+    if (name === undefined) return undefined;
+    try {
+      const id = `folder-${Date.now().toString(36)}-${randomNonce().slice(0, 8)}`;
+      this.favoriteFolders = createFavoriteFolder(this.favoriteFolders, name, id);
+      await this.persistFavorites();
+      this.sendFavorites(`已创建“${name.trim()}”`);
+      return returnId ? id : undefined;
+    } catch (error) {
+      vscode.window.showWarningMessage(error instanceof Error ? error.message : String(error));
+      return undefined;
+    }
+  }
+
+  async renameFavoriteFolder(folderId) {
+    const folder = this.favoriteFolders.find((candidate) => candidate.id === String(folderId));
+    if (!folder) return this.sendFavorites();
+    const name = await vscode.window.showInputBox({
+      title: '重命名收藏目录',
+      value: folder.name,
+      validateInput: (value) => String(value || '').trim() ? undefined : '目录名称不能为空。'
+    });
+    if (name === undefined) return;
+    try {
+      this.favoriteFolders = renameFavoriteFolder(this.favoriteFolders, folder.id, name);
+      await this.persistFavorites();
+      this.sendFavorites('目录已重命名');
+    } catch (error) {
+      vscode.window.showWarningMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async deleteFavoriteFolder(folderId) {
+    const folder = this.favoriteFolders.find((candidate) => candidate.id === String(folderId));
+    if (!folder) return this.sendFavorites();
+    const answer = await vscode.window.showWarningMessage(
+      `删除收藏目录“${folder.name}”及其中 ${folder.items.length} 个主题？`,
+      { modal: true },
+      '删除目录'
+    );
+    if (answer !== '删除目录') return;
+    this.favoriteFolders = deleteFavoriteFolder(this.favoriteFolders, folder.id);
+    await this.persistFavorites();
+    this.sendFavorites('收藏目录已删除');
+  }
+
+  async openFavorite(folderId, rawUrl) {
+    const item = this.findFavorite(folderId, rawUrl);
+    if (!item) return this.sendFavorites();
+    const topic = parseTopicUrl(item.url);
+    if (topic) await this.openAction({ ...topic, title: item.title });
+  }
+
+  async copyFavoriteUrl(folderId, rawUrl) {
+    const item = this.findFavorite(folderId, rawUrl);
+    if (!item) return;
+    await vscode.env.clipboard.writeText(item.url);
+    this.sendFavorites('URL 已复制');
+  }
+
+  async removeFavorite(folderId, rawUrl) {
+    const item = this.findFavorite(folderId, rawUrl);
+    if (!item) return this.sendFavorites();
+    this.favoriteFolders = removeFavorite(this.favoriteFolders, String(folderId), item.url);
+    await this.persistFavorites();
+    this.sendFavorites('已移出收藏目录');
+  }
+
+  findFavorite(folderId, rawUrl) {
+    const url = normalizePublicUrl(rawUrl);
+    return this.favoriteFolders.find((folder) => folder.id === String(folderId))?.items.find((item) => item.url === url);
+  }
+
+  async persistFavorites() {
+    await this.context.globalState.update(FAVORITES_STATE_KEY, this.favoriteFolders.length ? this.favoriteFolders : undefined);
   }
 
   async loadAction(action, resetListCursor, requestOptions) {
@@ -764,6 +938,7 @@ class GuestReaderPanel {
   <header class="toolbar">
     <button id="back" type="button" class="icon-button back-button" title="返回 (Alt+左箭头)" aria-label="返回" disabled>←</button>
     <button id="history" type="button" class="icon-button" title="浏览历史" aria-label="浏览历史">◴</button>
+    <button id="favorites" type="button" class="icon-button" title="打开收藏夹" aria-label="打开收藏夹">★</button>
     <div class="brand" aria-label="LINUX DO 游客阅读器">
       <span class="brand-mark">L</span>
       <span class="brand-name">LINUX DO</span>
@@ -803,6 +978,24 @@ function sameAction(left, right) {
     left?.id === right?.id &&
     left?.slug === right?.slug &&
     left?.query === right?.query;
+}
+
+function parseTopicUrl(rawUrl) {
+  const normalized = normalizePublicUrl(rawUrl);
+  if (!normalized) return undefined;
+  const match = new URL(normalized).pathname.match(/^\/t\/([^/]+)\/([1-9][0-9]*)$/);
+  if (!match) return undefined;
+  let rawSlug = 'topic';
+  try {
+    rawSlug = decodeURIComponent(match[1]);
+  } catch {
+    // The topic id is authoritative; a malformed display slug can fall back.
+  }
+  return {
+    type: 'topic',
+    id: Number(match[2]),
+    slug: /^[A-Za-z0-9_-]{1,200}$/.test(rawSlug) ? rawSlug : 'topic'
+  };
 }
 
 function navigationRequestOptions(options) {

@@ -90,5 +90,20 @@ export const sharedCases = [
     capabilities: ['launched'],
     expected: '目标 IDE 保持运行并在隔离目录写入启动日志。',
     run: checkIdeStarted
+  }),
+  defineCase({
+    id: 'SHR-008',
+    title: '收藏目录管理与主题持久化',
+    product: 'shared',
+    priority: 'P1',
+    type: 'guided',
+    capabilities: ['visible-desktop'],
+    steps: [
+      { action: '创建两个收藏目录并重命名其中一个。', expected: '目录名称唯一，重命名后内容保留。' },
+      { action: '把同一公开主题收藏到两个目录，再从其中一个目录移除。', expected: '目录内不重复，另一个目录中的收藏不受影响。' },
+      { action: '重启 IDE，搜索并打开收藏主题。', expected: '目录与主题恢复，打开后浏览历史也产生对应记录。' },
+      { action: '删除包含主题的目录并确认。', expected: '只删除该目录及其中收藏，不影响浏览历史和其他目录。' }
+    ],
+    expected: '收藏夹按目录可靠持久化且只保存公开主题元数据。'
   })
 ];

@@ -81,7 +81,7 @@ jobs:
       - name: Compile, test, and build against the pinned PyCharm SDK
         run: gradle --no-daemon check buildPlugin
       - name: Verify committed release package
-        run: ./scripts/verify-package.sh ../dist/linuxdo-guest-browser-pycharm-0.12.0.zip
+        run: ./scripts/verify-package.sh ../dist/linuxdo-guest-browser-pycharm-0.13.0.zip
       - name: Verify newly built ZIP integrity
         run: find build/distributions -name '*.zip' -print -exec unzip -tq {} \;
 

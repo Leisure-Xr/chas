@@ -85,7 +85,7 @@ test('lock and run schemas reject incomplete release evidence', () => {
     schemaVersion: 1,
     runId: 'run', release: 'rc', commit: 'abc', workingTreeDirty: false, product: 'vscode',
     matrixTarget: 'vscode-latest', platform: 'darwin', arch: 'arm64',
-    ide: { version: '1.136.1' }, plugin: { version: '0.18.0', sha256: 'a'.repeat(64) },
+    ide: { version: '1.136.1' }, plugin: { version: '0.19.0', sha256: 'a'.repeat(64) },
     results: [{ caseId: 'VSC-003', type: 'guided', priority: 'P0', status: 'PASS', durationMs: 1, note: 'ok', evidence: [] }]
   };
   assert.throws(() => validateRunRecord(record), /guided PASS needs evidence/);
