@@ -44,6 +44,16 @@ node qa/bin/qa.mjs validate
 
 生成的 [测试用例目录](docs/test-cases.md) 和 [能力覆盖表](docs/coverage.md) 必须随代码提交。新功能必须增加或更新相关用例；仅修改生成文档不会通过校验。
 
+### VS Code webview 可视检查
+
+`fixtures/vscode-webview.html` 使用真实 `vscode/media/main.js` 和 `styles.css`，只模拟 VS Code 消息桥并注入公开主题、历史和收藏目录。它用于在不安装扩展、不触碰日常 IDE 配置时检查历史/收藏布局：
+
+```bash
+python3 -m http.server 8765 --bind 127.0.0.1
+```
+
+然后打开 `http://127.0.0.1:8765/qa/fixtures/vscode-webview.html`。夹具本身由 QA 单元测试检查必需控件、生产资源引用和敏感内容。
+
 ## 结果和证据
 
 结构化运行记录及发布摘要保存在 `runs/<release>/`。人工用例标记 PASS 时至少需要一个证据文件；runner 只把文件名、大小、外部 URL 占位和 SHA-256 写入记录。原始截图、录屏和脱敏日志放在忽略提交的 `qa/artifacts/`，随后作为 CI 或 Release 附件上传并把 URL 回填到运行记录。

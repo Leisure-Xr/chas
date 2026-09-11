@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VS Code Webview QA</title>
+  <style>
+    :root {
+      --vscode-editor-background: #1e1e1e;
+      --vscode-editor-foreground: #d4d4d4;
+      --vscode-font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      --vscode-font-size: 13px;
+      --vscode-descriptionForeground: #a4a4a4;
+      --vscode-sideBar-background: #252526;
+      --vscode-list-hoverBackground: #2a2d2e;
+      --vscode-button-background: #0e639c;
+      --vscode-button-foreground: #ffffff;
+      --vscode-focusBorder: #007fd4;
+      --vscode-input-background: #3c3c3c;
+      --vscode-input-foreground: #ffffff;
+      --vscode-textLink-foreground: #4daafc;
+    }
+  </style>
+  <link rel="stylesheet" href="/vscode/media/styles.css">
+</head>
+<body data-avatars="off">
+  <header class="toolbar">
+    <button id="back" type="button" class="icon-button back-button" title="返回" aria-label="返回" disabled>←</button>
+    <button id="history" type="button" class="icon-button" title="浏览历史" aria-label="浏览历史">◴</button>
+    <button id="favorites" type="button" class="icon-button" title="打开收藏夹" aria-label="打开收藏夹">★</button>
+    <div class="brand"><span class="brand-mark">L</span><span class="brand-name">LINUX DO</span><span class="guest-badge">只读</span></div>
+    <nav class="nav" aria-label="内容导航">
+      <button type="button" data-view="latest">最新</button>
+      <button type="button" data-view="top">热门</button>
+      <button type="button" data-view="categories">分类</button>
+    </nav>
+    <form id="search-form" class="search" role="search">
+      <input id="search-input" type="search" placeholder="搜索公开主题" aria-label="搜索公开主题">
+      <button type="submit" class="icon-button" title="搜索" aria-label="搜索">⌕</button>
+    </form>
+    <button id="break-reminder" type="button" class="icon-button" title="开启休息提醒" aria-label="开启休息提醒">◷</button>
+    <button id="share-topic" type="button" class="icon-button" title="分享当前主题" aria-label="分享当前主题">↗</button>
+    <button id="open-share" type="button" class="icon-button" title="打开加密分享" aria-label="打开加密分享">⌁</button>
+    <button id="open-game" type="button" class="icon-button" title="打开休息小游戏" aria-label="打开休息小游戏">▦</button>
+    <button id="density" type="button" class="icon-button" title="切换显示密度" aria-label="切换显示密度">≡</button>
+    <button id="more-tools" type="button" class="icon-button" title="更多阅读设置" aria-label="更多阅读设置">⋯</button>
+    <button id="refresh" type="button" class="icon-button" title="刷新" aria-label="刷新">↻</button>
+  </header>
+  <main id="content" tabindex="-1"></main>
+  <script>
+    const qaTopic = {
+      id: 2891889,
+      title: 'Grok4.7 延期发布',
+      externalUrl: 'https://linux.do/t/topic/2891889',
+      views: 61,
+      replyCount: 2,
+      likeCount: 0,
+      posts: [{
+        id: 1,
+        number: 1,
+        username: 'pangtl',
+        displayName: 'pangtl',
+        createdAt: '2026-09-12T00:00:00Z',
+        cooked: '<p>公开主题正文测试。</p>'
+      }],
+      remainingPostIds: [],
+      totalPostCount: 1
+    };
+    let qaFolders = [{ id: 'folder-tech', name: '技术资料', items: [] }];
+    const qaHistory = [{
+      title: qaTopic.title,
+      url: qaTopic.externalUrl,
+      visitedAt: Date.now()
+    }];
+    let qaState = {};
+    function send(message) {
+      setTimeout(() => window.postMessage(message, '*'), 0);
+    }
+    window.acquireVsCodeApi = () => ({
+      getState: () => qaState,
+      setState: value => { qaState = value || {}; },
+      postMessage: message => {
+        if (message.type === 'ready') {
+          send({ type: 'navigationState', canGoBack: false, entryId: 1 });
+          send({ type: 'breakReminderState', enabled: false });
+          send({ type: 'topic', data: qaTopic, entryId: 1 });
+        } else if (message.type === 'historyRequest') {
+          send({ type: 'historyData', entries: qaHistory });
+        } else if (message.type === 'favoritesRequest') {
+          send({ type: 'favoritesData', folders: qaFolders });
+        } else if (message.type === 'favoriteAddCurrent') {
+          qaFolders = qaFolders.map(folder => folder.id === 'folder-tech'
+            ? { ...folder, items: [{ title: qaTopic.title, url: qaTopic.externalUrl, savedAt: Date.now() }] }
+            : folder);
+          send({ type: 'favoritesData', folders: qaFolders, feedback: '已收藏到“技术资料”' });
+        } else if (message.type === 'favoriteFolderCreate') {
+          qaFolders = [...qaFolders, { id: 'folder-reading', name: '稍后阅读', items: [] }];
+          send({ type: 'favoritesData', folders: qaFolders, feedback: '已创建“稍后阅读”' });
+        } else if (message.type === 'favoriteRemove') {
+          qaFolders = qaFolders.map(folder => folder.id === message.folderId
+            ? { ...folder, items: folder.items.filter(item => item.url !== message.url) }
+            : folder);
+          send({ type: 'favoritesData', folders: qaFolders, feedback: '已移出收藏目录' });
+        }
+      }
+    });
+  </script>
+  <script src="/vscode/media/game-core.js"></script>
+  <script src="/vscode/media/game-ui.js"></script>
+  <script src="/vscode/media/main.js"></script>
+</body>
+</html>
