@@ -9,7 +9,7 @@
 | IDE | 插件版本 | Release 下载页 | 安装包 | SHA-256 |
 | --- | --- | --- | --- | --- |
 | VS Code | `0.19.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.19.0.vsix) | `linuxdo-guest-browser-vscode-0.19.0.vsix` | `3d83c65888a67f171997c570ab2f1c95e9cf28246853ab2947a967a68114bd8e` |
-| PyCharm | `0.13.0` | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.13.0.zip) | `linuxdo-guest-browser-pycharm-0.13.0.zip` | `dc62301e7fa8940d2463ff447e44454e6a18589df41fa1eb5e43470bf726148b` |
+| PyCharm | `0.14.0` | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.14.0.zip) | `linuxdo-guest-browser-pycharm-0.14.0.zip` | `13093618b0a838c4ea3155a69d954b56103010d0c64275085088dc5bdcf166dc` |
 
 下载后可用
 `certutil -hashfile <文件> SHA256`（Windows）或 `shasum -a 256 <文件>`（macOS/Linux）核对完整性。
@@ -28,13 +28,15 @@ VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续�
 
 打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。插件支持 PyCharm 2022.3 及以上（构建号 223–263.*）；已在 2022.3.3、2024.2.6 和 2026.2.2 上完成真实启动与插件加载验证，当前构建使用 2026.1 SDK。
 
-PyCharm 版使用内嵌 JCEF 浏览器，默认采用自适应的单色隐私阅读布局，可从“…”菜单切回原始网页。隐私布局删除伪代码、行号和示例标签，隐藏正文外的图片、SVG、视频、头像、徽章、表情、用户卡与身份装饰，并将标题、标签、链接、状态和纯用户名统一为 IDE 黑白灰；帖子正文里的截图、附件、Onebox 和技术图片保持原色。固定顶栏只保留返回、前进、刷新和“…”；最新、热门、分类及搜索位于导航行，历史、收藏、提醒、游戏、分享、导入、教程、布局切换和重置会话只放在“…”菜单。
+PyCharm 版使用内嵌 JCEF 浏览器，默认采用自适应的单色隐私阅读布局，可从“…”菜单切回原始网页。`0.14.0` 起，隐私阅读页、加载背景、休息提醒和小游戏直接采用当前 PyCharm 的背景、文字、边框与强调色；小字号次要文字会在保留主题色调的同时确保至少 `4.5:1` 对比度。切换亮色、Darcula 或自定义主题时会原地更新，不刷新网页或重置游戏。原始网页布局仍保留站点自己的配色。
+
+隐私布局删除伪代码、行号和示例标签，隐藏正文外的图片、SVG、视频、头像、徽章、表情、用户卡与身份装饰，并将标题、标签、链接、状态和纯用户名统一为 IDE 黑白灰；帖子正文里的截图、附件、Onebox 和技术图片保持原色。固定顶栏只保留返回、前进、刷新和“…”；最新、热门、分类及搜索位于导航行，历史、收藏、提醒、游戏、分享、导入、教程、布局切换和重置会话只放在“…”菜单。
 
 两个版本都修复了已打开主题未进入历史的问题，并提供本地收藏夹。收藏夹可创建、重命名和删除多个目录，每个目录保存对应的公开主题；支持搜索、打开、复制 URL 和移除主题，同一主题可放入多个目录。
 
 ### 休息提醒与小游戏
 
-两个版本都提供默认关闭的休息提醒开关。开启后会随机等待 31–60 分钟，再显示可跳过或延后 10 分钟的休息提示。五款小游戏使用同一套玩法核心，支持自适应棋盘和高 DPI Canvas、倒计时、暂停、重新开始、键盘/屏幕控制、失焦自动暂停和本地最高分；调整 IDE 或工具窗口大小不会重置当前游戏，不含音效、粒子或震动。
+两个版本都提供默认关闭的休息提醒开关。开启后会随机等待 31–60 分钟，再显示可跳过或延后 10 分钟的休息提示。五款小游戏使用同一套玩法核心，支持自适应棋盘和高 DPI Canvas、倒计时、暂停、重新开始、键盘/屏幕控制、失焦自动暂停和本地最高分；调整 IDE、主题或工具窗口大小不会重置当前游戏，不含音效、粒子或震动。
 
 ### 限时分享
 

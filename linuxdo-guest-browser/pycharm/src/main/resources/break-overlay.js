@@ -10,6 +10,7 @@
     recommended: __LEXIAO_RECOMMENDED_GAME__,
     reminderMode: __LEXIAO_REMINDER_MODE__,
     bestScores: __LEXIAO_BEST_SCORES__,
+    theme: __LEXIAO_THEME__,
     onBestScore: function (game, value) {
       hostAction('score', 'game=' + encodeURIComponent(game) + '&value=' + encodeURIComponent(value));
     },

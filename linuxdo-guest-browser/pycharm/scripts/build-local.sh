@@ -10,7 +10,7 @@ CLASSES_DIR="$BUILD_DIR/classes"
 TEST_CLASSES_DIR="$BUILD_DIR/test-classes"
 PLUGIN_DIR="$BUILD_DIR/staging/LinuxDoGuestBrowser"
 PLUGIN_JAR="$PLUGIN_DIR/lib/linuxdo-guest-browser.jar"
-OUTPUT_ZIP="$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.13.0.zip"
+OUTPUT_ZIP="$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.14.0.zip"
 
 if [[ ! -x "$JAVAC" || ! -d "$IDE_CONTENTS/lib" ]]; then
   echo "PyCharm SDK not found at: $PYCHARM_HOME" >&2
@@ -40,6 +40,7 @@ find "$PROJECT_DIR/src/test/java" -name '*.java' -print0 \
       -encoding UTF-8 \
       -cp "$CLASSES_DIR:$IDE_CONTENTS/lib/*" \
       -d "$TEST_CLASSES_DIR"
+"$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR:$IDE_CONTENTS/lib/*" studio.lexiao.linuxdo.IdeThemePaletteTest
 "$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR" studio.lexiao.linuxdo.ShareCodeTest
 "$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR" studio.lexiao.linuxdo.ReaderHistoryTest
 "$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR" studio.lexiao.linuxdo.ReaderFavoritesTest

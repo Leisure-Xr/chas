@@ -1,7 +1,9 @@
 package studio.lexiao.linuxdo;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.ui.LafManagerListener;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.DumbAware;
@@ -127,6 +129,11 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 }
                 """;
         private static final String DEMO_LOADING_STYLE = """
+                html, body {
+                  color-scheme: __LEX_IDE_SCHEME__;
+                  background: __LEX_IDE_BG__ !important;
+                  color: __LEX_IDE_TEXT__ !important;
+                }
                 #main-outlet img, #main-outlet svg, #main-outlet video, #main-outlet .emoji,
                 .avatar, .avatar-flair, .topic-avatar, .topic-avatar img, .topic-list .posters,
                 .user-card, .user-card-avatar, .user-card-avatar img, .names .user-title,
@@ -168,6 +175,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 ReaderFavorites.parse(properties.getValue(FAVORITES_PROPERTY))
         );
         private final Map<String, JToggleButton> navigationButtons = new LinkedHashMap<>();
+        private volatile IdeThemePalette ideTheme = IdeThemePalette.current();
         private volatile boolean demoMode = properties.getBoolean(DEMO_MODE_PROPERTY, true);
         private volatile boolean breakOverlayVisible;
         private volatile boolean breakOverlayReminderMode;
@@ -187,10 +195,15 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private GuestBrowserPanel() {
             super(new BorderLayout());
             setBorder(BorderFactory.createEmptyBorder());
+            browser.getComponent().setBackground(ideTheme.background());
             add(createToolbar(), BorderLayout.NORTH);
             add(browser.getComponent(), BorderLayout.CENTER);
             installGuestOnlyNavigationGuard();
             installHistoryStateHandler();
+            ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(
+                    LafManagerListener.TOPIC,
+                    source -> SwingUtilities.invokeLater(this::refreshIdeTheme)
+            );
             startGuestSession();
             setBreakReminderEnabled(properties.getBoolean(BREAK_REMINDER_PROPERTY, false), false);
         }
@@ -1161,7 +1174,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 return;
             }
             boolean readerMode = demoMode;
-            String css = BASE_PAGE_STYLE + (readerMode ? DEMO_PAGE_STYLE : "");
+            String css = BASE_PAGE_STYLE + (readerMode ? ideTheme.applyToReaderCss(DEMO_PAGE_STYLE) : "");
             String script = "(function(){"
                     + "var id='lexiao-guest-reader-style';"
                     + "var style=document.getElementById(id);"
@@ -1169,7 +1182,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     + "style.textContent=\"" + escapeJavaScript(css) + "\";"
                     + "var loadingId='lexiao-guest-loading-privacy';"
                     + "var loadingStyle=document.getElementById(loadingId);"
-                    + "if(loadingStyle){loadingStyle.textContent=\"" + escapeJavaScript(readerMode ? DEMO_LOADING_STYLE : "") + "\";}"
+                    + "if(loadingStyle){loadingStyle.textContent=\""
+                    + escapeJavaScript(readerMode ? ideTheme.applyToReaderCss(DEMO_LOADING_STYLE) : "") + "\";}"
                     + "})();\n"
                     + "if(window.__lexiaoReaderModeApplied!==" + readerMode + "){\n"
                     + READER_MODE_SCRIPT.replace("__LEXIAO_DEMO_MODE__", Boolean.toString(readerMode))
@@ -1179,13 +1193,24 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
         private void applyLoadingPrivacyStyle(CefBrowser cefBrowser) {
             if (disposed || cefBrowser == null) return;
+            String loadingCss = ideTheme.applyToReaderCss(DEMO_LOADING_STYLE);
             String script = "(function(){"
                     + "var id='lexiao-guest-loading-privacy';"
                     + "var style=document.getElementById(id);"
                     + "if(!style){style=document.createElement('style');style.id=id;document.head.appendChild(style);}"
-                    + "style.textContent=\"" + escapeJavaScript(DEMO_LOADING_STYLE) + "\";"
+                    + "style.textContent=\"" + escapeJavaScript(loadingCss) + "\";"
                     + "})();";
             cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
+        }
+
+        private void refreshIdeTheme() {
+            if (disposed) return;
+            ideTheme = IdeThemePalette.current();
+            browser.getComponent().setBackground(ideTheme.background());
+            applyPageStyle(browser.getCefBrowser());
+            String script = "if(window.__linuxDoGameUIController?.setTheme){"
+                    + "window.__linuxDoGameUIController.setTheme(" + ideTheme.gameThemeJson() + ");}";
+            browser.getCefBrowser().executeJavaScript(script, browser.getCefBrowser().getURL(), 0);
         }
 
         private static String escapeJavaScript(String value) {
@@ -1371,7 +1396,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     "__LEXIAO_RECOMMENDED_GAME__",
                     "\"" + escapeJavaScript(recommendedGame) + "\""
             ).replace("__LEXIAO_REMINDER_MODE__", Boolean.toString(breakOverlayReminderMode))
-                    .replace("__LEXIAO_BEST_SCORES__", gameBestScoresJson());
+                    .replace("__LEXIAO_BEST_SCORES__", gameBestScoresJson())
+                    .replace("__LEXIAO_THEME__", ideTheme.gameThemeJson());
             String url = cefBrowser.getURL();
             cefBrowser.executeJavaScript(bundle, url, 0);
             cefBrowser.executeJavaScript(overlay, url, 0);

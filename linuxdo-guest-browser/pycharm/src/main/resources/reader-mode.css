@@ -1,12 +1,19 @@
 body.lexiao-demo-mode {
-  --lex-mono-bg: var(--secondary, #f7f8fa);
-  --lex-mono-panel: var(--secondary, #ffffff);
-  --lex-mono-soft: var(--primary-very-low, #f1f2f4);
-  --lex-mono-border: var(--primary-low, #d6d9de);
-  --lex-mono-text: var(--primary, #24272c);
-  --lex-mono-muted: var(--primary-medium, #697078);
+  --lex-mono-bg: __LEX_IDE_BG__;
+  --lex-mono-panel: __LEX_IDE_PANEL__;
+  --lex-mono-soft: __LEX_IDE_SOFT__;
+  --lex-mono-border: __LEX_IDE_BORDER__;
+  --lex-mono-text: __LEX_IDE_TEXT__;
+  --lex-mono-muted: __LEX_IDE_MUTED__;
+  --lex-mono-accent: __LEX_IDE_ACCENT__;
+  color-scheme: __LEX_IDE_SCHEME__;
   background: var(--lex-mono-bg) !important;
   color: var(--lex-mono-text) !important;
+}
+
+html {
+  color-scheme: __LEX_IDE_SCHEME__;
+  background: __LEX_IDE_BG__ !important;
 }
 
 body.lexiao-demo-mode .d-header,
@@ -33,6 +40,7 @@ body.lexiao-demo-mode #main-outlet-wrapper {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) !important;
   padding: 0 14px 28px !important;
+  background: var(--lex-mono-bg) !important;
 }
 
 body.lexiao-demo-mode #main-outlet,
@@ -40,6 +48,7 @@ body.lexiao-demo-mode .wrap {
   box-sizing: border-box !important;
   width: 100% !important;
   max-width: 1080px !important;
+  background: var(--lex-mono-bg) !important;
 }
 
 body.lexiao-demo-mode #main-outlet {
@@ -265,6 +274,11 @@ body.lexiao-demo-mode #main-outlet :where(
   border-color: var(--lex-mono-border) !important;
   box-shadow: none !important;
   text-shadow: none !important;
+}
+
+body.lexiao-demo-mode #main-outlet :focus-visible {
+  outline: 2px solid var(--lex-mono-accent) !important;
+  outline-offset: 2px !important;
 }
 
 body.lexiao-demo-mode #main-outlet :where(

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.13.0.zip}"
+PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-0.14.0.zip}"
 
 "$PROJECT_DIR/../shared/check-game-core.sh"
 "$PROJECT_DIR/../shared/check-game-ui.sh"
@@ -25,6 +25,7 @@ grep -Fxq 'game-core.js' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'game-ui.js' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'reader-mode.css' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'reader-mode.js' "$TEMP_DIR/jar-list.txt"
+grep -Fxq 'studio/lexiao/linuxdo/IdeThemePalette.class' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'studio/lexiao/linuxdo/LinuxDoToolWindowFactory.class' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'studio/lexiao/linuxdo/ReaderHistory.class' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'studio/lexiao/linuxdo/ReaderFavorites.class' "$TEMP_DIR/jar-list.txt"

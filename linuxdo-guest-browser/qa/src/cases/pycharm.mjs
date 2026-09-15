@@ -85,7 +85,9 @@ export const pycharmCases = [
     capabilities: ['latest', 'visible-desktop', 'jcef'],
     steps: [
       { action: '在窄、中、宽工具窗口检查顶栏、导航、历史、分享和游戏。', expected: '无重叠、截断或重复按钮，焦点和滚动稳定。' },
-      { action: '切换 IDE 亮色和暗色主题。', expected: '隐私布局和 Swing 控件均可读。' }
-    ], expected: '最新稳定 PyCharm 无明显视觉回归。'
+      { action: '分别在 IDE 亮色和暗色主题下检查隐私列表、主题、加载背景、休息提醒和五款游戏。', expected: 'JCEF 背景、面板、文字、边框和强调色与 Swing 工具窗口一致且均可读。' },
+      { action: '游戏进行中切换 IDE 主题。', expected: '页面和游戏立即换色，不刷新页面、不改变滚动位置，也不重置游戏、分数或倒计时。' },
+      { action: '切换到原始网页布局并再次切换 IDE 主题。', expected: '原始网页继续使用站点样式，插件工具栏仍跟随 IDE。' }
+    ], expected: '最新稳定 PyCharm 无明显视觉回归，插件自有界面完整跟随 IDE 主题。'
   })
 ];
