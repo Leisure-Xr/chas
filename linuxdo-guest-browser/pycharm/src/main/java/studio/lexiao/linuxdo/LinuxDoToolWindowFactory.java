@@ -27,6 +27,7 @@ import com.intellij.util.ui.JBUI;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
+import org.cef.CefSettings;
 import org.cef.handler.CefResourceRequestHandler;
 import org.cef.handler.CefResourceRequestHandlerAdapter;
 import org.cef.handler.CefRequestHandlerAdapter;
@@ -126,15 +127,6 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private static final String GAME_UI_SCRIPT = loadResourceScript("/game-ui.js");
         private static final String DEMO_PAGE_STYLE = loadResourceScript("/reader-mode.css");
         private static final String READER_MODE_SCRIPT = loadResourceScript("/reader-mode.js");
-        private static final String BASE_PAGE_STYLE = """
-                .login-button,
-                .sign-up-button,
-                .create-account,
-                a[href^='/login'],
-                a[href^='/signup'] {
-                  display: none !important;
-                }
-                """;
         private static final String DEMO_LOADING_STYLE = """
                 html, body {
                   color-scheme: __LEX_IDE_SCHEME__;
@@ -193,6 +185,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private volatile String pendingNavigationUrl = HOME_URL;
         private volatile String currentPageTitle = "LINUX DO 公开主题";
         private volatile boolean mainLoadFailed;
+        private volatile boolean awaitingMainDocument;
         private volatile String lastRequestedUrl = HOME_URL;
         private volatile boolean showingErrorPage;
         private final Timer pageLoadTimer = new Timer(PAGE_LOAD_TIMEOUT_MILLIS, event -> handleLoadTimeout());
@@ -434,6 +427,10 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 @Override
                 public void onAddressChange(CefBrowser cefBrowser, CefFrame frame, String url) {
                     if (frame == null || !frame.isMain()) return;
+                    if (isAuthenticationUrl(url)) {
+                        showLoadFailure("站点将游客请求重定向到登录页面", url);
+                        return;
+                    }
                     SwingUtilities.invokeLater(() -> {
                         if (disposed) return;
                         updateNavigationState(url);
@@ -449,6 +446,20 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                             cefBrowser.getURL(),
                             historyTitleForUrl(cefBrowser.getURL(), safeCurrentTitle())
                     ));
+                }
+
+                @Override
+                public boolean onConsoleMessage(
+                        CefBrowser cefBrowser,
+                        CefSettings.LogSeverity level,
+                        String message,
+                        String source,
+                        int line
+                ) {
+                    if (message != null && message.startsWith("LEXIAO_READER_STATE ")) {
+                        LOG.info("LINUX DO " + message);
+                    }
+                    return false;
                 }
             }, browser.getCefBrowser());
             browser.getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
@@ -470,7 +481,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         LOG.info("LINUX DO JCEF load stopped: " + diagnosticUrl(cefBrowser.getURL())
                                 + ", failed=" + mainLoadFailed);
                     }
-                    if (isLoading && demoMode) applyLoadingPrivacyStyle(cefBrowser);
+                    if (isLoading && demoMode && awaitingMainDocument) applyLoadingPrivacyStyle(cefBrowser);
                     SwingUtilities.invokeLater(() -> {
                         if (disposed) {
                             return;
@@ -491,7 +502,13 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         LOG.info("LINUX DO JCEF initial blank frame completed");
                         return;
                     }
+                    if (frame != null && frame.isMain() && isAuthenticationUrl(frame.getURL())) {
+                        awaitingMainDocument = false;
+                        showLoadFailure("站点将游客请求重定向到登录页面", frame.getURL());
+                        return;
+                    }
                     if (frame != null && frame.isMain() && httpStatusCode < 400) {
+                        awaitingMainDocument = false;
                         pageLoadTimer.stop();
                         mainLoadFailed = false;
                         LOG.info("LINUX DO JCEF main frame completed: " + diagnosticUrl(cefBrowser.getURL())
@@ -508,6 +525,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                             showBreakOverlay(cefBrowser);
                         }
                     } else if (frame != null && frame.isMain()) {
+                        awaitingMainDocument = false;
                         showLoadFailure("HTTP " + httpStatusCode, cefBrowser.getURL());
                     }
                 }
@@ -521,6 +539,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         String failedUrl
                 ) {
                     if (frame == null || !frame.isMain() || errorCode == ErrorCode.ERR_ABORTED) return;
+                    awaitingMainDocument = false;
                     showLoadFailure(errorCode.name(), failedUrl);
                 }
             }, browser.getCefBrowser());
@@ -538,6 +557,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             }
             pendingNavigationUrl = null;
             CefBrowser cefBrowser = browser.getCefBrowser();
+            awaitingMainDocument = true;
             pageLoadTimer.restart();
             status.setText("加载中...");
             LOG.info("LINUX DO JCEF navigation requested: " + diagnosticUrl(url));
@@ -562,6 +582,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
         private void showLoadFailure(String reason, String failedUrl) {
             if (showingErrorPage || disposed) return;
+            awaitingMainDocument = false;
             mainLoadFailed = true;
             pageLoadTimer.stop();
             String target = isAllowedGuestUrl(failedUrl) && !"about:blank".equals(failedUrl)
@@ -1268,7 +1289,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 return;
             }
             boolean readerMode = demoMode;
-            String css = BASE_PAGE_STYLE + (readerMode ? ideTheme.applyToReaderCss(DEMO_PAGE_STYLE) : "");
+            String css = readerMode ? ideTheme.applyToReaderCss(DEMO_PAGE_STYLE) : "";
             String script = "(function(){"
                     + "var id='lexiao-guest-reader-style';"
                     + "var style=document.getElementById(id);"
@@ -1276,8 +1297,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     + "style.textContent=\"" + escapeJavaScript(css) + "\";"
                     + "var loadingId='lexiao-guest-loading-privacy';"
                     + "var loadingStyle=document.getElementById(loadingId);"
-                    + "if(loadingStyle){loadingStyle.textContent=\""
-                    + escapeJavaScript(readerMode ? ideTheme.applyToReaderCss(DEMO_LOADING_STYLE) : "") + "\";}"
+                    + "if(loadingStyle){loadingStyle.remove();}"
                     + "})();\n"
                     + "if(window.__lexiaoReaderModeApplied!==" + readerMode + "){\n"
                     + READER_MODE_SCRIPT.replace("__LEXIAO_DEMO_MODE__", Boolean.toString(readerMode))
@@ -1345,7 +1365,16 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     if (handleBreakAction(url)) {
                         return true;
                     }
+                    if (isAuthenticationUrl(url)) {
+                        if (isRedirect || !userGesture) {
+                            showLoadFailure("站点将游客请求重定向到登录页面", url);
+                        } else {
+                            SwingUtilities.invokeLater(() -> status.setText("游客模式不允许登录"));
+                        }
+                        return true;
+                    }
                     if (isAllowedGuestUrl(url)) {
+                        if (!samePage(cefBrowser.getURL(), url)) awaitingMainDocument = true;
                         SwingUtilities.invokeLater(() -> status.setText("游客模式"));
                         return false;
                     }
@@ -1602,19 +1631,36 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     return false;
                 }
 
-                return !path.equals("/login")
-                        && !path.startsWith("/login/")
-                        && !path.equals("/signup")
-                        && !path.startsWith("/signup/")
-                        && !path.equals("/session")
-                        && !path.startsWith("/session/")
-                        && !path.equals("/auth")
-                        && !path.startsWith("/auth/")
-                        && !path.equals("/oauth2")
-                        && !path.startsWith("/oauth2/");
+                return !isAuthenticationPath(path);
             } catch (IllegalArgumentException ignored) {
                 return false;
             }
+        }
+
+        private static boolean isAuthenticationUrl(String url) {
+            if (url == null || url.isBlank()) return false;
+            try {
+                URI uri = URI.create(url);
+                String host = uri.getHost();
+                if (!("linux.do".equalsIgnoreCase(host)
+                        || host != null && host.toLowerCase().endsWith(".linux.do"))) return false;
+                return isAuthenticationPath(uri.getPath() == null ? "/" : uri.getPath().toLowerCase());
+            } catch (IllegalArgumentException ignored) {
+                return false;
+            }
+        }
+
+        private static boolean isAuthenticationPath(String path) {
+            return path.equals("/login")
+                    || path.startsWith("/login/")
+                    || path.equals("/signup")
+                    || path.startsWith("/signup/")
+                    || path.equals("/session")
+                    || path.startsWith("/session/")
+                    || path.equals("/auth")
+                    || path.startsWith("/auth/")
+                    || path.equals("/oauth2")
+                    || path.startsWith("/oauth2/");
         }
 
         private void startGuestSession() {

@@ -4,12 +4,12 @@
 
 ## 下载已发布版本
 
-- [仓库最新 ZIP（0.14.2）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.14.2.zip)
-- SHA-256（当前构建包）：`0c12774a92afd79db1fabc64baa0c8fc3416848905a32b454848afbbe965b2d7`
+- [仓库最新 ZIP（0.14.3）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.14.3.zip)
+- SHA-256（当前构建包）：`d378b5df2ce2de74bc9cc096b38c061a8cbf064a3022a797939b3ec630db989c`
 
-仓库和 `dist/` 目录只保留 `0.14.2` 最新 ZIP，旧版本安装包已清理。
+仓库和 `dist/` 目录只保留 `0.14.3` 最新 ZIP，旧版本安装包已清理。
 
-最低支持 PyCharm 2022.3（构建号 `223`），上限为 `263.*`（2026.3）。需要 JetBrains Runtime 自带 JCEF；工具窗口会在缺少 JCEF 时给出提示。`0.14.2` 不再等待可能已错过的初始 `about:blank` 回调，Cookie 清理结束后直接导航，并在请求发出前启动超时保护；网络或加载超时会显示可重试错误页，不再静默白屏。
+最低支持 PyCharm 2022.3（构建号 `223`），上限为 `263.*`（2026.3）。需要 JetBrains Runtime 自带 JCEF；工具窗口会在缺少 JCEF 时给出提示。`0.14.3` 在识别到受支持的话题列表或正文后才启用隐私布局，若样式应用后没有可见内容会自动回退；页面加载、登录重定向或网络失败也会显示可重试错误页，不再静默白屏。
 
 `0.14.0` 让隐私阅读页、加载背景、休息提醒和小游戏使用当前 PyCharm 主题的背景、文字、边框与强调色。摘要、作者、状态等小字号次要文字会在保留主题色调的同时自动提升到至少 `4.5:1` 对比度。切换亮色、Darcula 或自定义主题时会原地更新，不刷新网页、不改变滚动位置，也不重置正在进行的游戏。用户主动选择的原始网页布局继续使用 LINUX DO 自身配色。
 
@@ -70,7 +70,7 @@ PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 可安装 ZIP 会生成在：
 
 ```text
-build/distributions/linuxdo-guest-browser-pycharm-0.14.2.zip
+build/distributions/linuxdo-guest-browser-pycharm-0.14.3.zip
 ```
 
 通过 **Settings > Plugins > 齿轮菜单 > Install Plugin from Disk** 安装，然后打开 **View > Tool Windows > LINUX DO**。

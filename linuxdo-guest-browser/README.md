@@ -9,7 +9,7 @@
 | IDE | 插件版本 | Release 下载页 | 安装包 | SHA-256 |
 | --- | --- | --- | --- | --- |
 | VS Code | `0.19.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.19.0.vsix) | `linuxdo-guest-browser-vscode-0.19.0.vsix` | `3d83c65888a67f171997c570ab2f1c95e9cf28246853ab2947a967a68114bd8e` |
-| PyCharm | `0.14.2` | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.14.2.zip) | `linuxdo-guest-browser-pycharm-0.14.2.zip` | `0c12774a92afd79db1fabc64baa0c8fc3416848905a32b454848afbbe965b2d7` |
+| PyCharm | `0.14.3` | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.14.3.zip) | `linuxdo-guest-browser-pycharm-0.14.3.zip` | `d378b5df2ce2de74bc9cc096b38c061a8cbf064a3022a797939b3ec630db989c` |
 
 下载后可用
 `certutil -hashfile <文件> SHA256`（Windows）或 `shasum -a 256 <文件>`（macOS/Linux）核对完整性。
@@ -28,7 +28,7 @@ VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续�
 
 打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。插件支持 PyCharm 2022.3 及以上（构建号 223–263.*）；已在 2022.3.3、2024.2.6 和 2026.2.2 上完成真实启动与插件加载验证，当前构建使用 2026.1 SDK。
 
-PyCharm 版使用内嵌 JCEF 浏览器，默认采用自适应的单色隐私阅读布局，可从“…”菜单切回原始网页。`0.14.2` 修复首次导航依赖已错过的 `about:blank` 回调而永久白屏的问题，并确保导航请求发出前就启动可重试超时保护。隐私阅读页、加载背景、休息提醒和小游戏采用当前 PyCharm 的背景、文字、边框与强调色；小字号次要文字会在保留主题色调的同时确保至少 `4.5:1` 对比度。
+PyCharm 版使用内嵌 JCEF 浏览器，默认采用自适应的单色隐私阅读布局，可从“…”菜单切回原始网页。`0.14.3` 修复页面已加载成功但隐私 CSS 把内容折叠成白屏的问题：阅读模式只在识别到话题内容后启用，若应用后没有可见内容会自动回退到原始布局；登录重定向会进入可重试错误页。隐私阅读页、加载背景、休息提醒和小游戏采用当前 PyCharm 的背景、文字、边框与强调色；小字号次要文字会在保留主题色调的同时确保至少 `4.5:1` 对比度。
 
 隐私布局删除伪代码、行号和示例标签，隐藏正文外的图片、SVG、视频、头像、徽章、表情、用户卡与身份装饰，并将标题、标签、链接、状态和纯用户名统一为 IDE 黑白灰；帖子正文里的截图、附件、Onebox 和技术图片保持原色。固定顶栏只保留返回、前进、刷新和“…”；最新、热门、分类及搜索位于导航行，历史、收藏、提醒、游戏、分享、导入、教程、布局切换和重置会话只放在“…”菜单。
 
