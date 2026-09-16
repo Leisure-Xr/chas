@@ -1,5 +1,9 @@
 # 更新记录
 
+## PyCharm 0.14.2
+
+- 修复 `0.14.1` 仍可能永久白屏的问题：首次导航不再依赖可能在监听器注册前已经结束的 `about:blank` 回调，并在调用 JCEF `loadURL` 前启动超时保护。
+
 ## PyCharm 0.14.1
 
 - 修复 PyCharm 2024.2 等旧版 IDE 首次打开工具窗口时永久白屏：Cookie 清理改用 JetBrains 管理的后台执行器，并以独立超时保证游客导航继续启动；首次站点导航会等待旧 JCEF 的初始 `about:blank` 主框架就绪，避免 `loadURL` 被吞掉。

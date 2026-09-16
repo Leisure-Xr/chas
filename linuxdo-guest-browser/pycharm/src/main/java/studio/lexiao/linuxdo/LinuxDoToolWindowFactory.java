@@ -190,7 +190,6 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private volatile String recommendedGame = "2048";
         private Timer breakReminderTimer;
         private volatile boolean guestSessionInitializing = true;
-        private volatile boolean browserReady;
         private volatile String pendingNavigationUrl = HOME_URL;
         private volatile String currentPageTitle = "LINUX DO 公开主题";
         private volatile boolean mainLoadFailed;
@@ -460,12 +459,13 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         boolean canGoBack,
                         boolean canGoForward
                 ) {
-                    if (isLoading) {
+                    boolean blankPage = isBlankPage(cefBrowser.getURL());
+                    if (isLoading && !blankPage) {
                         currentPageTitle = "";
                         mainLoadFailed = false;
                         pageLoadTimer.restart();
                         LOG.info("LINUX DO JCEF load started: " + diagnosticUrl(cefBrowser.getURL()));
-                    } else {
+                    } else if (!isLoading && !blankPage) {
                         pageLoadTimer.stop();
                         LOG.info("LINUX DO JCEF load stopped: " + diagnosticUrl(cefBrowser.getURL())
                                 + ", failed=" + mainLoadFailed);
@@ -487,11 +487,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
                 @Override
                 public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
-                    if (frame != null && frame.isMain() && isBlankPage(cefBrowser.getURL())) {
-                        pageLoadTimer.stop();
-                        browserReady = true;
-                        LOG.info("LINUX DO JCEF initial frame is ready");
-                        SwingUtilities.invokeLater(() -> continuePendingNavigationIfReady());
+                    if (frame != null && frame.isMain() && isBlankPage(frame.getURL())) {
+                        LOG.info("LINUX DO JCEF initial blank frame completed");
                         return;
                     }
                     if (frame != null && frame.isMain() && httpStatusCode < 400) {
@@ -541,12 +538,15 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             }
             pendingNavigationUrl = null;
             CefBrowser cefBrowser = browser.getCefBrowser();
+            pageLoadTimer.restart();
+            status.setText("加载中...");
+            LOG.info("LINUX DO JCEF navigation requested: " + diagnosticUrl(url));
             if (samePage(cefBrowser.getURL(), url)) cefBrowser.reload();
             else cefBrowser.loadURL(url);
         }
 
-        private void continuePendingNavigationIfReady() {
-            if (disposed || guestSessionInitializing || !browserReady || pendingNavigationUrl == null) return;
+        private void continuePendingNavigation() {
+            if (disposed || guestSessionInitializing || pendingNavigationUrl == null) return;
             String target = pendingNavigationUrl;
             pendingNavigationUrl = null;
             navigateTo(target);
@@ -1624,8 +1624,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             clearLinuxDoCookies(() -> {
                 guestSessionInitializing = false;
                 if (pendingNavigationUrl == null) pendingNavigationUrl = HOME_URL;
-                status.setText(browserReady ? "游客模式" : "正在启动内嵌浏览器...");
-                continuePendingNavigationIfReady();
+                continuePendingNavigation();
             });
         }
 
