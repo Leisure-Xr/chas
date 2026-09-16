@@ -143,6 +143,47 @@ test('probe injection is not gated on the load-completion path it diagnoses', ()
   );
 });
 
+// linux.do 挂在 Cloudflare 后面，人机验证页本身就是带着 403 返回的（`cf-mitigated: challenge`）。
+// 把它当加载失败处理会调用 stopLoad()，页内验证脚本当场中断，cf_clearance 永远拿不到——
+// 报错越"及时"，越不可能连上。
+test('Cloudflare challenge status codes are not treated as load failures', () => {
+  const onLoadEnd = factorySource.slice(
+    factorySource.indexOf('public void onLoadEnd'),
+    factorySource.indexOf('public void onLoadError')
+  );
+  assert.match(
+    onLoadEnd,
+    /isChallengeStatus\(httpStatusCode\)[\s\S]*?handleChallengeResponse/,
+    'a challenge status must route to the challenge handler, not showLoadFailure'
+  );
+
+  const challengeStatus = factorySource.slice(
+    factorySource.indexOf('static boolean isChallengeStatus')
+  ).slice(0, 200);
+  assert.match(challengeStatus, /403/, '403 must count as a challenge');
+  assert.match(challengeStatus, /503/, '503 must count as a challenge');
+});
+
+test('the challenge path never stops the in-flight verification script', () => {
+  const start = factorySource.indexOf('private void handleChallengeResponse');
+  assert.ok(start > 0, 'challenge handler must exist');
+  const handler = factorySource.slice(start).slice(
+    0,
+    factorySource.slice(start).indexOf('\n        }')
+  );
+  assert.ok(
+    !handler.includes('stopLoad'),
+    'handleChallengeResponse must not call stopLoad — it would abort the Cloudflare challenge'
+  );
+  assert.ok(
+    !handler.includes('showLoadFailure'),
+    'a challenge response must not go straight to the error card'
+  );
+  // 遮罩必须撤掉，否则验证界面会被糊成纯白，用户看不见也点不了。
+  assert.match(handler, /clearLoadingPrivacyStyle/, 'challenge page must be unmasked so it is visible');
+  assert.match(handler, /challengeTimer\.restart\(\)/, 'challenge must still be bounded by a timeout');
+});
+
 test('a load that stops without settling never silently disarms both timers', () => {
   const handler = factorySource.slice(
     factorySource.indexOf('public void onLoadingStateChange'),

@@ -127,6 +127,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private static final int DOCUMENT_SETTLE_TIMEOUT_MILLIS = 4_000;
         // 遮罩样式的 JS 侧自清时限，必须比上面两个兜底都长，让 Java 侧先有机会正常揭开。
         private static final int LOADING_MASK_MAX_MILLIS = 8_000;
+        // Cloudflare 的 "Just a moment…" 挑战页就是带着 403/503 返回的，这是正常流程而非失败。
+        // 给页内验证脚本留出跑完并自动重载的时间，超时才算真失败。
+        private static final int CHALLENGE_TIMEOUT_MILLIS = 20_000;
         private static final String BREAK_OVERLAY_SCRIPT = loadBreakOverlayScript();
         private static final String GAME_CORE_SCRIPT = loadResourceScript("/game-core.js");
         private static final String GAME_UI_SCRIPT = loadResourceScript("/game-ui.js");
@@ -197,6 +200,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private final Timer pageLoadTimer = new Timer(PAGE_LOAD_TIMEOUT_MILLIS, event -> handleLoadTimeout());
         private final Timer documentSettleTimer =
                 new Timer(DOCUMENT_SETTLE_TIMEOUT_MILLIS, event -> handleSettleTimeout());
+        private final Timer challengeTimer =
+                new Timer(CHALLENGE_TIMEOUT_MILLIS, event -> handleChallengeTimeout());
+        private volatile boolean challengeActive;
         private final CardLayout pageLayout = new CardLayout();
         private final JPanel pageContainer = new JPanel(pageLayout);
         private final JLabel loadErrorMessage = new JLabel("网页暂时无法显示", SwingConstants.CENTER);
@@ -210,6 +216,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             super(new BorderLayout());
             pageLoadTimer.setRepeats(false);
             documentSettleTimer.setRepeats(false);
+            challengeTimer.setRepeats(false);
             setBorder(BorderFactory.createEmptyBorder());
             browser.getComponent().setBackground(ideTheme.background());
             add(createToolbar(), BorderLayout.NORTH);
@@ -493,6 +500,11 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                                 + ", failed=" + mainLoadFailed);
                         if (mainLoadFailed) {
                             pageLoadTimer.stop();
+                        } else if (challengeActive) {
+                            // 挑战页本身加载完了，但验证还没过。保持等待，绝不能判成完成——
+                            // 否则验证通过后的真实页面就不再被跟踪，样式也不会重新注入。
+                            LOG.info("LINUX DO JCEF challenge page settled, awaiting verification");
+                            clearLoadingPrivacyStyle(cefBrowser);
                         } else if (documentLoadState.completeFromLoadingState()) {
                             completeDocumentLoad(cefBrowser, "loading-state", null);
                         } else {
@@ -538,7 +550,11 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                             completeDocumentLoad(cefBrowser, "main-frame", httpStatusCode);
                         }
                     } else if (frame != null && frame.isMain()) {
-                        showLoadFailure("HTTP " + httpStatusCode, cefBrowser.getURL());
+                        if (isChallengeStatus(httpStatusCode)) {
+                            handleChallengeResponse(cefBrowser, httpStatusCode);
+                        } else {
+                            showLoadFailure("HTTP " + httpStatusCode, cefBrowser.getURL());
+                        }
                     }
                 }
 
@@ -568,6 +584,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             }
             pendingNavigationUrl = null;
             CefBrowser cefBrowser = browser.getCefBrowser();
+            challengeActive = false;
+            challengeTimer.stop();
             documentLoadState.begin();
             pageLoadTimer.restart();
             status.setText("加载中...");
@@ -588,6 +606,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             lastRequestedUrl = url;
             showingErrorPage = false;
             pageLayout.show(pageContainer, "browser");
+            challengeActive = false;
+            challengeTimer.stop();
             documentLoadState.begin();
             pageLoadTimer.restart();
             status.setText("加载中...");
@@ -599,6 +619,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (disposed || cefBrowser == null) return;
             pageLoadTimer.stop();
             documentSettleTimer.stop();
+            challengeTimer.stop();
+            challengeActive = false;
             mainLoadFailed = false;
             String statusCode = httpStatusCode == null ? "unknown" : httpStatusCode.toString();
             LOG.info("LINUX DO JCEF document completed: " + diagnosticUrl(cefBrowser.getURL())
@@ -641,6 +663,47 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             }
         }
 
+        // Cloudflare 的人机验证页带着这些状态码返回，它们代表“验证进行中”，不是加载失败。
+        private static boolean isChallengeStatus(int httpStatusCode) {
+            return httpStatusCode == 403 || httpStatusCode == 503;
+        }
+
+        // 关键：这里不能走 showLoadFailure。它会调用 stopLoad()，把页内验证脚本当场掐断，
+        // 于是永远拿不到 cf_clearance——报错越“及时”，越不可能连上。
+        private void handleChallengeResponse(CefBrowser cefBrowser, int httpStatusCode) {
+            if (disposed) return;
+            LOG.info("LINUX DO JCEF challenge response: " + diagnosticUrl(cefBrowser.getURL())
+                    + ", status=" + httpStatusCode);
+            challengeActive = true;
+            pageLoadTimer.stop();
+            documentSettleTimer.stop();
+            challengeTimer.restart();
+            // 撤掉遮罩，否则验证界面会被糊成纯白，用户既看不见进度也无法交互。
+            clearLoadingPrivacyStyle(cefBrowser);
+            SwingUtilities.invokeLater(() -> {
+                if (disposed) return;
+                pageLayout.show(pageContainer, "browser");
+                status.setText("站点正在进行人机验证...");
+            });
+        }
+
+        private void handleChallengeTimeout() {
+            if (disposed || !challengeActive) return;
+            showLoadFailure("人机验证未在 " + (CHALLENGE_TIMEOUT_MILLIS / 1000) + " 秒内完成", lastRequestedUrl);
+        }
+
+        // 只撤遮罩，不注入阅读模式样式——验证页不是正文，不该被当作内容处理。
+        private void clearLoadingPrivacyStyle(CefBrowser cefBrowser) {
+            if (disposed || cefBrowser == null) return;
+            String script = "(function(){"
+                    + "var style=document.getElementById('lexiao-guest-loading-privacy');"
+                    + "if(style){style.remove();}"
+                    + "if(window.__lexiaoLoadingMaskTimer){"
+                    + "clearTimeout(window.__lexiaoLoadingMaskTimer);window.__lexiaoLoadingMaskTimer=0;}"
+                    + "})();";
+            cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
+        }
+
         // 组件尺寸为 0 或未上屏，会呈现出和“页面是白的”完全一样的效果，必须可区分。
         private String browserComponentDiagnostics() {
             java.awt.Component component = browser.getComponent();
@@ -655,6 +718,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             mainLoadFailed = true;
             pageLoadTimer.stop();
             documentSettleTimer.stop();
+            challengeTimer.stop();
+            challengeActive = false;
             String target = isAllowedGuestUrl(failedUrl) && !"about:blank".equals(failedUrl)
                     ? failedUrl : lastRequestedUrl;
             LOG.warn("LINUX DO JCEF main frame failed: " + diagnosticUrl(target) + ", reason=" + reason);
@@ -1462,6 +1527,14 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         return true;
                     }
                     if (isAllowedGuestUrl(url)) {
+                        // 验证通过后 Cloudflare 会重新发起一次导航（通常是同一个 URL）。
+                        // 在这里解除验证态，让接下来那次真实加载重新走正常的完成路径。
+                        boolean leavingChallenge = challengeActive;
+                        if (leavingChallenge) {
+                            challengeActive = false;
+                            challengeTimer.stop();
+                            LOG.info("LINUX DO JCEF challenge cleared, reloading: " + diagnosticUrl(url));
+                        }
                         if (!samePage(cefBrowser.getURL(), url)) {
                             documentLoadState.begin();
                             lastRequestedUrl = url;
@@ -1470,6 +1543,12 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                                 if (disposed) return;
                                 pageLoadTimer.restart();
                                 pageLayout.show(pageContainer, "browser");
+                                status.setText("加载中...");
+                            });
+                        } else if (leavingChallenge) {
+                            SwingUtilities.invokeLater(() -> {
+                                if (disposed) return;
+                                pageLoadTimer.restart();
                                 status.setText("加载中...");
                             });
                         } else {
@@ -1801,6 +1880,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             stopBreakTimer();
             pageLoadTimer.stop();
             documentSettleTimer.stop();
+            challengeTimer.stop();
             if (historyPopup != null) historyPopup.cancel();
             if (favoritesPopup != null) favoritesPopup.cancel();
             breakOverlayVisible = false;

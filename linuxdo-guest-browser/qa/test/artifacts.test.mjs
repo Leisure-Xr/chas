@@ -10,7 +10,7 @@ test('published VSIX matches source metadata', async () => {
 
 test('published PyCharm ZIP matches source metadata and package contract', async () => {
   const result = await checkPyCharmArtifact();
-  assert.equal(result.pluginVersion, '0.14.4');
+  assert.equal(result.pluginVersion, '0.14.5');
   assert.equal(result.sinceBuild, '223');
   assert.equal(result.untilBuild, '263.*');
 });
