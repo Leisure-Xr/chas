@@ -122,11 +122,17 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private static final int SNOOZE_MINUTES = 10;
         private static final int COOKIE_CLEANUP_TIMEOUT_SECONDS = 10;
         private static final int PAGE_LOAD_TIMEOUT_MILLIS = 30_000;
+        // 加载停止却没被判定为完成时的兜底：进程外 JCEF 丢过 isLoading=true 边沿，
+        // 这时既不会完成也不会失败，页面会静默卡在遮罩里。
+        private static final int DOCUMENT_SETTLE_TIMEOUT_MILLIS = 4_000;
+        // 遮罩样式的 JS 侧自清时限，必须比上面两个兜底都长，让 Java 侧先有机会正常揭开。
+        private static final int LOADING_MASK_MAX_MILLIS = 8_000;
         private static final String BREAK_OVERLAY_SCRIPT = loadBreakOverlayScript();
         private static final String GAME_CORE_SCRIPT = loadResourceScript("/game-core.js");
         private static final String GAME_UI_SCRIPT = loadResourceScript("/game-ui.js");
         private static final String DEMO_PAGE_STYLE = loadResourceScript("/reader-mode.css");
         private static final String READER_MODE_SCRIPT = loadResourceScript("/reader-mode.js");
+        private static final String PAGE_PROBE_SCRIPT = loadResourceScript("/page-probe.js");
         private static final String DEMO_LOADING_STYLE = """
                 html, body {
                   color-scheme: __LEX_IDE_SCHEME__;
@@ -185,10 +191,12 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private volatile String pendingNavigationUrl = HOME_URL;
         private volatile String currentPageTitle = "LINUX DO 公开主题";
         private volatile boolean mainLoadFailed;
-        private volatile boolean awaitingMainDocument;
+        private final DocumentLoadState documentLoadState = new DocumentLoadState();
         private volatile String lastRequestedUrl = HOME_URL;
         private volatile boolean showingErrorPage;
         private final Timer pageLoadTimer = new Timer(PAGE_LOAD_TIMEOUT_MILLIS, event -> handleLoadTimeout());
+        private final Timer documentSettleTimer =
+                new Timer(DOCUMENT_SETTLE_TIMEOUT_MILLIS, event -> handleSettleTimeout());
         private final CardLayout pageLayout = new CardLayout();
         private final JPanel pageContainer = new JPanel(pageLayout);
         private final JLabel loadErrorMessage = new JLabel("网页暂时无法显示", SwingConstants.CENTER);
@@ -201,6 +209,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private GuestBrowserPanel() {
             super(new BorderLayout());
             pageLoadTimer.setRepeats(false);
+            documentSettleTimer.setRepeats(false);
             setBorder(BorderFactory.createEmptyBorder());
             browser.getComponent().setBackground(ideTheme.background());
             add(createToolbar(), BorderLayout.NORTH);
@@ -264,7 +273,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             backButton.addActionListener(event -> browser.getCefBrowser().goBack());
             forwardButton.addActionListener(event -> browser.getCefBrowser().goForward());
             historyButton.addActionListener(event -> showHistoryPopup());
-            refreshButton.addActionListener(event -> browser.getCefBrowser().reload());
+            refreshButton.addActionListener(event -> reloadCurrentPage());
             resetButton.addActionListener(event -> startGuestSession());
             demoButton.addActionListener(event -> {
                 demoMode = demoButton.isSelected();
@@ -456,7 +465,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         String source,
                         int line
                 ) {
-                    if (message != null && message.startsWith("LEXIAO_READER_STATE ")) {
+                    if (message != null && message.startsWith("LEXIAO_")) {
                         LOG.info("LINUX DO " + message);
                     }
                     return false;
@@ -471,27 +480,45 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         boolean canGoForward
                 ) {
                     boolean blankPage = isBlankPage(cefBrowser.getURL());
-                    if (isLoading && !blankPage) {
+                    boolean trackedLoad = !blankPage && documentLoadState.isAwaiting();
+                    if (isLoading && trackedLoad) {
+                        documentLoadState.loadingStarted();
                         currentPageTitle = "";
                         mainLoadFailed = false;
                         pageLoadTimer.restart();
                         LOG.info("LINUX DO JCEF load started: " + diagnosticUrl(cefBrowser.getURL()));
-                    } else if (!isLoading && !blankPage) {
-                        pageLoadTimer.stop();
+                        if (demoMode) applyLoadingPrivacyStyle(cefBrowser);
+                    } else if (!isLoading && trackedLoad) {
                         LOG.info("LINUX DO JCEF load stopped: " + diagnosticUrl(cefBrowser.getURL())
                                 + ", failed=" + mainLoadFailed);
+                        if (mainLoadFailed) {
+                            pageLoadTimer.stop();
+                        } else if (documentLoadState.completeFromLoadingState()) {
+                            completeDocumentLoad(cefBrowser, "loading-state", null);
+                        } else {
+                            // 加载停止了却判定不出完成。绝不能在这里停表：一旦停了，既不会
+                            // 完成也不会失败，页面就静默卡在遮罩里——这正是白屏的形状。
+                            LOG.warn("LINUX DO JCEF load stopped without settle: "
+                                    + diagnosticUrl(cefBrowser.getURL()));
+                            documentSettleTimer.restart();
+                        }
                     }
-                    if (isLoading && demoMode && awaitingMainDocument) applyLoadingPrivacyStyle(cefBrowser);
+                    if (!isLoading && !blankPage) {
+                        // 探针独立于 trackedLoad、阅读模式和完成判定。0.14.1–0.14.3 三次误判，
+                        // 正是因为唯一的诊断通道挂在那条已经断掉的链路上。
+                        injectPageProbe(cefBrowser);
+                    }
+                    boolean showLoading = isLoading && trackedLoad;
                     SwingUtilities.invokeLater(() -> {
                         if (disposed) {
                             return;
                         }
                         backButton.setEnabled(canGoBack);
                         forwardButton.setEnabled(canGoForward);
-                        refreshButton.setEnabled(!isLoading);
-                        navigationButtons.values().forEach(button -> button.setEnabled(!isLoading));
-                        searchField.setEnabled(!isLoading);
-                        status.setText(isLoading ? "加载中..." : (mainLoadFailed ? "加载失败，可重试" : "游客模式"));
+                        refreshButton.setEnabled(!showLoading);
+                        navigationButtons.values().forEach(button -> button.setEnabled(!showLoading));
+                        searchField.setEnabled(!showLoading);
+                        status.setText(showLoading ? "加载中..." : (mainLoadFailed ? "加载失败，可重试" : "游客模式"));
                         updateNavigationState(cefBrowser.getURL());
                     });
                 }
@@ -503,29 +530,14 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         return;
                     }
                     if (frame != null && frame.isMain() && isAuthenticationUrl(frame.getURL())) {
-                        awaitingMainDocument = false;
                         showLoadFailure("站点将游客请求重定向到登录页面", frame.getURL());
                         return;
                     }
                     if (frame != null && frame.isMain() && httpStatusCode < 400) {
-                        awaitingMainDocument = false;
-                        pageLoadTimer.stop();
-                        mainLoadFailed = false;
-                        LOG.info("LINUX DO JCEF main frame completed: " + diagnosticUrl(cefBrowser.getURL())
-                                + ", status=" + httpStatusCode);
-                        SwingUtilities.invokeLater(() -> {
-                            if (disposed) return;
-                            pageLayout.show(pageContainer, "browser");
-                            status.setText("游客模式");
-                            updateNavigationState(cefBrowser.getURL());
-                            recordHistory(cefBrowser.getURL(), safeCurrentTitle());
-                        });
-                        applyPageStyle(cefBrowser);
-                        if (breakOverlayVisible) {
-                            showBreakOverlay(cefBrowser);
+                        if (documentLoadState.completeFromMainFrame()) {
+                            completeDocumentLoad(cefBrowser, "main-frame", httpStatusCode);
                         }
                     } else if (frame != null && frame.isMain()) {
-                        awaitingMainDocument = false;
                         showLoadFailure("HTTP " + httpStatusCode, cefBrowser.getURL());
                     }
                 }
@@ -539,7 +551,6 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         String failedUrl
                 ) {
                     if (frame == null || !frame.isMain() || errorCode == ErrorCode.ERR_ABORTED) return;
-                    awaitingMainDocument = false;
                     showLoadFailure(errorCode.name(), failedUrl);
                 }
             }, browser.getCefBrowser());
@@ -557,12 +568,51 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             }
             pendingNavigationUrl = null;
             CefBrowser cefBrowser = browser.getCefBrowser();
-            awaitingMainDocument = true;
+            documentLoadState.begin();
             pageLoadTimer.restart();
             status.setText("加载中...");
             LOG.info("LINUX DO JCEF navigation requested: " + diagnosticUrl(url));
             if (samePage(cefBrowser.getURL(), url)) cefBrowser.reload();
             else cefBrowser.loadURL(url);
+        }
+
+        private void reloadCurrentPage() {
+            if (disposed) return;
+            if (showingErrorPage) {
+                navigateTo(lastRequestedUrl);
+                return;
+            }
+            CefBrowser cefBrowser = browser.getCefBrowser();
+            String url = cefBrowser.getURL();
+            if (!isAllowedGuestUrl(url) || isBlankPage(url)) url = lastRequestedUrl;
+            lastRequestedUrl = url;
+            showingErrorPage = false;
+            pageLayout.show(pageContainer, "browser");
+            documentLoadState.begin();
+            pageLoadTimer.restart();
+            status.setText("加载中...");
+            LOG.info("LINUX DO JCEF reload requested: " + diagnosticUrl(url));
+            cefBrowser.reload();
+        }
+
+        private void completeDocumentLoad(CefBrowser cefBrowser, String trigger, Integer httpStatusCode) {
+            if (disposed || cefBrowser == null) return;
+            pageLoadTimer.stop();
+            documentSettleTimer.stop();
+            mainLoadFailed = false;
+            String statusCode = httpStatusCode == null ? "unknown" : httpStatusCode.toString();
+            LOG.info("LINUX DO JCEF document completed: " + diagnosticUrl(cefBrowser.getURL())
+                    + ", trigger=" + trigger + ", status=" + statusCode
+                    + ", " + browserComponentDiagnostics());
+            SwingUtilities.invokeLater(() -> {
+                if (disposed) return;
+                pageLayout.show(pageContainer, "browser");
+                status.setText("游客模式");
+                updateNavigationState(cefBrowser.getURL());
+                recordHistory(cefBrowser.getURL(), safeCurrentTitle());
+            });
+            applyPageStyle(cefBrowser);
+            if (breakOverlayVisible) showBreakOverlay(cefBrowser);
         }
 
         private void continuePendingNavigation() {
@@ -580,11 +630,31 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (!disposed && !showingErrorPage) showLoadFailure("加载超时", lastRequestedUrl);
         }
 
+        // 加载已经停止，但完成判定没走通。这时文档通常其实是好的，只是丢了状态边沿，
+        // 所以先尝试补判为完成（顺带揭开遮罩）；补不上才让用户看到可重试的错误页。
+        private void handleSettleTimeout() {
+            if (disposed || showingErrorPage || mainLoadFailed) return;
+            CefBrowser cefBrowser = browser.getCefBrowser();
+            if (documentLoadState.completeFromMainFrame()) {
+                LOG.warn("LINUX DO JCEF settle watchdog recovered: " + diagnosticUrl(cefBrowser.getURL()));
+                completeDocumentLoad(cefBrowser, "settle-watchdog", null);
+            }
+        }
+
+        // 组件尺寸为 0 或未上屏，会呈现出和“页面是白的”完全一样的效果，必须可区分。
+        private String browserComponentDiagnostics() {
+            java.awt.Component component = browser.getComponent();
+            return "component=" + component.getWidth() + "x" + component.getHeight()
+                    + ", showing=" + component.isShowing()
+                    + ", card=" + (showingErrorPage ? "error" : "browser");
+        }
+
         private void showLoadFailure(String reason, String failedUrl) {
             if (showingErrorPage || disposed) return;
-            awaitingMainDocument = false;
+            documentLoadState.fail();
             mainLoadFailed = true;
             pageLoadTimer.stop();
+            documentSettleTimer.stop();
             String target = isAllowedGuestUrl(failedUrl) && !"about:blank".equals(failedUrl)
                     ? failedUrl : lastRequestedUrl;
             LOG.warn("LINUX DO JCEF main frame failed: " + diagnosticUrl(target) + ", reason=" + reason);
@@ -1298,6 +1368,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     + "var loadingId='lexiao-guest-loading-privacy';"
                     + "var loadingStyle=document.getElementById(loadingId);"
                     + "if(loadingStyle){loadingStyle.remove();}"
+                    + "if(window.__lexiaoLoadingMaskTimer){"
+                    + "clearTimeout(window.__lexiaoLoadingMaskTimer);window.__lexiaoLoadingMaskTimer=0;}"
                     + "})();\n"
                     + "if(window.__lexiaoReaderModeApplied!==" + readerMode + "){\n"
                     + READER_MODE_SCRIPT.replace("__LEXIAO_DEMO_MODE__", Boolean.toString(readerMode))
@@ -1311,10 +1383,26 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             String script = "(function(){"
                     + "var id='lexiao-guest-loading-privacy';"
                     + "var style=document.getElementById(id);"
-                    + "if(!style){style=document.createElement('style');style.id=id;document.head.appendChild(style);}"
+                    + "if(!style){style=document.createElement('style');style.id=id;"
+                    + "(document.head||document.documentElement).appendChild(style);}"
                     + "style.textContent=\"" + escapeJavaScript(loadingCss) + "\";"
+                    // 任何“先遮住、等 Java 回调再揭开”的机制，都必须能在回调永不到来时自行恢复。
+                    // 进程外 JCEF 已经证明那个回调会丢，遮罩留下就是一片白且没有任何提示。
+                    + "if(window.__lexiaoLoadingMaskTimer){clearTimeout(window.__lexiaoLoadingMaskTimer);}"
+                    + "window.__lexiaoLoadingMaskTimer=setTimeout(function(){"
+                    + "window.__lexiaoLoadingMaskTimer=0;"
+                    + "var stale=document.getElementById(id);"
+                    + "if(stale){stale.remove();"
+                    + "console.info('LEXIAO_MASK_SELF_CLEARED {\"after\":" + LOADING_MASK_MAX_MILLIS + "}');}"
+                    + "if(window.__lexiaoPageProbe){window.__lexiaoPageProbe('mask-self-cleared');}"
+                    + "}," + LOADING_MASK_MAX_MILLIS + ");"
                     + "})();";
             cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
+        }
+
+        private void injectPageProbe(CefBrowser cefBrowser) {
+            if (disposed || cefBrowser == null) return;
+            cefBrowser.executeJavaScript(PAGE_PROBE_SCRIPT, cefBrowser.getURL(), 0);
         }
 
         private void refreshIdeTheme() {
@@ -1374,8 +1462,19 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         return true;
                     }
                     if (isAllowedGuestUrl(url)) {
-                        if (!samePage(cefBrowser.getURL(), url)) awaitingMainDocument = true;
-                        SwingUtilities.invokeLater(() -> status.setText("游客模式"));
+                        if (!samePage(cefBrowser.getURL(), url)) {
+                            documentLoadState.begin();
+                            lastRequestedUrl = url;
+                            showingErrorPage = false;
+                            SwingUtilities.invokeLater(() -> {
+                                if (disposed) return;
+                                pageLoadTimer.restart();
+                                pageLayout.show(pageContainer, "browser");
+                                status.setText("加载中...");
+                            });
+                        } else {
+                            SwingUtilities.invokeLater(() -> status.setText("游客模式"));
+                        }
                         return false;
                     }
 
@@ -1701,6 +1800,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         public void dispose() {
             stopBreakTimer();
             pageLoadTimer.stop();
+            documentSettleTimer.stop();
             if (historyPopup != null) historyPopup.cancel();
             if (favoritesPopup != null) favoritesPopup.cancel();
             breakOverlayVisible = false;

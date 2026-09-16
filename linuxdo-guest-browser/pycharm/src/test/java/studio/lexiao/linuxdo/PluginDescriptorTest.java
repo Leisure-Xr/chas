@@ -9,7 +9,7 @@ import java.nio.file.Path;
 public final class PluginDescriptorTest {
     private static final String SINCE_BUILD = "223";
     private static final String UNTIL_BUILD = "263.*";
-    private static final String VERSION = "0.14.3";
+    private static final String VERSION = "0.14.4";
 
     public static void main(String[] args) throws IOException {
         declareSupportedBuildsAndVersion();

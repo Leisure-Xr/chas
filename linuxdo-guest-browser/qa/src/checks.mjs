@@ -100,6 +100,8 @@ export async function checkPyCharmArtifact() {
       'game-ui.js',
       'reader-mode.css',
       'reader-mode.js',
+      'page-probe.js',
+      'studio/lexiao/linuxdo/DocumentLoadState.class',
       'studio/lexiao/linuxdo/GuestSessionCleanup.class',
       'studio/lexiao/linuxdo/LinuxDoToolWindowFactory.class',
       'studio/lexiao/linuxdo/ReaderHistory.class',
