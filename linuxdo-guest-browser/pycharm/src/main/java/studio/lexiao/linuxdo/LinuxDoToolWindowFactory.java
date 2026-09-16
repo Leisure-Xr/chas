@@ -4,6 +4,7 @@ import com.intellij.icons.AllIcons;
 import com.intellij.ide.ui.LafManagerListener;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.DumbAware;
@@ -23,6 +24,7 @@ import com.intellij.ui.jcef.JBCefApp;
 import com.intellij.ui.jcef.JBCefBrowser;
 import com.intellij.ui.jcef.JBCefCookieManager;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefResourceRequestHandler;
@@ -56,6 +58,7 @@ import javax.swing.ScrollPaneConstants;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FlowLayout;
@@ -84,6 +87,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAware {
+    private static final Logger LOG = Logger.getInstance(LinuxDoToolWindowFactory.class);
+
     @Override
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
         if (!JBCefApp.isSupported()) {
@@ -114,6 +119,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private static final String BREAK_ACTION_PATH = "/__lexiao_break/";
         private static final String GAME_BEST_PROPERTY = "linuxdo.guest.gameBest.";
         private static final int SNOOZE_MINUTES = 10;
+        private static final int COOKIE_CLEANUP_TIMEOUT_SECONDS = 10;
+        private static final int PAGE_LOAD_TIMEOUT_MILLIS = 30_000;
         private static final String BREAK_OVERLAY_SCRIPT = loadBreakOverlayScript();
         private static final String GAME_CORE_SCRIPT = loadResourceScript("/game-core.js");
         private static final String GAME_UI_SCRIPT = loadResourceScript("/game-ui.js");
@@ -183,9 +190,16 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private volatile String recommendedGame = "2048";
         private Timer breakReminderTimer;
         private volatile boolean guestSessionInitializing = true;
+        private volatile boolean browserReady;
         private volatile String pendingNavigationUrl = HOME_URL;
         private volatile String currentPageTitle = "LINUX DO 公开主题";
         private volatile boolean mainLoadFailed;
+        private volatile String lastRequestedUrl = HOME_URL;
+        private volatile boolean showingErrorPage;
+        private final Timer pageLoadTimer = new Timer(PAGE_LOAD_TIMEOUT_MILLIS, event -> handleLoadTimeout());
+        private final CardLayout pageLayout = new CardLayout();
+        private final JPanel pageContainer = new JPanel(pageLayout);
+        private final JLabel loadErrorMessage = new JLabel("网页暂时无法显示", SwingConstants.CENTER);
         private JBPopup historyPopup;
         private JBPopup favoritesPopup;
         private volatile boolean disposed;
@@ -194,10 +208,13 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
         private GuestBrowserPanel() {
             super(new BorderLayout());
+            pageLoadTimer.setRepeats(false);
             setBorder(BorderFactory.createEmptyBorder());
             browser.getComponent().setBackground(ideTheme.background());
             add(createToolbar(), BorderLayout.NORTH);
-            add(browser.getComponent(), BorderLayout.CENTER);
+            pageContainer.add(browser.getComponent(), "browser");
+            pageContainer.add(createLoadErrorPanel(), "error");
+            add(pageContainer, BorderLayout.CENTER);
             installGuestOnlyNavigationGuard();
             installHistoryStateHandler();
             ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(
@@ -206,6 +223,23 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             );
             startGuestSession();
             setBreakReminderEnabled(properties.getBoolean(BREAK_REMINDER_PROPERTY, false), false);
+        }
+
+        private JPanel createLoadErrorPanel() {
+            JPanel panel = new JPanel(new BorderLayout());
+            JPanel message = new JPanel();
+            message.setLayout(new BoxLayout(message, BoxLayout.Y_AXIS));
+            loadErrorMessage.setAlignmentX(CENTER_ALIGNMENT);
+            JButton retry = new JButton("重试加载");
+            retry.setAlignmentX(CENTER_ALIGNMENT);
+            retry.addActionListener(event -> navigateTo(lastRequestedUrl));
+            message.add(Box.createVerticalGlue());
+            message.add(loadErrorMessage);
+            message.add(Box.createVerticalStrut(JBUI.scale(12)));
+            message.add(retry);
+            message.add(Box.createVerticalGlue());
+            panel.add(message, BorderLayout.CENTER);
+            return panel;
         }
 
         private JPanel createToolbar() {
@@ -429,6 +463,12 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     if (isLoading) {
                         currentPageTitle = "";
                         mainLoadFailed = false;
+                        pageLoadTimer.restart();
+                        LOG.info("LINUX DO JCEF load started: " + diagnosticUrl(cefBrowser.getURL()));
+                    } else {
+                        pageLoadTimer.stop();
+                        LOG.info("LINUX DO JCEF load stopped: " + diagnosticUrl(cefBrowser.getURL())
+                                + ", failed=" + mainLoadFailed);
                     }
                     if (isLoading && demoMode) applyLoadingPrivacyStyle(cefBrowser);
                     SwingUtilities.invokeLater(() -> {
@@ -447,10 +487,21 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
                 @Override
                 public void onLoadEnd(CefBrowser cefBrowser, CefFrame frame, int httpStatusCode) {
+                    if (frame != null && frame.isMain() && isBlankPage(cefBrowser.getURL())) {
+                        pageLoadTimer.stop();
+                        browserReady = true;
+                        LOG.info("LINUX DO JCEF initial frame is ready");
+                        SwingUtilities.invokeLater(() -> continuePendingNavigationIfReady());
+                        return;
+                    }
                     if (frame != null && frame.isMain() && httpStatusCode < 400) {
+                        pageLoadTimer.stop();
                         mainLoadFailed = false;
+                        LOG.info("LINUX DO JCEF main frame completed: " + diagnosticUrl(cefBrowser.getURL())
+                                + ", status=" + httpStatusCode);
                         SwingUtilities.invokeLater(() -> {
                             if (disposed) return;
+                            pageLayout.show(pageContainer, "browser");
                             status.setText("游客模式");
                             updateNavigationState(cefBrowser.getURL());
                             recordHistory(cefBrowser.getURL(), safeCurrentTitle());
@@ -460,10 +511,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                             showBreakOverlay(cefBrowser);
                         }
                     } else if (frame != null && frame.isMain()) {
-                        mainLoadFailed = true;
-                        SwingUtilities.invokeLater(() -> {
-                            if (!disposed) status.setText("加载失败，可重试");
-                        });
+                        showLoadFailure("HTTP " + httpStatusCode, cefBrowser.getURL());
                     }
                 }
 
@@ -476,16 +524,16 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         String failedUrl
                 ) {
                     if (frame == null || !frame.isMain() || errorCode == ErrorCode.ERR_ABORTED) return;
-                    mainLoadFailed = true;
-                    SwingUtilities.invokeLater(() -> {
-                        if (!disposed) status.setText("加载失败，可重试");
-                    });
+                    showLoadFailure(errorCode.name(), failedUrl);
                 }
             }, browser.getCefBrowser());
         }
 
         private void navigateTo(String url) {
             if (disposed || !isAllowedGuestUrl(url)) return;
+            lastRequestedUrl = url;
+            showingErrorPage = false;
+            pageLayout.show(pageContainer, "browser");
             if (guestSessionInitializing) {
                 pendingNavigationUrl = url;
                 status.setText("准备游客会话，将打开" + navigationLabel(url));
@@ -495,6 +543,52 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             CefBrowser cefBrowser = browser.getCefBrowser();
             if (samePage(cefBrowser.getURL(), url)) cefBrowser.reload();
             else cefBrowser.loadURL(url);
+        }
+
+        private void continuePendingNavigationIfReady() {
+            if (disposed || guestSessionInitializing || !browserReady || pendingNavigationUrl == null) return;
+            String target = pendingNavigationUrl;
+            pendingNavigationUrl = null;
+            navigateTo(target);
+        }
+
+        private static boolean isBlankPage(String url) {
+            return url == null || url.isBlank() || "about:blank".equals(url);
+        }
+
+        private void handleLoadTimeout() {
+            if (!disposed && !showingErrorPage) showLoadFailure("加载超时", lastRequestedUrl);
+        }
+
+        private void showLoadFailure(String reason, String failedUrl) {
+            if (showingErrorPage || disposed) return;
+            mainLoadFailed = true;
+            pageLoadTimer.stop();
+            String target = isAllowedGuestUrl(failedUrl) && !"about:blank".equals(failedUrl)
+                    ? failedUrl : lastRequestedUrl;
+            LOG.warn("LINUX DO JCEF main frame failed: " + diagnosticUrl(target) + ", reason=" + reason);
+            SwingUtilities.invokeLater(() -> {
+                if (disposed) return;
+                showingErrorPage = true;
+                status.setText("加载失败，可重试");
+                loadErrorMessage.setText("网页暂时无法显示：" + reason);
+                refreshButton.setEnabled(true);
+                navigationButtons.values().forEach(button -> button.setEnabled(true));
+                searchField.setEnabled(true);
+                browser.getCefBrowser().stopLoad();
+                pageLayout.show(pageContainer, "error");
+            });
+        }
+
+        private static String diagnosticUrl(String value) {
+            if (value == null || value.isBlank()) return "<empty>";
+            try {
+                URI uri = URI.create(value);
+                String host = uri.getHost();
+                return host == null ? uri.getScheme() + ":" : uri.getScheme() + "://" + host + uri.getPath();
+            } catch (IllegalArgumentException ignored) {
+                return "<invalid>";
+            }
         }
 
         private void updateNavigationState(String currentUrl) {
@@ -1529,10 +1623,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             status.setText("正在清理游客会话...");
             clearLinuxDoCookies(() -> {
                 guestSessionInitializing = false;
-                status.setText("游客模式");
-                String target = pendingNavigationUrl == null ? HOME_URL : pendingNavigationUrl;
-                pendingNavigationUrl = null;
-                navigateTo(target);
+                if (pendingNavigationUrl == null) pendingNavigationUrl = HOME_URL;
+                status.setText(browserReady ? "游客模式" : "正在启动内嵌浏览器...");
+                continuePendingNavigationIfReady();
             });
         }
 
@@ -1543,15 +1636,17 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         }
 
         private void clearLinuxDoCookies(Runnable afterClear) {
-            CompletableFuture.runAsync(() -> {
-                try {
-                    Future<Boolean> deletion = cookieManager.deleteCookies(DOMAIN_URL, null);
-                    deletion.get(10, TimeUnit.SECONDS);
-                } catch (Exception ignored) {
-                    // A failed cleanup must not freeze the IDE; navigation remains auth-blocked.
-                }
-            }).whenComplete((unused, error) -> SwingUtilities.invokeLater(() -> {
+            GuestSessionCleanup.run(() -> {
+                Future<Boolean> deletion = cookieManager.deleteCookies(DOMAIN_URL, null);
+                return Boolean.TRUE.equals(deletion.get(COOKIE_CLEANUP_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            }, AppExecutorUtil.getAppExecutorService(), COOKIE_CLEANUP_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .whenComplete((cleared, error) -> SwingUtilities.invokeLater(() -> {
                 if (!disposed) {
+                    if (error != null || !Boolean.TRUE.equals(cleared)) {
+                        LOG.warn("LINUX DO JCEF cookie cleanup did not complete before startup; continuing as guest");
+                    } else {
+                        LOG.info("LINUX DO JCEF guest cookie cleanup completed");
+                    }
                     afterClear.run();
                 }
             }));
@@ -1560,6 +1655,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         @Override
         public void dispose() {
             stopBreakTimer();
+            pageLoadTimer.stop();
             if (historyPopup != null) historyPopup.cancel();
             if (favoritesPopup != null) favoritesPopup.cancel();
             breakOverlayVisible = false;

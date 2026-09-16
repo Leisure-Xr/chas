@@ -24,6 +24,17 @@ export const pycharmCases = [
     ], expected: '核心 JCEF 游客阅读路径可用。'
   }),
   defineCase({
+    id: 'PYC-012', title: '旧版 JCEF 会话初始化不会白屏', product: 'pycharm', priority: 'P0', type: 'guided',
+    capabilities: ['live-network', 'jcef'],
+    preconditions: ['使用全新隔离配置安装候选 ZIP，重点覆盖 PyCharm 2024.2.6。'],
+    steps: [
+      { action: '首次打开 LINUX DO 工具窗口。', expected: 'Cookie 清理任务在 JetBrains 后台执行器运行，随后启用导航并显示网页或明确错误页。' },
+      { action: '依次刷新、重置会话并切换隐私/原始布局。', expected: '网页区域不永久停在 about:blank，操作完成后仍可导航。' },
+      { action: '打开小游戏后返回网页。', expected: '小游戏可用且不会掩盖或重置网页加载状态。' },
+      { action: '在断网或受控超时状态重试。', expected: '网页区域显示脱敏失败原因和重试入口，不出现无状态白屏。' }
+    ], expected: '旧版 JCEF 的初始化、失败和恢复路径均不会静默白屏。'
+  }),
+  defineCase({
     id: 'PYC-004', title: '登录与站外主框架导航被阻止', product: 'pycharm', priority: 'P0', type: 'guided',
     capabilities: ['live-network', 'jcef'],
     steps: [
