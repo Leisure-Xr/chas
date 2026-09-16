@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "studio.lexiao"
-version = "0.14.5"
+version = "15.0"
 
 repositories {
     mavenCentral()
@@ -59,7 +59,7 @@ val compatibilityTests = compatibilityTestClasses.map { testClass ->
         group = "verification"
         description = "Runs $testClass with assertions enabled."
         dependsOn(tasks.named("testClasses"))
-        classpath = sourceSets["test"].runtimeClasspath
+        classpath = sourceSets["test"].runtimeClasspath + configurations["intellijPlatformClasspath"]
         mainClass.set(testClass)
         enableAssertions = true
         workingDir = projectDir
