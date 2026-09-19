@@ -4,10 +4,12 @@
 
 ## 下载已发布版本
 
-- [仓库最新 ZIP（15.0）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-15.0.zip)
-- SHA-256（当前构建包）：`da6917e483e32d8ad3650b39f02522b67ef674a03479276704f0dde9dab13505`
+- [仓库最新 ZIP（15.1）](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-15.1.zip)
+- SHA-256（当前构建包）：`e71842d512182b9ee0112c180c9d2faf62a6fc8b47b485cd2b5340a8108674eb`
 
-仓库和 `dist/` 目录只保留 `15.0` 最新 ZIP，旧版本安装包已清理。
+仓库和 `dist/` 目录只保留 `15.1` 最新 ZIP，旧版本安装包已清理。
+
+`15.1` 修复加载及 Discourse SPA 跳转期间隐私布局误回退且不恢复的问题。检测内容不可见时，会同步撤掉隐私样式重新测量；若原始布局也不可见，则判为渲染暂态并立即保留隐私样式，避免跳转时闪出原始界面。内容恢复后自动继续验证；恢复轮询同样执行两种布局检查，真正的样式冲突仍可回退，不会一直白屏。连续真实样式异常达到三次后停止自动重试，“…”菜单显示“重新应用隐私阅读布局（当前已回退）”，点击可清除抑制并重新应用。
 
 最低支持 PyCharm 2022.3（构建号 `223`），上限为 `263.*`（2026.3）。需要 JetBrains Runtime 自带 JCEF；工具窗口会在缺少 JCEF 时给出提示。`15.0` 把 Cloudflare 人机验证页的 `403`/`503` 视为“验证进行中”而非加载失败，不再用 `stopLoad()` 掐断页内验证脚本，并立即撤除加载遮罩让验证界面可见。刷新时显式跟踪主文档加载，并在 JCEF 不再发送主框架 `onLoadEnd` 时由全局加载停止事件完成样式注入；完成路径是幂等的，不会与正常主框架回调重复执行。`0.14.3` 增加的内容可见性回退继续保留；页面加载、登录重定向或网络失败也会显示可重试错误页。
 
@@ -70,7 +72,7 @@ PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 可安装 ZIP 会生成在：
 
 ```text
-build/distributions/linuxdo-guest-browser-pycharm-15.0.zip
+build/distributions/linuxdo-guest-browser-pycharm-15.1.zip
 ```
 
 通过 **Settings > Plugins > 齿轮菜单 > Install Plugin from Disk** 安装，然后打开 **View > Tool Windows > LINUX DO**。

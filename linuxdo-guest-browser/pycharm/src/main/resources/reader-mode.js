@@ -8,7 +8,12 @@
   var validationTimer = 0;
   var validationStable = false;
   var modeSuppressed = false;
+  var suppressedContent = null;
+  var suppressCount = 0;
+  var suppressLatched = false;
+  var recoveryTimer = 0;
   var lastReportedState = '';
+  var SUPPRESS_LIMIT = 3;
 
   function layoutState(element) {
     if (!element) return null;
@@ -62,7 +67,13 @@
   }
 
   function syncReaderMode() {
-    var hasReaderContent = Boolean(document.querySelector(contentSelector));
+    var content = document.querySelector(contentSelector);
+    var hasReaderContent = Boolean(content);
+    if (modeSuppressed && !suppressLatched && content !== suppressedContent) {
+      modeSuppressed = false;
+      suppressedContent = null;
+      validationStable = false;
+    }
     document.body.classList.toggle('lexiao-demo-mode', enabled && hasReaderContent && !modeSuppressed);
     if (!document.body.classList.contains('lexiao-demo-mode')) {
       if (!modeSuppressed) validationStable = false;
@@ -73,11 +84,7 @@
     validationFrame = requestAnimationFrame(function () {
       validationFrame = 0;
       if (!hasVisibleReaderContent()) {
-        modeSuppressed = true;
-        document.body.classList.remove('lexiao-demo-mode');
-        if (validationTimer) clearTimeout(validationTimer);
-        validationTimer = 0;
-        reportState('fallback');
+        recoverOrSuppress('fallback');
         return;
       }
       if (validationStable) return;
@@ -86,15 +93,54 @@
       validationTimer = setTimeout(function () {
         validationTimer = 0;
         if (!hasVisibleReaderContent()) {
-          modeSuppressed = true;
-          document.body.classList.remove('lexiao-demo-mode');
-          reportState('delayed-fallback');
+          recoverOrSuppress('delayed-fallback');
         } else {
           validationStable = true;
           reportState('stable');
         }
       }, 1000);
     });
+  }
+
+  function recoverOrSuppress(reason) {
+    document.body.classList.remove('lexiao-demo-mode');
+    validationStable = false;
+    if (validationTimer) clearTimeout(validationTimer);
+    validationTimer = 0;
+    // Discourse hides the outlet during SPA transitions, independently of our CSS.
+    // Re-measuring with the class off is what separates "the privacy CSS collapsed
+    // the page" from "the page simply has not rendered yet".
+    modeSuppressed = hasVisibleReaderContent();
+    if (modeSuppressed) {
+      suppressedContent = document.querySelector(contentSelector);
+      suppressCount += 1;
+      // Discourse swaps the content root on poll/append, which releases the latch.
+      // Stop re-arming once the CSS has demonstrably collapsed the page, so a real
+      // conflict settles on the original layout instead of flickering forever.
+      if (suppressCount >= SUPPRESS_LIMIT) suppressLatched = true;
+      reportState(reason);
+      return;
+    }
+    suppressedContent = null;
+    // Nothing is visible either way, so the privacy layout is not at fault. Put the
+    // class straight back: no paint happens inside one synchronous block, so this
+    // never flashes the raw forum — header, sidebar, avatars, usernames — at the
+    // user, and the content renders already styled once Discourse lays it out.
+    document.body.classList.toggle(
+      'lexiao-demo-mode',
+      enabled && Boolean(document.querySelector(contentSelector))
+    );
+    reportState('render-pending');
+    if (!recoveryTimer) {
+      recoveryTimer = setTimeout(function checkRecovery() {
+        recoveryTimer = 0;
+        // No content at all: the MutationObserver re-runs syncReaderMode as soon as
+        // Discourse inserts the next content root, so the chain can end here.
+        if (!document.querySelector(contentSelector)) return;
+        // Re-run both layout checks even if styled content is still invisible.
+        syncReaderMode();
+      }, 500);
+    }
   }
 
   syncReaderMode();
@@ -145,15 +191,18 @@
     if (!pendingFrame && pendingRoots.size) pendingFrame = requestAnimationFrame(scanPendingRoots);
   });
   observer.observe(document.body, { childList: true, subtree: true });
+  window.__lexiaoReaderModeSync = syncReaderMode;
 
   window.__lexiaoReaderModeCleanup = function () {
     observer.disconnect();
     if (pendingFrame) cancelAnimationFrame(pendingFrame);
     if (validationFrame) cancelAnimationFrame(validationFrame);
     if (validationTimer) clearTimeout(validationTimer);
+    if (recoveryTimer) clearTimeout(recoveryTimer);
     pendingFrame = 0;
     validationFrame = 0;
     validationTimer = 0;
+    recoveryTimer = 0;
     validationStable = false;
     pendingRoots.clear();
     document.querySelectorAll('[data-lexiao-private]').forEach(function (element) {
@@ -161,5 +210,6 @@
     });
     document.body.classList.remove('lexiao-demo-mode');
     window.__lexiaoReaderModeCleanup = null;
+    window.__lexiaoReaderModeSync = null;
   };
 })();

@@ -185,6 +185,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private final Map<String, JToggleButton> navigationButtons = new LinkedHashMap<>();
         private volatile IdeThemePalette ideTheme = IdeThemePalette.current();
         private volatile boolean demoMode = properties.getBoolean(DEMO_MODE_PROPERTY, true);
+        private volatile boolean readerFallbackActive = false;
         private volatile boolean breakOverlayVisible;
         private volatile boolean breakOverlayReminderMode;
         private volatile boolean breakReminderEnabled;
@@ -390,6 +391,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
         private void showOverflowMenu() {
             JPopupMenu menu = new JPopupMenu();
+            if (demoMode && readerFallbackActive) {
+                menu.add(menuAction("重新应用隐私阅读布局（当前已回退）", this::retryReaderMode));
+            }
             menu.add(menuAction(demoMode ? "使用原始网页布局" : "使用隐私阅读布局", demoButton::doClick));
             menu.add(menuAction("浏览历史", this::showHistoryPopup));
             JMenuItem favoriteItem = menuAction("收藏当前主题", this::favoriteCurrentTopic);
@@ -474,6 +478,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 ) {
                     if (message != null && message.startsWith("LEXIAO_")) {
                         LOG.info("LINUX DO " + message);
+                        if (message.startsWith("LEXIAO_READER_STATE ")) {
+                            readerFallbackActive = message.contains("\"suppressed\":true");
+                        }
                     }
                     return false;
                 }
@@ -489,6 +496,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     boolean blankPage = isBlankPage(cefBrowser.getURL());
                     boolean trackedLoad = !blankPage && documentLoadState.isAwaiting();
                     if (isLoading && trackedLoad) {
+                        readerFallbackActive = false;
                         documentLoadState.loadingStarted();
                         currentPageTitle = "";
                         mainLoadFailed = false;
@@ -1419,6 +1427,14 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             );
         }
 
+        private void retryReaderMode() {
+            CefBrowser cefBrowser = browser.getCefBrowser();
+            if (disposed || cefBrowser == null) return;
+            readerFallbackActive = false;
+            cefBrowser.executeJavaScript("window.__lexiaoReaderModeApplied=null;", cefBrowser.getURL(), 0);
+            applyPageStyle(cefBrowser);
+        }
+
         private void applyPageStyle(CefBrowser cefBrowser) {
             if (disposed || cefBrowser == null) {
                 return;
@@ -1438,7 +1454,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     + "})();\n"
                     + "if(window.__lexiaoReaderModeApplied!==" + readerMode + "){\n"
                     + READER_MODE_SCRIPT.replace("__LEXIAO_DEMO_MODE__", Boolean.toString(readerMode))
-                    + "\nwindow.__lexiaoReaderModeApplied=" + readerMode + ";}";
+                    + "\nwindow.__lexiaoReaderModeApplied=" + readerMode + ";}"
+                    + "else if(window.__lexiaoReaderModeSync){window.__lexiaoReaderModeSync();}";
             cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
         }
 
