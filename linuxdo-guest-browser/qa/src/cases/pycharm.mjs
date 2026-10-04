@@ -3,6 +3,19 @@ import { checkPyCharmArtifact } from '../checks.mjs';
 
 export const pycharmCases = [
   defineCase({
+    id: 'PYC-013', title: '收藏夹顶部目录与原地更新', product: 'pycharm', priority: 'P0', type: 'guided',
+    capabilities: ['visible-desktop'],
+    preconditions: ['隔离配置安装 15.2，导入 15.1 格式的示例收藏。'],
+    steps: [
+      { action: '在 320、480、760 宽度和亮暗主题、放大字体下查看两行长标题、50 字目录名和 30 个目录。', expected: '目录标签换行且可滚动；无横向溢出，标题与菜单不重叠。' },
+      { action: '选中目录后搜索其他目录名、标题及 URL，再清空搜索。', expected: '搜索跨全部目录，按时间倒序，清空后恢复原目录。' },
+      { action: '通过内嵌表单创建、重命名目录；测试空名称、重名及取消。', expected: '错误原地显示，新建后清空搜索并选中新目录，其他修改保留搜索和滚动。' },
+      { action: '复制、打开主题；将同一主题收藏在两个目录，移除其中一条；确认删除当前目录。', expected: '剪贴板为真实规范 URL，主题在插件内打开；移除不影响另一目录；删除后回到全部收藏。' },
+      { action: '通过 Tab、Enter、Esc 完成操作；在菜单、表单打开时分别按 Esc。', expected: '菜单与表单关闭时父弹窗保留，最后一次 Esc 关闭弹窗。' },
+      { action: '检查空目录、空收藏、无搜索结果；重启隔离 IDE。', expected: '空状态正确，收藏和目录修改持久化，日志无插件异常。' }
+    ], expected: '收藏夹符合已确认预览，原有数据兼容，原地更新且键盘可用。'
+  }),
+  defineCase({
     id: 'PYC-001', title: 'PyCharm ZIP 清单与源码一致', product: 'pycharm', priority: 'P0', type: 'automated',
     capabilities: ['package'], expected: '插件版本、构建范围、关键资源和包结构一致。', run: checkPyCharmArtifact
   }),

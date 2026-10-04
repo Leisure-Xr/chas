@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "studio.lexiao"
-version = "15.1"
+version = "15.2"
 
 repositories {
     mavenCentral()
@@ -50,6 +50,8 @@ val compatibilityTestClasses = listOf(
     "studio.lexiao.linuxdo.ShareCodeTest",
     "studio.lexiao.linuxdo.ReaderHistoryTest",
     "studio.lexiao.linuxdo.ReaderFavoritesTest",
+    "studio.lexiao.linuxdo.FavoritesViewModelTest",
+    "studio.lexiao.linuxdo.FavoritesPanelTest",
     "studio.lexiao.linuxdo.DocumentLoadStateTest",
     "studio.lexiao.linuxdo.PluginDescriptorTest"
 )

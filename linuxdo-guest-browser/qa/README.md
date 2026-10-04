@@ -67,3 +67,15 @@ runner 会记录工作树是否干净，并从隔离 IDE 日志中提取、脱�
 每个矩阵目标都必须在 macOS 和 Windows 上完成全部适用 P0/P1。`report --gate` 对未解析版本、未校验 IDE 下载文件、缺少运行记录、人工 PASS 无证据及任何未通过用例返回失败。提交级 CI 不访问 `linux.do`；联网矩阵只在候选发布阶段执行。
 
 GitHub Actions 定义位于 `chas/.github/workflows/linuxdo-guest-browser-tests.yml`。提交任务运行确定性测试与打包；带 `release` 输入的手动任务执行已经提交的 macOS/Windows 矩阵门禁。
+
+
+## PyCharm 15.2 收藏夹原生面板检查
+
+在 macOS 上使用已安装的 PyCharm 2026.1 SDK：
+
+```bash
+bash pycharm/scripts/build-local.sh
+python3 pycharm/scripts/verify-favorites-ui.py
+```
+
+以上命令从 `linuxdo-guest-browser/` 执行。检查直接实例化正式 `FavoritesPanel`，加载 IDE 的亮暗主题，验证 320/480/760 宽度、长标题、30 个目录、大字体、空状态、表单校验、跨目录搜索、重命名/删除、打开/复制回调、滚动保持和数据格式往返。PNG 输出在 `pycharm/build/favorites-ui/screenshots/`。这些是原生组件离屏渲染，不是 HTML 原型，也不代替真实 IDE 的菜单焦点、系统剪贴板、网页导航和重启检查；对应手工用例为 `PYC-013`。

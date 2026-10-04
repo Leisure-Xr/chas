@@ -4,17 +4,17 @@
 
 ## 下载
 
-仓库只保留当前最新构建包，直接下载下表中的文件；此前的 GitHub Release `0.2.0` 保留为历史发布：
+当前构建包见下表，PyCharm 另保留 15.1 安装包供回退；此前的 GitHub Release `0.2.0` 保留为历史发布：
 
 | IDE | 插件版本 | Release 下载页 | 安装包 | SHA-256 |
 | --- | --- | --- | --- | --- |
 | VS Code | `0.19.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.19.0.vsix) | `linuxdo-guest-browser-vscode-0.19.0.vsix` | `3d83c65888a67f171997c570ab2f1c95e9cf28246853ab2947a967a68114bd8e` |
-| PyCharm | `15.1` | [下载 ZIP](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-15.1.zip) | `linuxdo-guest-browser-pycharm-15.1.zip` | `e71842d512182b9ee0112c180c9d2faf62a6fc8b47b485cd2b5340a8108674eb` |
+| PyCharm | `15.2` | [下载 ZIP](dist/linuxdo-guest-browser-pycharm-15.2.zip) | `linuxdo-guest-browser-pycharm-15.2.zip` | `111479f98f75b9a1b936454418f6b0d60b4db4ac20152004cfe08df24c1b91dd` |
 
 下载后可用
 `certutil -hashfile <文件> SHA256`（Windows）或 `shasum -a 256 <文件>`（macOS/Linux）核对完整性。
 
-仓库的 [`dist/`](dist/) 目录也只保留上述两个最新安装包，旧版本安装包已清理；源码和 Git 历史仍完整保留。
+[`dist/`](dist/) 包含上述当前安装包，并保留 PyCharm 15.1 ZIP 供回退；源码和 Git 历史完整保留。
 
 ### VS Code
 
@@ -27,6 +27,8 @@ VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续�
 ### PyCharm
 
 打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。插件支持 PyCharm 2022.3 及以上（构建号 223–263.*）；已在 2022.3.3、2024.2.6 和 2026.2.2 上完成真实启动与插件加载验证，当前构建使用 2026.1 SDK。
+
+PyCharm `15.2` 重构收藏夹：顶部目录标签、两行标题、跨目录搜索与精简菜单，目录管理使用内嵌表单，操作后原地更新并保留搜索与滚动。
 
 PyCharm 版使用内嵌 JCEF 浏览器，默认采用自适应的单色隐私阅读布局，可从“…”菜单切回原始网页。`15.1` 修复加载及 SPA 跳转后停留在原始布局的问题：通过撤掉隐私样式重新测量，区分渲染暂态和真正的样式异常；渲染期间保留隐私样式，内容恢复后继续验证，不再永久抑制。真正的样式异常仍回退为可读的原始网页，连续异常最多重试三次；“…”菜单在回退时显示“重新应用隐私阅读布局（当前已回退）”，可手动清除抑制并重新应用。恢复轮询也会重新检查两种布局，避免加载结束后发生样式异常时一直白屏。此前 Cloudflare 验证、刷新完成判定、加载遮罩自清理及页面诊断继续保留；登录重定向会进入可重试错误页。隐私阅读页、加载背景、休息提醒和小游戏采用当前 PyCharm 的背景、文字、边框与强调色；小字号次要文字会在保留主题色调的同时确保至少 `4.5:1` 对比度。
 
