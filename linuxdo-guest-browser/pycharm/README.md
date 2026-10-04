@@ -4,12 +4,12 @@
 
 ## 下载已发布版本
 
-- [仓库最新 ZIP（15.2）](../dist/linuxdo-guest-browser-pycharm-15.2.zip)
-- SHA-256（当前构建包）：`111479f98f75b9a1b936454418f6b0d60b4db4ac20152004cfe08df24c1b91dd`
+- [仓库最新 ZIP（16.0）](../dist/linuxdo-guest-browser-pycharm-16.0.zip)
+- SHA-256（当前构建包）：`21d0f49a45bbc596dae10713bd1405ad6f068ef21074447fdcf38585b1c0123d`
 
-`dist/` 提供 15.2 安装包，并保留 `linuxdo-guest-browser-pycharm-15.1.zip` 用于回退。
+`dist/` 提供 16.0 安装包，并保留 `linuxdo-guest-browser-pycharm-15.1.zip` 用于回退。
 
-`15.2` 重构收藏夹弹窗：顶部目录标签、跨目录搜索、两行主题标题和精简操作菜单。新建、重命名及删除确认直接在弹窗中完成；修改后原地刷新，保留搜索、目录选择与滚动位置。沿用 15.1 收藏数据格式。
+`16.0` 重构收藏夹弹窗：顶部目录标签、跨目录搜索、两行主题标题和精简操作菜单。新建、重命名及删除确认直接在弹窗中完成；修改后原地刷新，保留搜索、目录选择与滚动位置。沿用 15.1 收藏数据格式。
 
 `15.1` 修复加载及 Discourse SPA 跳转期间隐私布局误回退且不恢复的问题。检测内容不可见时，会同步撤掉隐私样式重新测量；若原始布局也不可见，则判为渲染暂态并立即保留隐私样式，避免跳转时闪出原始界面。内容恢复后自动继续验证；恢复轮询同样执行两种布局检查，真正的样式冲突仍可回退，不会一直白屏。连续真实样式异常达到三次后停止自动重试，“…”菜单显示“重新应用隐私阅读布局（当前已回退）”，点击可清除抑制并重新应用。
 
@@ -78,7 +78,7 @@ PYCHARM_HOME="/path/to/PyCharm.app" ./scripts/build-local.sh
 可安装 ZIP 会生成在：
 
 ```text
-build/distributions/linuxdo-guest-browser-pycharm-15.2.zip
+build/distributions/linuxdo-guest-browser-pycharm-16.0.zip
 ```
 
 通过 **Settings > Plugins > 齿轮菜单 > Install Plugin from Disk** 安装，然后打开 **View > Tool Windows > LINUX DO**。

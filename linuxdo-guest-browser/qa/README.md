@@ -69,7 +69,7 @@ runner 会记录工作树是否干净，并从隔离 IDE 日志中提取、脱�
 GitHub Actions 定义位于 `chas/.github/workflows/linuxdo-guest-browser-tests.yml`。提交任务运行确定性测试与打包；带 `release` 输入的手动任务执行已经提交的 macOS/Windows 矩阵门禁。
 
 
-## PyCharm 15.2 收藏夹原生面板检查
+## PyCharm 16.0 收藏夹原生面板检查
 
 在 macOS 上使用已安装的 PyCharm 2026.1 SDK：
 

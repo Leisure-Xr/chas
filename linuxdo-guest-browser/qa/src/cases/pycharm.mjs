@@ -5,7 +5,7 @@ export const pycharmCases = [
   defineCase({
     id: 'PYC-013', title: '收藏夹顶部目录与原地更新', product: 'pycharm', priority: 'P0', type: 'guided',
     capabilities: ['visible-desktop'],
-    preconditions: ['隔离配置安装 15.2，导入 15.1 格式的示例收藏。'],
+    preconditions: ['隔离配置安装 16.0，导入 15.1 格式的示例收藏。'],
     steps: [
       { action: '在 320、480、760 宽度和亮暗主题、放大字体下查看两行长标题、50 字目录名和 30 个目录。', expected: '目录标签换行且可滚动；无横向溢出，标题与菜单不重叠。' },
       { action: '选中目录后搜索其他目录名、标题及 URL，再清空搜索。', expected: '搜索跨全部目录，按时间倒序，清空后恢复原目录。' },
