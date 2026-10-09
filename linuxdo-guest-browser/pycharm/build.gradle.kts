@@ -45,6 +45,7 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 val compatibilityTestClasses = listOf(
+    "studio.lexiao.linuxdo.ForumSiteTest",
     "studio.lexiao.linuxdo.GuestSessionCleanupTest",
     "studio.lexiao.linuxdo.IdeThemePaletteTest",
     "studio.lexiao.linuxdo.ShareCodeTest",

@@ -80,14 +80,14 @@ export function capabilitiesFor(ide, target) {
   return [...capabilities];
 }
 
-export async function prepareIsolatedIde({ ide, artifact, runId, launch = false }) {
+export async function prepareIsolatedIde({ ide, artifact, runId, launch = false, extraVmOptions = [] }) {
   const shortRunId = createHash('sha256').update(runId).digest('hex').slice(0, 12);
   const temporaryRoot = process.platform === 'darwin' ? '/tmp' : tmpdir();
   const root = resolve(temporaryRoot, 'ldqa', shortRunId, ide.product);
   await mkdir(root, { recursive: true });
   const prepared = ide.product === 'vscode'
     ? await prepareVsCode(ide, artifact, root, launch)
-    : await preparePyCharm(ide, artifact, root, launch);
+    : await preparePyCharm(ide, artifact, root, launch, extraVmOptions);
   await writeFile(resolve(root, 'environment.json'), `${JSON.stringify({
     ide: { product: ide.product, version: ide.version, build: ide.build, root: ide.root },
     artifact: basename(artifact),
@@ -121,7 +121,13 @@ async function prepareVsCode(ide, artifact, root, launch) {
   return { isolationRoot: root, logRoot: resolve(userData, 'logs'), pid };
 }
 
-async function preparePyCharm(ide, artifact, root, launch) {
+// 追加隔离运行专用的 JVM 参数，例如只在本地实测时打开 JCEF 远程调试端口。
+export function renderVmOptions(base, extra = []) {
+  const lines = base.replace(/\s+$/, '').split(/\r?\n/);
+  return [...lines, ...extra.map(option => String(option).trim()).filter(Boolean), ''].join('\n');
+}
+
+async function preparePyCharm(ide, artifact, root, launch, extraVmOptions) {
   const config = resolve(root, 'config');
   const system = resolve(root, 'system');
   const plugins = resolve(root, 'plugins');
@@ -142,7 +148,7 @@ async function preparePyCharm(ide, artifact, root, launch) {
       ''
     ].join('\n'), 'utf8');
     if (!ide.vmOptionsPath) throw new Error('PyCharm product-info.json does not declare a VM options file');
-    await writeFile(vmOptions, await readFile(ide.vmOptionsPath, 'utf8'), 'utf8');
+    await writeFile(vmOptions, renderVmOptions(await readFile(ide.vmOptionsPath, 'utf8'), extraVmOptions), 'utf8');
     pid = await spawnDetached(ide.launcher, [PROJECT_ROOT], {
       env: {
         ...process.env,

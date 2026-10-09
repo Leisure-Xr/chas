@@ -1,6 +1,6 @@
 # LINUX DO 游客阅读器
 
-在 VS Code 和 PyCharm 中以游客身份浏览 [LINUX DO](https://linux.do/)。无需论坛账号，不保存登录凭据。
+在 VS Code 和 PyCharm 中以游客身份浏览 [LINUX DO](https://linux.do/)；PyCharm 版（显示名“论坛游客阅读器”）还支持 [NodeSeek](https://www.nodeseek.com/)、[V2EX](https://www.v2ex.com/) 和 [IDC Flare](https://idcflare.com/)。无需论坛账号，不保存登录凭据。
 
 ## 下载
 
@@ -27,6 +27,8 @@ VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续�
 ### PyCharm
 
 打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。插件声明支持 PyCharm 2022.3 及以上（构建号 223–263.*）。16.0 使用 2026.1 SDK 构建并通过本地回归测试；同一收藏夹实现也通过 2022.3 SDK 编译检查。历史版本曾在 2022.3.3、2024.2.6 和 2026.2.2 上验证启动与插件加载，这不代表 16.0 已完成全部版本的 GUI 验收。
+
+PyCharm 主分支已支持多个论坛：在“…”菜单的“切换论坛”中选择 LINUX DO、NodeSeek、V2EX 或 IDC Flare，点到其它受支持论坛的链接时自动跟随。四个论坛都有单色隐私阅读布局，历史与收藏跨论坛共用；NodeSeek 与 V2EX 不向游客开放站内搜索，加密分享暂只支持 LINUX DO。详见 [PyCharm 说明](pycharm/README.md#支持的论坛)。
 
 PyCharm `16.0` 重构收藏夹：顶部目录标签、两行标题、跨目录搜索与精简菜单，目录管理使用内嵌表单，操作后原地更新并保留搜索与滚动。
 
@@ -96,7 +98,7 @@ node qa/bin/qa.mjs report --release 0.3.0 --gate
 
 - 不要求或保存论坛账号、密码和登录令牌。
 - VS Code 使用 SecretStorage 保存原子游客请求档案，只包含白名单 Cookie、User-Agent、允许的客户端提示、来源与验证状态。
-- PyCharm 会清理其 JCEF 配置中的 `linux.do` Cookie，不影响系统浏览器。
+- PyCharm 会清理其 JCEF 配置中受支持论坛（`linux.do`、`nodeseek.com`、`v2ex.com`、`idcflare.com`）的主机与域 Cookie，不影响同一 Cookie 库里的其它站点，也不影响系统浏览器。
 - 两个插件最多保存最近 60 条公开页面的标题、URL 和访问时间；历史界面可复制 URL 或一键清除。
 - 收藏夹只保存目录名、公开主题标题、规范 URL 和收藏时间，不保存帖子正文、Cookie、User-Agent 或登录状态。
 - VS Code 代理的帖子图片只缓存在扩展进程内存中（最多 120 条 / 24 MB），不写入磁盘，关闭 VS Code 或切换请求引擎即清空。

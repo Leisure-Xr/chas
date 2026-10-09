@@ -1,0 +1,10 @@
+#nsk-head .site-title, #nsk-right-panel-container, .topic-carousel-wrapper,
+#nsk-body img, #nsk-body svg, #nsk-body video,
+.avatar-normal, .avatar-wrapper, .nsk-badge, .role-tag, .user-card, .hover-user-card {
+  visibility: hidden !important;
+}
+#nsk-body .post-content img:not(.sticker),
+#nsk-body .post-content svg,
+#nsk-body .post-content video {
+  visibility: visible !important;
+}

@@ -1,0 +1,356 @@
+body.lexiao-demo-mode #nsk-head .site-title,
+body.lexiao-demo-mode #nsk-head .search-box,
+body.lexiao-demo-mode #nsk-head .color-theme-switcher,
+body.lexiao-demo-mode #nsk-head .nav-menu a[target="_blank"],
+body.lexiao-demo-mode #nsk-left-panel-container,
+body.lexiao-demo-mode #nsk-right-panel-container,
+body.lexiao-demo-mode #fast-nav-button-group,
+body.lexiao-demo-mode .topic-carousel-wrapper,
+body.lexiao-demo-mode > footer,
+body.lexiao-demo-mode .comment-menu,
+body.lexiao-demo-mode .hover-user-card {
+  display: none !important;
+}
+
+/* The site header is fixed and only carries the category links once the logo,
+   search and theme switcher are gone, so let it scroll with the page. */
+body.lexiao-demo-mode > header {
+  position: static !important;
+  height: auto !important;
+  border-bottom: 1px solid var(--lex-mono-border) !important;
+  background: var(--lex-mono-bg) !important;
+  box-shadow: none !important;
+}
+
+body.lexiao-demo-mode #nsk-head {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 1080px !important;
+  height: auto !important;
+  margin: 0 auto !important;
+  padding: 6px 14px !important;
+  background: transparent !important;
+}
+
+body.lexiao-demo-mode #nsk-head .nav-menu {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 2px 12px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body.lexiao-demo-mode #nsk-head .nav-menu li {
+  margin: 0 !important;
+  padding: 0 !important;
+  list-style: none !important;
+}
+
+body.lexiao-demo-mode #nsk-head .nav-menu a {
+  display: inline !important;
+  writing-mode: horizontal-tb !important;
+  color: var(--lex-mono-muted) !important;
+  font: 500 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  letter-spacing: 0 !important;
+  text-decoration: none !important;
+}
+
+body.lexiao-demo-mode #nsk-frame {
+  box-sizing: border-box !important;
+  width: auto !important;
+  margin: 0 !important;
+  padding: 0 14px 28px !important;
+  background: var(--lex-mono-bg) !important;
+}
+
+body.lexiao-demo-mode #nsk-body {
+  display: block !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 1080px !important;
+  margin: 0 auto !important;
+  padding: 10px 0 0 !important;
+  background: var(--lex-mono-bg) !important;
+  box-shadow: none !important;
+}
+
+body.lexiao-demo-mode #nsk-body-left {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body.lexiao-demo-mode :where(#nsk-body *:not(.post-content):not(.post-content *)),
+body.lexiao-demo-mode :where(#nsk-body *:not(.post-content):not(.post-content *)::before),
+body.lexiao-demo-mode :where(#nsk-body *:not(.post-content):not(.post-content *)::after) {
+  border-color: var(--lex-mono-border) !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  color: var(--lex-mono-text) !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+body.lexiao-demo-mode .post-list-controler {
+  flex-wrap: wrap !important;
+  gap: 4px 12px !important;
+  margin: 0 0 8px !important;
+  padding: 0 !important;
+}
+
+body.lexiao-demo-mode .post-list-controler .sorter {
+  display: flex !important;
+  gap: 10px !important;
+}
+
+body.lexiao-demo-mode .post-list-controler .sorter a {
+  width: auto !important;
+  padding: 0 !important;
+  white-space: nowrap !important;
+}
+
+body.lexiao-demo-mode .post-list-controler .sorter a,
+body.lexiao-demo-mode .nsk-pager a,
+body.lexiao-demo-mode .nsk-pager span {
+  color: var(--lex-mono-muted) !important;
+  font: 500 11px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+}
+
+body.lexiao-demo-mode .post-list-controler .sorter a.selected,
+body.lexiao-demo-mode .nsk-pager .pager-cur {
+  color: var(--lex-mono-text) !important;
+  text-decoration: underline !important;
+}
+
+body.lexiao-demo-mode .nsk-pager .triangle-left,
+body.lexiao-demo-mode .nsk-pager .triangle-right {
+  width: auto !important;
+  height: auto !important;
+  border: 0 !important;
+  transform: none !important;
+}
+
+body.lexiao-demo-mode .nsk-pager .triangle-left::after {
+  content: "<";
+}
+
+body.lexiao-demo-mode .nsk-pager .triangle-right::after {
+  content: ">";
+}
+
+body.lexiao-demo-mode .post-list {
+  display: block !important;
+  margin: 0 0 10px !important;
+  padding: 0 !important;
+  border: 1px solid var(--lex-mono-border) !important;
+  border-radius: 5px !important;
+  background: var(--lex-mono-panel) !important;
+  overflow: hidden !important;
+}
+
+body.lexiao-demo-mode .post-list-item {
+  display: block !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 8px 12px !important;
+  border-bottom: 1px solid var(--lex-mono-border) !important;
+}
+
+body.lexiao-demo-mode .post-list-item:last-child {
+  border-bottom: 0 !important;
+}
+
+body.lexiao-demo-mode .post-list-content {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body.lexiao-demo-mode .post-list-item .post-title,
+body.lexiao-demo-mode .post-list-item .post-title a {
+  color: var(--lex-mono-text) !important;
+  font: 500 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  letter-spacing: 0 !important;
+  text-decoration: none !important;
+}
+
+body.lexiao-demo-mode .post-list-item .post-info,
+body.lexiao-demo-mode .post-list-item .post-info * {
+  color: var(--lex-mono-muted) !important;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  letter-spacing: 0 !important;
+  text-decoration: none !important;
+}
+
+body.lexiao-demo-mode .post-list-item .post-category {
+  position: static !important;
+  display: inline-block !important;
+  float: none !important;
+  margin-left: 6px !important;
+  padding: 0 5px !important;
+  border: 1px solid var(--lex-mono-border) !important;
+  border-radius: 3px !important;
+  background: var(--lex-mono-soft) !important;
+}
+
+body.lexiao-demo-mode .nsk-post .post-title {
+  margin: 0 0 10px !important;
+  padding: 12px 14px !important;
+  border: 1px solid var(--lex-mono-border) !important;
+  border-radius: 5px !important;
+  background: var(--lex-mono-panel) !important;
+}
+
+body.lexiao-demo-mode .nsk-post .post-title h1,
+body.lexiao-demo-mode .nsk-post .post-title a {
+  margin: 0 !important;
+  color: var(--lex-mono-text) !important;
+  font: 600 16px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  letter-spacing: 0 !important;
+  text-decoration: none !important;
+}
+
+body.lexiao-demo-mode .comment-container {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body.lexiao-demo-mode .comments {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body.lexiao-demo-mode .content-item {
+  display: block !important;
+  margin: 0 0 10px !important;
+  padding: 11px 14px 14px !important;
+  border: 1px solid var(--lex-mono-border) !important;
+  border-radius: 5px !important;
+  background: var(--lex-mono-panel) !important;
+  list-style: none !important;
+}
+
+body.lexiao-demo-mode .avatar-normal,
+body.lexiao-demo-mode .avatar-wrapper,
+body.lexiao-demo-mode .nsk-badge,
+body.lexiao-demo-mode .role-tag,
+body.lexiao-demo-mode .user-card,
+body.lexiao-demo-mode [data-lexiao-private="identity"] {
+  display: none !important;
+}
+
+body.lexiao-demo-mode .nsk-content-meta-info,
+body.lexiao-demo-mode .nsk-content-meta-info *,
+body.lexiao-demo-mode [data-lexiao-private="username"] {
+  color: var(--lex-mono-muted) !important;
+  font: 500 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  letter-spacing: 0 !important;
+  text-decoration: none !important;
+}
+
+body.lexiao-demo-mode .nsk-content-meta-info {
+  display: flex !important;
+  align-items: baseline !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body.lexiao-demo-mode .nsk-content-meta-info > div:not(.avatar-wrapper):not(.floor-link-wrapper) {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+body.lexiao-demo-mode .nsk-content-meta-info .author-info,
+body.lexiao-demo-mode .nsk-content-meta-info .content-info {
+  display: inline !important;
+  margin-right: 8px !important;
+}
+
+body.lexiao-demo-mode .post-content {
+  margin: 8px 0 0 !important;
+  padding: 0 !important;
+  color: var(--lex-mono-text) !important;
+  background: transparent !important;
+  font-size: 13px !important;
+  line-height: 1.62 !important;
+}
+
+body.lexiao-demo-mode .post-content p {
+  margin: 0 0 10px !important;
+}
+
+body.lexiao-demo-mode .post-content > :last-child {
+  margin-bottom: 0 !important;
+}
+
+body.lexiao-demo-mode .post-content *:not(img):not(picture):not(source) {
+  color: inherit !important;
+  border-color: var(--lex-mono-border) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+  text-shadow: none !important;
+}
+
+body.lexiao-demo-mode .post-content a {
+  color: inherit !important;
+  text-decoration: underline !important;
+}
+
+body.lexiao-demo-mode .post-content pre,
+body.lexiao-demo-mode .post-content code,
+body.lexiao-demo-mode .post-content blockquote {
+  border-color: var(--lex-mono-border) !important;
+  background: var(--lex-mono-soft) !important;
+  box-shadow: none !important;
+}
+
+body.lexiao-demo-mode #nsk-body :where(a:not(.post-content a), button, [role="button"]) {
+  color: var(--lex-mono-muted) !important;
+  background-color: transparent !important;
+  border-color: var(--lex-mono-border) !important;
+}
+
+body.lexiao-demo-mode #nsk-body .post-list-item .post-title a,
+body.lexiao-demo-mode #nsk-body .nsk-post .post-title a {
+  color: var(--lex-mono-text) !important;
+}
+
+body.lexiao-demo-mode #nsk-body :focus-visible {
+  outline: 2px solid var(--lex-mono-accent) !important;
+  outline-offset: 2px !important;
+}
+
+body.lexiao-demo-mode #nsk-body img,
+body.lexiao-demo-mode #nsk-body svg,
+body.lexiao-demo-mode #nsk-body video,
+body.lexiao-demo-mode #nsk-body canvas,
+body.lexiao-demo-mode #nsk-body iframe,
+body.lexiao-demo-mode #nsk-body object,
+body.lexiao-demo-mode #nsk-body embed {
+  display: none !important;
+}
+
+body.lexiao-demo-mode #nsk-body .post-content img:not(.sticker),
+body.lexiao-demo-mode #nsk-body .post-content svg {
+  display: revert !important;
+  max-width: 100% !important;
+  height: auto !important;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+@media (max-width: 520px) {
+  body.lexiao-demo-mode #nsk-frame {
+    padding: 0 7px 18px !important;
+  }
+
+  body.lexiao-demo-mode .post-list-item,
+  body.lexiao-demo-mode .content-item {
+    padding: 9px 10px 12px !important;
+  }
+}

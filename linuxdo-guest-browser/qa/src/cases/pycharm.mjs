@@ -16,6 +16,43 @@ export const pycharmCases = [
     ], expected: '收藏夹符合已确认预览，原有数据兼容，原地更新且键盘可用。'
   }),
   defineCase({
+    id: 'PYC-014', title: '切换论坛与跨站跟随', product: 'pycharm', priority: 'P0', type: 'guided',
+    capabilities: ['live-network', 'jcef'],
+    steps: [
+      { action: '从“⋯ > 切换论坛”依次切到 NodeSeek、V2EX、IDC Flare 和 LINUX DO，再重启隔离 IDE。', expected: '进入对应首页；当前论坛打勾，导航行、搜索框和标题栏同步切换；重启后回到上次的论坛。' },
+      { action: '在 LINUX DO 帖子中点击指向 NodeSeek 或 V2EX 主题的链接。', expected: '在插件内打开并自动切换到对应论坛。' },
+      { action: '在四个论坛各收藏一个主题，再打开浏览历史和收藏夹。', expected: '历史与收藏混合显示；收藏行显示站点名，按站点名搜索可以过滤。' },
+      { action: '在非 LINUX DO 的主题上打开“⋯”菜单。', expected: '“分享当前主题（暂仅支持 LINUX DO）”置灰；LINUX DO 主题仍可分享。' }
+    ], expected: '四个论坛可在同一工具窗口切换，历史和收藏跨站点共用。'
+  }),
+  defineCase({
+    id: 'PYC-015', title: '各论坛隐私布局', product: 'pycharm', priority: 'P1', type: 'guided',
+    capabilities: ['live-network', 'jcef', 'visible-desktop'],
+    steps: [
+      { action: '在 320、480、760 宽度与亮暗主题下查看 NodeSeek、V2EX、IDC Flare 的列表和主题页。', expected: '站点顶栏、侧栏、页脚、广告、头像和徽章隐藏；正文图片保持原色；无横向溢出；LEXIAO_READER_STATE 进入 stable。' },
+      { action: '切到原始网页布局再切回。', expected: '布局即时切换，导航状态不丢失。' }
+    ], expected: '每个论坛都有与 LINUX DO 一致的单色隐私阅读布局。'
+  }),
+  defineCase({
+    id: 'PYC-016', title: '人机验证、登录墙与受限内容', product: 'pycharm', priority: 'P0', type: 'guided',
+    capabilities: ['live-network', 'jcef'],
+    steps: [
+      { action: '用全新隔离配置依次打开四个论坛首页。', expected: 'Cloudflare 验证页可见并自动通过或点击后通过；NodeSeek 最长等待 45 秒；idea.log 记录主框架 cf-mitigated。' },
+      { action: '打开 V2EX 需要登录的节点（如 /go/chamber）。', expected: '显示“站点将游客请求重定向到登录页面”，不绕过登录墙。' },
+      { action: '打开 NodeSeek 内版（/categories/inside）或设有阅读等级的帖子。', expected: '立即显示可重试错误页，不空等验证超时。' }
+    ], expected: '真正的验证得到等待，登录墙和受限内容如实报告。'
+  }),
+  defineCase({
+    id: 'PYC-017', title: '从 16.0 升级、回退与 Cookie 清理', product: 'pycharm', priority: 'P0', type: 'guided',
+    capabilities: ['visible-desktop', 'jcef'],
+    preconditions: ['隔离配置先安装 16.0，并产生 LINUX DO 的历史与收藏。'],
+    steps: [
+      { action: '原地升级到新版本。', expected: '插件 ID 不变，工具窗口位置保留，旧历史与收藏完整可用。' },
+      { action: '浏览四个论坛后执行“清理 Cookie 并重置会话”，再关闭项目。', expected: '四个论坛的主机与域 Cookie（如 .linux.do 的 cf_clearance）被删除，其它 JCEF Cookie 保留；日志不含 Cookie 值。' },
+      { action: '回退安装 16.0。', expected: '16.0 正常加载；非 LINUX DO 的历史与收藏被丢弃，收藏目录保留。' }
+    ], expected: '升级与回退不损坏数据，Cookie 清理只覆盖受支持的论坛。'
+  }),
+  defineCase({
     id: 'PYC-001', title: 'PyCharm ZIP 清单与源码一致', product: 'pycharm', priority: 'P0', type: 'automated',
     capabilities: ['package'], expected: '插件版本、构建范围、关键资源和包结构一致。', run: checkPyCharmArtifact
   }),
@@ -24,7 +61,7 @@ export const pycharmCases = [
     capabilities: ['visible-desktop'],
     preconditions: ['使用 runner 创建的独立 config、system、plugins 和 log 目录。'],
     steps: [
-      { action: '启动目标 PyCharm 并打开 LINUX DO 工具窗口。', expected: '插件加载成功，idea.log 无 PluginException 或链接错误。' },
+      { action: '启动目标 PyCharm 并打开“论坛游客阅读器”工具窗口。', expected: '插件加载成功，侧边栏显示“论坛游客阅读器”，标题栏显示当前论坛；idea.log 无 PluginException 或链接错误。' },
       { action: '关闭测试项目。', expected: '没有修改日常 PyCharm 配置和插件目录。' }
     ], expected: '发布 ZIP 在目标构建真实安装并加载。'
   }),
@@ -51,16 +88,16 @@ export const pycharmCases = [
     id: 'PYC-004', title: '登录与站外主框架导航被阻止', product: 'pycharm', priority: 'P0', type: 'guided',
     capabilities: ['live-network', 'jcef'],
     steps: [
-      { action: '尝试打开登录、注册、OAuth 和带凭据 URL。', expected: '主框架导航被拒绝，不显示账号输入流程。' },
-      { action: '点击站外链接。', expected: '不在插件主框架内导航。' },
-      { action: '重置会话并关闭项目。', expected: 'linux.do JCEF Cookie 被清理。' }
+      { action: '在四个论坛分别尝试登录、注册、OAuth 和带凭据 URL（如 /login、/signIn.html、/signin）。', expected: '主框架导航被拒绝，不显示账号输入流程。' },
+      { action: '点击站外链接，包括 NodeSeek 顶栏的 DeepFlood。', expected: '不在插件主框架内导航。' },
+      { action: '重置会话并关闭项目。', expected: '四个论坛的 JCEF Cookie（含 .linux.do 等域 Cookie）被清理。' }
     ], expected: '游客会话边界和 Cookie 清理有效。'
   }),
   defineCase({
     id: 'PYC-005', title: '分类、热门、搜索和长页面', product: 'pycharm', priority: 'P1', type: 'guided',
     capabilities: ['live-network', 'jcef'],
     steps: [
-      { action: '依次打开最新、热门、分类和搜索。', expected: '入口高亮、实际 URL 和页面类型一致。' },
+      { action: '在每个论坛依次打开导航行的各个入口和搜索。', expected: '入口高亮、实际 URL 和页面类型一致；NodeSeek 与 V2EX 的搜索框停用并说明原因。' },
       { action: '滚动长列表和长主题。', expected: 'JCEF 页面保持响应，工具栏不遮挡内容。' }
     ], expected: '完整站点导航在隐私布局中可用。'
   }),
@@ -76,7 +113,7 @@ export const pycharmCases = [
     id: 'PYC-007', title: '隐私布局与原始布局切换', product: 'pycharm', priority: 'P1', type: 'guided',
     capabilities: ['live-network', 'jcef'],
     steps: [
-      { action: '检查列表、主题正文、用户信息和正文图片。', expected: '身份装饰与正文外媒体隐藏，技术图片保持原色。' },
+      { action: '在四个论坛检查列表、主题正文、用户信息和正文图片。', expected: '身份装饰与正文外媒体隐藏，技术图片保持原色。' },
       { action: '切到原始布局再切回。', expected: '布局即时切换且导航状态不丢失。' }
     ], expected: '隐私布局符合文档并可逆切换。'
   }),

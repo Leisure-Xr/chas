@@ -6,7 +6,7 @@
 
 | 插件 | 平台 | 简介 | 项目地址 |
 | --- | --- | --- | --- |
-| LINUX DO 游客阅读器 | VS Code、PyCharm | 无需登录，以游客身份在 IDE 中浏览 LINUX DO | [linuxdo-guest-browser](linuxdo-guest-browser/) |
+| LINUX DO 游客阅读器 | VS Code、PyCharm | 无需登录，以游客身份在 IDE 中浏览 LINUX DO；PyCharm 版另支持 NodeSeek、V2EX 和 IDC Flare | [linuxdo-guest-browser](linuxdo-guest-browser/) |
 
 ## LINUX DO 游客阅读器
 

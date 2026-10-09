@@ -8,6 +8,11 @@ import java.util.Locale;
 final class FavoritesViewModel {
     record Row(ReaderFavorites.Folder folder, ReaderFavorites.Item item) {
         String key() { return folder.id() + ":" + item.url(); }
+
+        String siteName() {
+            ForumSite site = ForumSite.forUrl(item.url());
+            return site == null ? "" : site.displayName();
+        }
     }
 
     private List<ReaderFavorites.Folder> folders;
@@ -43,7 +48,7 @@ final class FavoritesViewModel {
         return folders.stream()
                 .filter(folder -> !needle.isEmpty() || selectedFolder == null || folder.id().equals(selectedFolder))
                 .flatMap(folder -> folder.items().stream().map(item -> new Row(folder, item)))
-                .filter(row -> needle.isEmpty() || (row.folder().name() + " " + row.item().title() + " " + row.item().url())
+                .filter(row -> needle.isEmpty() || (row.siteName() + " " + row.folder().name() + " " + row.item().title() + " " + row.item().url())
                         .toLowerCase(Locale.ROOT).contains(needle))
                 .sorted(Comparator.comparingLong((Row row) -> row.item().savedAt()).reversed())
                 .toList();

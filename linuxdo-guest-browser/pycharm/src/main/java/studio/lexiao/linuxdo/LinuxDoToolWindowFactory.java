@@ -38,16 +38,20 @@ import org.cef.handler.CefLoadHandler.ErrorCode;
 import org.cef.handler.CefDisplayHandlerAdapter;
 import org.cef.misc.BoolRef;
 import org.cef.network.CefRequest;
+import org.cef.network.CefResponse;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.AbstractButton;
+import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
@@ -70,7 +74,6 @@ import java.awt.datatransfer.StringSelection;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.io.IOException;
 import java.io.InputStream;
@@ -79,26 +82,31 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAware {
     private static final Logger LOG = Logger.getInstance(LinuxDoToolWindowFactory.class);
+    // 工具窗口 ID 仍是 "LINUX DO"（保留用户的窗口布局），这里只改显示名；plugin.xml 的 bundle 也声明了同一名称。
+    private static final String STRIPE_TITLE = "论坛游客阅读器";
+
+    @Override
+    public void init(@NotNull ToolWindow toolWindow) {
+        toolWindow.setStripeTitle(STRIPE_TITLE);
+    }
 
     @Override
     public void createToolWindowContent(@NotNull Project project, @NotNull ToolWindow toolWindow) {
         if (!JBCefApp.isSupported()) {
-            JLabel message = new JLabel(
-                    "LINUX DO Guest Browser requires the JetBrains Runtime with JCEF.",
-                    SwingConstants.CENTER
-            );
+            JLabel message = new JLabel(STRIPE_TITLE + "需要带 JCEF 的 JetBrains Runtime。", SwingConstants.CENTER);
             Content content = ContentFactory.getInstance().createContent(message, "", false);
             toolWindow.getContentManager().addContent(content);
             return;
@@ -108,15 +116,13 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         Content content = ContentFactory.getInstance().createContent(panel, "", false);
         content.setDisposer(panel);
         toolWindow.getContentManager().addContent(content);
+        panel.setSiteListener(site -> content.setDisplayName(site.displayName()));
     }
 
     private static final class GuestBrowserPanel extends JPanel implements Disposable {
-        private static final String HOME_URL = "https://linux.do/latest";
-        private static final String DOMAIN_URL = "https://linux.do/";
-        private static final String TOP_URL = "https://linux.do/top";
-        private static final String CATEGORIES_URL = "https://linux.do/categories";
         private static final String BREAK_REMINDER_PROPERTY = "linuxdo.guest.breakReminder.enabled";
         private static final String DEMO_MODE_PROPERTY = "linuxdo.guest.demoMode.enabled";
+        private static final String SITE_PROPERTY = "linuxdo.guest.site";
         private static final String HISTORY_PROPERTY = "linuxdo.guest.readerHistory";
         private static final String FAVORITES_PROPERTY = "linuxdo.guest.favoriteFolders";
         private static final String BREAK_ACTION_PATH = "/__lexiao_break/";
@@ -129,37 +135,19 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private static final int DOCUMENT_SETTLE_TIMEOUT_MILLIS = 4_000;
         // 遮罩样式的 JS 侧自清时限，必须比上面两个兜底都长，让 Java 侧先有机会正常揭开。
         private static final int LOADING_MASK_MAX_MILLIS = 8_000;
-        // Cloudflare 的 "Just a moment…" 挑战页就是带着 403/503 返回的，这是正常流程而非失败。
-        // 给页内验证脚本留出跑完并自动重载的时间，超时才算真失败。
-        private static final int CHALLENGE_TIMEOUT_MILLIS = 20_000;
         private static final String BREAK_OVERLAY_SCRIPT = loadBreakOverlayScript();
         private static final String GAME_CORE_SCRIPT = loadResourceScript("/game-core.js");
         private static final String GAME_UI_SCRIPT = loadResourceScript("/game-ui.js");
         private static final String DEMO_PAGE_STYLE = loadResourceScript("/reader-mode.css");
         private static final String READER_MODE_SCRIPT = loadResourceScript("/reader-mode.js");
         private static final String PAGE_PROBE_SCRIPT = loadResourceScript("/page-probe.js");
+        // 各站点自己的阅读样式和加载遮罩，启动时一次读齐，缺文件立即失败。
+        private static final Map<String, String> SITE_STYLES = loadSiteStyles();
         private static final String DEMO_LOADING_STYLE = """
                 html, body {
                   color-scheme: __LEX_IDE_SCHEME__;
                   background: __LEX_IDE_BG__ !important;
                   color: __LEX_IDE_TEXT__ !important;
-                }
-                #main-outlet img, #main-outlet svg, #main-outlet video, #main-outlet .emoji,
-                .avatar, .avatar-flair, .topic-avatar, .topic-avatar img, .topic-list .posters,
-                .user-card, .user-card-avatar, .user-card-avatar img, .names .user-title,
-                .names .user-status, .names .badge-wrapper, .names .badge-grouping,
-                .names .poster-icon, .names .full-name,
-                .topic-post .names .user-title, .topic-post .names .user-status,
-                .lightbox-controls, .image-controls, .image-overlay, .image-toolbar,
-                .lightbox-wrapper .meta, .lightbox-wrapper button,
-                .lightbox-wrapper [role='button'], [data-image-toolbar],
-                [data-download-image] {
-                  visibility: hidden !important;
-                }
-                #main-outlet .topic-post .cooked img:not(.emoji),
-                #main-outlet .topic-post .cooked svg,
-                #main-outlet .topic-post .cooked video {
-                  visibility: visible !important;
                 }
                 """;
         private final JBCefBrowser browser = new JBCefBrowser("about:blank");
@@ -178,6 +166,13 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private final JBTextField searchField = new JBTextField();
         private final JLabel status = new JLabel("正在启动游客会话...");
         private final PropertiesComponent properties = PropertiesComponent.getInstance();
+        private volatile ForumSite currentSite = ForumSite.byId(properties.getValue(SITE_PROPERTY));
+        // 导航行、搜索框和标题栏当前呈现的站点，只在 EDT 上读写。
+        private ForumSite renderedSite;
+        private final JPanel navigationPanel = new JPanel(new FlowLayout(FlowLayout.LEADING, 3, 0));
+        private final JButton searchButton = iconButton(AllIcons.Actions.Search, "搜索");
+        private Runnable relayoutToolbar = () -> {};
+        private boolean navigationLocked;
         private final List<ReaderHistory.Entry> browsingHistory = new ArrayList<>(
                 ReaderHistory.parse(properties.getValue(HISTORY_PROPERTY))
         );
@@ -194,18 +189,25 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private volatile String recommendedGame = "2048";
         private Timer breakReminderTimer;
         private volatile boolean guestSessionInitializing = true;
-        private volatile String pendingNavigationUrl = HOME_URL;
-        private volatile String currentPageTitle = "LINUX DO 公开主题";
+        private volatile String pendingNavigationUrl = currentSite.homeUrl();
+        private volatile String currentPageTitle = currentSite.genericTopicTitle();
         private volatile boolean mainLoadFailed;
         private final DocumentLoadState documentLoadState = new DocumentLoadState();
-        private volatile String lastRequestedUrl = HOME_URL;
+        private volatile String lastRequestedUrl = currentSite.homeUrl();
         private volatile boolean showingErrorPage;
         private final Timer pageLoadTimer = new Timer(PAGE_LOAD_TIMEOUT_MILLIS, event -> handleLoadTimeout());
         private final Timer documentSettleTimer =
                 new Timer(DOCUMENT_SETTLE_TIMEOUT_MILLIS, event -> handleSettleTimeout());
+        // Cloudflare 的 "Just a moment…" 挑战页就是带着 403/503 返回的，这是正常流程而非失败。
+        // 超时按站点取，超时才算真失败。
+        private volatile int challengeTimeoutMillis = currentSite.challengeTimeoutMillis();
         private final Timer challengeTimer =
-                new Timer(CHALLENGE_TIMEOUT_MILLIS, event -> handleChallengeTimeout());
+                new Timer(challengeTimeoutMillis, event -> handleChallengeTimeout());
         private volatile boolean challengeActive;
+        // 最近一次主框架响应的 cf-mitigated 头；null 表示没读到响应头。
+        private volatile String mainFrameCfMitigated;
+        // 正在加载的主框架所属站点。跨站导航开始时浏览器报告的仍是旧地址，加载遮罩要按目标站点选。
+        private volatile ForumSite loadingSite;
         private final CardLayout pageLayout = new CardLayout();
         private final JPanel pageContainer = new JPanel(pageLayout);
         private final JLabel loadErrorMessage = new JLabel("网页暂时无法显示", SwingConstants.CENTER);
@@ -213,6 +215,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private JBPopup favoritesPopup;
         private FavoritesPanel favoritesPanel;
         private volatile boolean disposed;
+        private Consumer<ForumSite> siteListener = site -> {};
 
         private record ShareSettings(long duration, String password) {}
 
@@ -224,6 +227,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             setBorder(BorderFactory.createEmptyBorder());
             browser.getComponent().setBackground(ideTheme.background());
             add(createToolbar(), BorderLayout.NORTH);
+            renderSite(currentSite);
             pageContainer.add(browser.getComponent(), "browser");
             pageContainer.add(createLoadErrorPanel(), "error");
             add(pageContainer, BorderLayout.CENTER);
@@ -235,6 +239,11 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             );
             startGuestSession();
             setBreakReminderEnabled(properties.getBoolean(BREAK_REMINDER_PROPERTY, false), false);
+        }
+
+        void setSiteListener(Consumer<ForumSite> listener) {
+            siteListener = listener;
+            listener.accept(currentSite);
         }
 
         private JPanel createLoadErrorPanel() {
@@ -307,15 +316,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             firstRow.add(tools, BorderLayout.EAST);
 
             JPanel secondRow = new JPanel(new BorderLayout(JBUI.scale(8), 0));
-            JPanel navigation = new JPanel(new FlowLayout(FlowLayout.LEADING, 3, 0));
-            navigation.add(navigationButton("最新", HOME_URL));
-            navigation.add(navigationButton("热门", TOP_URL));
-            navigation.add(navigationButton("分类", CATEGORIES_URL));
 
-            searchField.getEmptyText().setText("搜索公开主题");
-            searchField.setToolTipText("搜索公开主题");
             searchField.addActionListener(event -> search());
-            JButton searchButton = iconButton(AllIcons.Actions.Search, "搜索");
             styleToolbarButton(searchButton, "搜索");
             searchButton.addActionListener(event -> search());
             JPanel searchPanel = new JPanel(new BorderLayout(2, 0));
@@ -324,7 +326,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
             status.setForeground(JBColor.GRAY);
             status.setFont(status.getFont().deriveFont(status.getFont().getSize2D() - 2f));
-            secondRow.add(navigation, BorderLayout.WEST);
+            secondRow.add(navigationPanel, BorderLayout.WEST);
             secondRow.add(searchPanel, BorderLayout.CENTER);
             secondRow.add(status, BorderLayout.EAST);
 
@@ -333,17 +335,18 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             toolbar.addComponentListener(new ComponentAdapter() {
                 @Override
                 public void componentResized(ComponentEvent event) {
-                    updateResponsiveToolbar(availableToolbarWidth(toolbar), secondRow, navigation, searchPanel);
+                    updateResponsiveToolbar(availableToolbarWidth(toolbar), secondRow, navigationPanel, searchPanel);
                 }
             });
             addComponentListener(new ComponentAdapter() {
                 @Override
                 public void componentResized(ComponentEvent event) {
-                    updateResponsiveToolbar(availableToolbarWidth(toolbar), secondRow, navigation, searchPanel);
+                    updateResponsiveToolbar(availableToolbarWidth(toolbar), secondRow, navigationPanel, searchPanel);
                 }
             });
-            SwingUtilities.invokeLater(() ->
-                    updateResponsiveToolbar(availableToolbarWidth(toolbar), secondRow, navigation, searchPanel));
+            relayoutToolbar = () ->
+                    updateResponsiveToolbar(availableToolbarWidth(toolbar), secondRow, navigationPanel, searchPanel);
+            SwingUtilities.invokeLater(relayoutToolbar);
             return toolbar;
         }
 
@@ -397,15 +400,17 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (demoMode && readerFallbackActive) {
                 menu.add(menuAction("重新应用隐私阅读布局（当前已回退）", this::retryReaderMode));
             }
+            menu.add(forumMenu());
             menu.add(menuAction(demoMode ? "使用原始网页布局" : "使用隐私阅读布局", demoButton::doClick));
             menu.add(menuAction("浏览历史", this::showHistoryPopup));
             JMenuItem favoriteItem = menuAction("收藏当前主题", this::favoriteCurrentTopic);
-            favoriteItem.setEnabled(shareButton.isEnabled());
+            favoriteItem.setEnabled(ForumSite.topicUrl(browser.getCefBrowser().getURL()) != null);
             menu.add(favoriteItem);
             menu.add(menuAction("收藏夹", this::showFavoritesPopup));
             menu.add(menuAction(breakReminderEnabled ? "关闭休息提醒" : "开启休息提醒", breakReminderButton::doClick));
             menu.add(menuAction("打开小游戏", gameButton::doClick));
-            JMenuItem shareItem = menuAction("分享当前主题", shareButton::doClick);
+            JMenuItem shareItem = menuAction(
+                    currentSite.shareSupported() ? "分享当前主题" : "分享当前主题（暂仅支持 LINUX DO）", shareButton::doClick);
             shareItem.setEnabled(shareButton.isEnabled());
             menu.add(shareItem);
             menu.add(menuAction("打开加密分享", openShareButton::doClick));
@@ -413,6 +418,56 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             menu.addSeparator();
             menu.add(menuAction("清理 Cookie 并重置会话", resetButton::doClick));
             menu.show(overflowButton, 0, overflowButton.getHeight());
+        }
+
+        private JMenu forumMenu() {
+            JMenu menu = new JMenu("切换论坛");
+            ButtonGroup group = new ButtonGroup();
+            for (ForumSite site : ForumSite.values()) {
+                JCheckBoxMenuItem item = new JCheckBoxMenuItem(site.displayName(), site == currentSite);
+                item.addActionListener(event -> switchSite(site));
+                group.add(item);
+                menu.add(item);
+            }
+            return menu;
+        }
+
+        private void switchSite(ForumSite site) {
+            renderSite(site);
+            navigateTo(site.homeUrl());
+        }
+
+        // 当前站点跟随主框架 URL：点到另一个受支持论坛的链接时，导航行、搜索和标题一并切换。
+        private void renderSite(ForumSite site) {
+            currentSite = site;
+            if (site == renderedSite) return;
+            renderedSite = site;
+            properties.setValue(SITE_PROPERTY, site.id(), ForumSite.DEFAULT.id());
+            navigationButtons.clear();
+            navigationPanel.removeAll();
+            for (ForumSite.NavEntry entry : site.navigation()) {
+                JToggleButton button = navigationButton(entry.label(), site.url(entry));
+                button.setEnabled(!navigationLocked);
+                navigationPanel.add(button);
+            }
+            updateSearchAvailability();
+            siteListener.accept(site);
+            relayoutToolbar.run();
+            updateNavigationState(browser.getCefBrowser().getURL());
+        }
+
+        private void updateSearchAvailability() {
+            boolean supported = currentSite.supportsSearch();
+            String hint = supported ? "搜索公开主题" : currentSite.searchUnavailableHint();
+            if (!supported) searchField.setText("");
+            searchField.getEmptyText().setText(hint);
+            searchField.setToolTipText(hint);
+            searchField.setEnabled(supported && !navigationLocked);
+            searchButton.setEnabled(supported && !navigationLocked);
+        }
+
+        private String idleStatus() {
+            return "游客模式 · " + currentSite.displayName();
         }
 
         private static JMenuItem menuAction(String label, Runnable action) {
@@ -435,7 +490,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             if (query.isEmpty() || disposed) {
                 return;
             }
-            navigateTo("https://linux.do/search?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8));
+            String url = currentSite.searchUrl(query);
+            if (url == null) status.setText(currentSite.searchUnavailableHint());
+            else navigateTo(url);
         }
 
         private static JButton iconButton(javax.swing.Icon icon, String tooltip) {
@@ -450,12 +507,14 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 @Override
                 public void onAddressChange(CefBrowser cefBrowser, CefFrame frame, String url) {
                     if (frame == null || !frame.isMain()) return;
-                    if (isAuthenticationUrl(url)) {
+                    if (ForumSite.isAuthenticationUrl(url)) {
                         showLoadFailure("站点将游客请求重定向到登录页面", url);
                         return;
                     }
                     SwingUtilities.invokeLater(() -> {
                         if (disposed) return;
+                        ForumSite site = ForumSite.forUrl(url);
+                        if (site != null) renderSite(site);
                         updateNavigationState(url);
                         recordHistory(url, historyTitleForUrl(url, safeCurrentTitle()));
                     });
@@ -539,9 +598,10 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         backButton.setEnabled(canGoBack);
                         forwardButton.setEnabled(canGoForward);
                         refreshButton.setEnabled(!showLoading);
+                        navigationLocked = showLoading;
                         navigationButtons.values().forEach(button -> button.setEnabled(!showLoading));
-                        searchField.setEnabled(!showLoading);
-                        status.setText(showLoading ? "加载中..." : (mainLoadFailed ? "加载失败，可重试" : "游客模式"));
+                        updateSearchAvailability();
+                        status.setText(showLoading ? "加载中..." : (mainLoadFailed ? "加载失败，可重试" : idleStatus()));
                         updateNavigationState(cefBrowser.getURL());
                     });
                 }
@@ -552,7 +612,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         LOG.info("LINUX DO JCEF initial blank frame completed");
                         return;
                     }
-                    if (frame != null && frame.isMain() && isAuthenticationUrl(frame.getURL())) {
+                    if (frame != null && frame.isMain() && ForumSite.isAuthenticationUrl(frame.getURL())) {
                         showLoadFailure("站点将游客请求重定向到登录页面", frame.getURL());
                         return;
                     }
@@ -561,8 +621,10 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                             completeDocumentLoad(cefBrowser, "main-frame", httpStatusCode);
                         }
                     } else if (frame != null && frame.isMain()) {
-                        if (isChallengeStatus(httpStatusCode)) {
+                        if (isChallengeStatus(httpStatusCode) && !deniedWithoutChallenge(httpStatusCode)) {
                             handleChallengeResponse(cefBrowser, httpStatusCode);
+                        } else if (httpStatusCode == 403) {
+                            showLoadFailure("HTTP 403：站点拒绝了游客访问（可能需要登录）", cefBrowser.getURL());
                         } else {
                             showLoadFailure("HTTP " + httpStatusCode, cefBrowser.getURL());
                         }
@@ -584,7 +646,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         }
 
         private void navigateTo(String url) {
-            if (disposed || !isAllowedGuestUrl(url)) return;
+            if (disposed || !ForumSite.isAllowedGuestUrl(url)) return;
+            ForumSite target = ForumSite.forUrl(url);
+            if (target != null) renderSite(target);
             lastRequestedUrl = url;
             showingErrorPage = false;
             pageLayout.show(pageContainer, "browser");
@@ -601,7 +665,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             pageLoadTimer.restart();
             status.setText("加载中...");
             LOG.info("LINUX DO JCEF navigation requested: " + diagnosticUrl(url));
-            if (samePage(cefBrowser.getURL(), url)) cefBrowser.reload();
+            if (ForumSite.samePage(cefBrowser.getURL(), url)) cefBrowser.reload();
             else cefBrowser.loadURL(url);
         }
 
@@ -613,7 +677,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             }
             CefBrowser cefBrowser = browser.getCefBrowser();
             String url = cefBrowser.getURL();
-            if (!isAllowedGuestUrl(url) || isBlankPage(url)) url = lastRequestedUrl;
+            if (!ForumSite.isAllowedGuestUrl(url) || isBlankPage(url)) url = lastRequestedUrl;
             lastRequestedUrl = url;
             showingErrorPage = false;
             pageLayout.show(pageContainer, "browser");
@@ -640,7 +704,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             SwingUtilities.invokeLater(() -> {
                 if (disposed) return;
                 pageLayout.show(pageContainer, "browser");
-                status.setText("游客模式");
+                status.setText(idleStatus());
                 updateNavigationState(cefBrowser.getURL());
                 recordHistory(cefBrowser.getURL(), safeCurrentTitle());
             });
@@ -688,6 +752,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             challengeActive = true;
             pageLoadTimer.stop();
             documentSettleTimer.stop();
+            challengeTimeoutMillis = siteFor(cefBrowser.getURL()).challengeTimeoutMillis();
+            challengeTimer.setInitialDelay(challengeTimeoutMillis);
             challengeTimer.restart();
             // 撤掉遮罩，否则验证界面会被糊成纯白，用户既看不见进度也无法交互。
             clearLoadingPrivacyStyle(cefBrowser);
@@ -698,9 +764,16 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             });
         }
 
+        // 读到了响应头、却没有 cf-mitigated: challenge 的 403 是真正的拒绝访问（例如需要登录的帖子），
+        // 不必干等验证超时。读不到响应头时仍按验证页处理：宁可多等，也不能掐断真正的验证。
+        private boolean deniedWithoutChallenge(int httpStatusCode) {
+            String mitigated = mainFrameCfMitigated;
+            return httpStatusCode == 403 && mitigated != null && !"challenge".equalsIgnoreCase(mitigated.trim());
+        }
+
         private void handleChallengeTimeout() {
             if (disposed || !challengeActive) return;
-            showLoadFailure("人机验证未在 " + (CHALLENGE_TIMEOUT_MILLIS / 1000) + " 秒内完成", lastRequestedUrl);
+            showLoadFailure("人机验证未在 " + (challengeTimeoutMillis / 1000) + " 秒内完成", lastRequestedUrl);
         }
 
         // 只撤遮罩，不注入阅读模式样式——验证页不是正文，不该被当作内容处理。
@@ -731,7 +804,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             documentSettleTimer.stop();
             challengeTimer.stop();
             challengeActive = false;
-            String target = isAllowedGuestUrl(failedUrl) && !"about:blank".equals(failedUrl)
+            String target = ForumSite.isAllowedGuestUrl(failedUrl) && !"about:blank".equals(failedUrl)
                     ? failedUrl : lastRequestedUrl;
             LOG.warn("LINUX DO JCEF main frame failed: " + diagnosticUrl(target) + ", reason=" + reason);
             SwingUtilities.invokeLater(() -> {
@@ -740,8 +813,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 status.setText("加载失败，可重试");
                 loadErrorMessage.setText("网页暂时无法显示：" + reason);
                 refreshButton.setEnabled(true);
+                navigationLocked = false;
                 navigationButtons.values().forEach(button -> button.setEnabled(true));
-                searchField.setEnabled(true);
+                updateSearchAvailability();
                 browser.getCefBrowser().stopLoad();
                 pageLayout.show(pageContainer, "error");
             });
@@ -759,46 +833,26 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         }
 
         private void updateNavigationState(String currentUrl) {
-            navigationButtons.forEach((url, button) -> button.setSelected(samePage(currentUrl, url)));
-            shareButton.setEnabled(ShareCode.fromTopicUrl(currentUrl, safeCurrentTitle()) != null);
+            navigationButtons.forEach((url, button) -> button.setSelected(ForumSite.samePage(currentUrl, url)));
+            shareButton.setEnabled(siteFor(currentUrl).shareSupported()
+                    && ShareCode.fromTopicUrl(currentUrl, safeCurrentTitle()) != null);
+        }
+
+        private ForumSite siteFor(String url) {
+            ForumSite site = ForumSite.forUrl(url);
+            return site != null ? site : currentSite;
         }
 
         private String navigationLabel(String url) {
-            if (samePage(url, TOP_URL)) return "热门";
-            if (samePage(url, CATEGORIES_URL)) return "分类";
-            if (url != null && url.startsWith("https://linux.do/search")) return "搜索结果";
-            return "最新";
-        }
-
-        private static boolean samePage(String left, String right) {
-            if (left == null || right == null) return false;
-            try {
-                URI leftUri = URI.create(left);
-                URI rightUri = URI.create(right);
-                String leftPath = leftUri.getPath() == null ? "/" : leftUri.getPath().replaceAll("/$", "");
-                String rightPath = rightUri.getPath() == null ? "/" : rightUri.getPath().replaceAll("/$", "");
-                return leftPath.equalsIgnoreCase(rightPath) && String.valueOf(leftUri.getQuery()).equals(String.valueOf(rightUri.getQuery()));
-            } catch (IllegalArgumentException ignored) {
-                return left.equals(right);
-            }
+            return siteFor(url).navigationLabel(url);
         }
 
         private String safeCurrentTitle() {
-            String title = currentPageTitle == null ? "" : currentPageTitle
-                    .replaceFirst("^\\([0-9]+\\)\\s*", "")
-                    .replaceAll("\\s+-\\s+(?:LINUX DO|搞七捻三)\\s*$", "")
-                    .trim();
-            return title.isEmpty() ? "LINUX DO 公开主题" : title.substring(0, Math.min(200, title.length()));
+            return siteFor(browser.getCefBrowser().getURL()).pageTitle(currentPageTitle);
         }
 
         private String historyTitleForUrl(String url, String title) {
-            if (samePage(url, HOME_URL)) return "最新主题";
-            if (samePage(url, TOP_URL)) return "本周热门";
-            if (samePage(url, CATEGORIES_URL)) return "浏览分类";
-            if (url != null && url.startsWith("https://linux.do/search")) return "搜索结果";
-            String normalized = title == null ? "" : title.trim();
-            if (normalized.equalsIgnoreCase("LINUX DO") || normalized.equals("搞七捻三")) return "LINUX DO 公开页面";
-            return normalized;
+            return siteFor(url).historyTitle(url, title);
         }
 
         private void recordHistory(String url, String title) {
@@ -981,16 +1035,17 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         }
 
         private void favoriteCurrentTopic() {
-            ShareCode.Topic topic = ShareCode.fromTopicUrl(browser.getCefBrowser().getURL(), safeCurrentTitle());
-            if (topic == null) {
+            String topicUrl = ForumSite.topicUrl(browser.getCefBrowser().getURL());
+            if (topicUrl == null) {
                 status.setText("请先打开一个主题");
                 return;
             }
+            String title = safeCurrentTitle();
             ReaderFavorites.Folder folder = chooseFavoriteFolder();
             if (folder == null) return;
             try {
                 replaceFavoriteFolders(ReaderFavorites.add(
-                        favoriteFolders, folder.id(), topic.url(), topic.title(), System.currentTimeMillis()));
+                        favoriteFolders, folder.id(), topicUrl, title, System.currentTimeMillis()));
                 status.setText("已收藏到“" + folder.name() + "”");
             } catch (IllegalArgumentException error) {
                 JOptionPane.showMessageDialog(this, error.getMessage(), "无法收藏", JOptionPane.WARNING_MESSAGE);
@@ -1090,7 +1145,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         if (disposed) return;
                         updateNavigationState(browser.getCefBrowser().getURL());
                         if (error != null) {
-                            status.setText("游客模式");
+                            status.setText(idleStatus());
                             JOptionPane.showMessageDialog(this, failureMessage(error), "无法生成分享", JOptionPane.ERROR_MESSAGE);
                             return;
                         }
@@ -1238,7 +1293,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         if (disposed) return;
                         openShareButton.setEnabled(true);
                         if (error != null) {
-                            status.setText("游客模式");
+                            status.setText(idleStatus());
                             JOptionPane.showMessageDialog(this, failureMessage(error), "无法打开分享", JOptionPane.ERROR_MESSAGE);
                             return;
                         }
@@ -1255,7 +1310,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private void showShareHelp() {
             JOptionPane.showMessageDialog(
                     this,
-                    "1. 打开一个公开主题，点击工具栏“分享”。\n"
+                    "加密分享目前只支持 LINUX DO 主题。\n\n"
+                            + "1. 打开一个公开主题，点击工具栏“分享”。\n"
                             + "2. 选择有效期，填写并确认至少 12 个字符的密码；也可生成 20 位强密码。\n"
                             + "3. 插件把加密分享内容复制到剪贴板；把它发给对方，并通过另一渠道告知密码。\n"
                             + "4. 对方选择“打开加密分享”，粘贴分享内容并输入相同密码。\n\n"
@@ -1283,7 +1339,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 return;
             }
             boolean readerMode = demoMode;
-            String css = readerMode ? ideTheme.applyToReaderCss(DEMO_PAGE_STYLE) : "";
+            ForumSite.Reader reader = siteFor(cefBrowser.getURL()).reader();
+            String css = readerMode ? ideTheme.applyToReaderCss(DEMO_PAGE_STYLE + "\n" + SITE_STYLES.get(reader.css())) : "";
             String script = "(function(){"
                     + "var id='lexiao-guest-reader-style';"
                     + "var style=document.getElementById(id);"
@@ -1297,6 +1354,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     + "})();\n"
                     + "if(window.__lexiaoReaderModeApplied!==" + readerMode + "){\n"
                     + READER_MODE_SCRIPT.replace("__LEXIAO_DEMO_MODE__", Boolean.toString(readerMode))
+                            .replace("__LEXIAO_READER_SITE__", readerSiteJson(reader))
                     + "\nwindow.__lexiaoReaderModeApplied=" + readerMode + ";}"
                     + "else if(window.__lexiaoReaderModeSync){window.__lexiaoReaderModeSync();}";
             cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
@@ -1304,7 +1362,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
         private void applyLoadingPrivacyStyle(CefBrowser cefBrowser) {
             if (disposed || cefBrowser == null) return;
-            String loadingCss = ideTheme.applyToReaderCss(DEMO_LOADING_STYLE);
+            ForumSite site = loadingSite != null ? loadingSite : siteFor(cefBrowser.getURL());
+            String loadingCss = ideTheme.applyToReaderCss(DEMO_LOADING_STYLE + SITE_STYLES.get(site.reader().loadingCss()));
             String script = "(function(){"
                     + "var id='lexiao-guest-loading-privacy';"
                     + "var style=document.getElementById(id);"
@@ -1327,7 +1386,8 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
 
         private void injectPageProbe(CefBrowser cefBrowser) {
             if (disposed || cefBrowser == null) return;
-            cefBrowser.executeJavaScript(PAGE_PROBE_SCRIPT, cefBrowser.getURL(), 0);
+            String root = jsString(siteFor(cefBrowser.getURL()).reader().root());
+            cefBrowser.executeJavaScript(PAGE_PROBE_SCRIPT.replace("__LEXIAO_ROOT_SELECTOR__", root), cefBrowser.getURL(), 0);
         }
 
         private void refreshIdeTheme() {
@@ -1338,6 +1398,17 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             String script = "if(window.__linuxDoGameUIController?.setTheme){"
                     + "window.__linuxDoGameUIController.setTheme(" + ideTheme.gameThemeJson() + ");}";
             browser.getCefBrowser().executeJavaScript(script, browser.getCefBrowser().getURL(), 0);
+        }
+
+        private static String readerSiteJson(ForumSite.Reader reader) {
+            return "{\"root\":" + jsString(reader.root())
+                    + ",\"content\":" + jsString(reader.content())
+                    + ",\"identity\":" + jsString(reader.identity())
+                    + ",\"username\":" + jsString(reader.username()) + "}";
+        }
+
+        private static String jsString(String value) {
+            return "\"" + escapeJavaScript(value) + "\"";
         }
 
         private static String escapeJavaScript(String value) {
@@ -1361,6 +1432,28 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 }
             };
 
+            CefResourceRequestHandler mainFrameResponseObserver = new CefResourceRequestHandlerAdapter() {
+                @Override
+                public boolean onResourceResponse(
+                        CefBrowser cefBrowser,
+                        CefFrame frame,
+                        CefRequest request,
+                        CefResponse response
+                ) {
+                    Map<String, String> headers = new HashMap<>();
+                    response.getHeaderMap(headers);
+                    String mitigated = "";
+                    for (Map.Entry<String, String> header : headers.entrySet()) {
+                        if ("cf-mitigated".equalsIgnoreCase(header.getKey())) mitigated = header.getValue();
+                    }
+                    mainFrameCfMitigated = headers.isEmpty() ? null : mitigated;
+                    LOG.info("LINUX DO JCEF main frame response: " + diagnosticUrl(request.getURL())
+                            + ", status=" + response.getStatus() + ", headers=" + headers.size()
+                            + ", cf-mitigated=" + mainFrameCfMitigated);
+                    return false;
+                }
+            };
+
             browser.getJBCefClient().addRequestHandler(new CefRequestHandlerAdapter() {
                 @Override
                 public boolean onBeforeBrowse(
@@ -1378,7 +1471,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     if (handleBreakAction(url)) {
                         return true;
                     }
-                    if (isAuthenticationUrl(url)) {
+                    if (ForumSite.isAuthenticationUrl(url)) {
                         if (isRedirect || !userGesture) {
                             showLoadFailure("站点将游客请求重定向到登录页面", url);
                         } else {
@@ -1386,7 +1479,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         }
                         return true;
                     }
-                    if (isAllowedGuestUrl(url)) {
+                    if (ForumSite.isAllowedGuestUrl(url)) {
+                        mainFrameCfMitigated = null;
+                        loadingSite = ForumSite.forUrl(url);
                         // 验证通过后 Cloudflare 会重新发起一次导航（通常是同一个 URL）。
                         // 在这里解除验证态，让接下来那次真实加载重新走正常的完成路径。
                         boolean leavingChallenge = challengeActive;
@@ -1395,7 +1490,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                             challengeTimer.stop();
                             LOG.info("LINUX DO JCEF challenge cleared, reloading: " + diagnosticUrl(url));
                         }
-                        if (!samePage(cefBrowser.getURL(), url)) {
+                        if (!ForumSite.samePage(cefBrowser.getURL(), url)) {
                             documentLoadState.begin();
                             lastRequestedUrl = url;
                             showingErrorPage = false;
@@ -1412,7 +1507,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                                 status.setText("加载中...");
                             });
                         } else {
-                            SwingUtilities.invokeLater(() -> status.setText("游客模式"));
+                            SwingUtilities.invokeLater(() -> status.setText(idleStatus()));
                         }
                         return false;
                     }
@@ -1431,18 +1526,19 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         String requestInitiator,
                         BoolRef disableDefaultHandling
                 ) {
-                    return isAuthenticationWrite(request) ? authenticationBlocker : null;
+                    if (ForumSite.isAuthenticationWrite(request.getMethod(), request.getURL())) return authenticationBlocker;
+                    return isNavigation && frame != null && frame.isMain() ? mainFrameResponseObserver : null;
                 }
             }, browser.getCefBrowser());
         }
 
         private boolean handleBreakAction(String url) {
             try {
-                URI uri = URI.create(url);
-                if (!"linux.do".equalsIgnoreCase(uri.getHost()) || uri.getPath() == null
-                        || !uri.getPath().startsWith(BREAK_ACTION_PATH)) {
+                ForumSite site = ForumSite.forUrl(url);
+                if (site == null || !url.startsWith(site.origin() + BREAK_ACTION_PATH)) {
                     return false;
                 }
+                URI uri = URI.create(url);
 
                 String action = uri.getPath().substring(BREAK_ACTION_PATH.length());
                 SwingUtilities.invokeLater(() -> {
@@ -1560,6 +1656,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     .replace("__LEXIAO_BEST_SCORES__", gameBestScoresJson())
                     .replace("__LEXIAO_THEME__", ideTheme.gameThemeJson());
             String url = cefBrowser.getURL();
+            overlay = overlay.replace("__LEXIAO_BREAK_BASE__", jsString(siteFor(url).origin() + BREAK_ACTION_PATH));
             cefBrowser.executeJavaScript(bundle, url, 0);
             cefBrowser.executeJavaScript(overlay, url, 0);
         }
@@ -1592,7 +1689,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     status.setText("将在 10 分钟后再提醒");
                 } else {
                     scheduleBreakReminder(31, 60);
-                    status.setText("游客模式");
+                    status.setText(idleStatus());
                 }
             }
         }
@@ -1606,6 +1703,15 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     + "var overlay=document.getElementById('linuxdo-game-overlay');"
                     + "if(overlay){overlay.remove();}";
             cefBrowser.executeJavaScript(script, cefBrowser.getURL(), 0);
+        }
+
+        private static Map<String, String> loadSiteStyles() {
+            Map<String, String> styles = new LinkedHashMap<>();
+            for (ForumSite site : ForumSite.values()) {
+                styles.computeIfAbsent(site.reader().css(), GuestBrowserPanel::loadResourceScript);
+                styles.computeIfAbsent(site.reader().loadingCss(), GuestBrowserPanel::loadResourceScript);
+            }
+            return styles;
         }
 
         private static String loadBreakOverlayScript() {
@@ -1623,106 +1729,21 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             }
         }
 
-        private static boolean isAuthenticationWrite(CefRequest request) {
-            String method = request.getMethod();
-            if (method == null || method.equalsIgnoreCase("GET") || method.equalsIgnoreCase("HEAD")) {
-                return false;
-            }
-
-            try {
-                URI uri = URI.create(request.getURL());
-                String host = uri.getHost();
-                String path = uri.getPath() == null ? "/" : uri.getPath().toLowerCase();
-                boolean linuxDoHost = "linux.do".equalsIgnoreCase(host)
-                        || (host != null && host.toLowerCase().endsWith(".linux.do"));
-                if (!linuxDoHost) {
-                    return false;
-                }
-
-                return path.equals("/session")
-                        || path.startsWith("/session/")
-                        || path.equals("/users")
-                        || path.startsWith("/users/")
-                        || path.equals("/auth")
-                        || path.startsWith("/auth/")
-                        || path.equals("/oauth2")
-                        || path.startsWith("/oauth2/")
-                        || path.equals("/user-api-key")
-                        || path.startsWith("/user-api-key/");
-            } catch (IllegalArgumentException ignored) {
-                return true;
-            }
-        }
-
-        private static boolean isAllowedGuestUrl(String url) {
-            if (url == null || url.equals("about:blank")) {
-                return true;
-            }
-
-            try {
-                URI uri = URI.create(url);
-                String host = uri.getHost();
-                String path = uri.getPath() == null ? "/" : uri.getPath().toLowerCase();
-                boolean linuxDoHost = "linux.do".equalsIgnoreCase(host)
-                        || (host != null && host.toLowerCase().endsWith(".linux.do"));
-                if (!linuxDoHost) {
-                    return false;
-                }
-
-                return !isAuthenticationPath(path);
-            } catch (IllegalArgumentException ignored) {
-                return false;
-            }
-        }
-
-        private static boolean isAuthenticationUrl(String url) {
-            if (url == null || url.isBlank()) return false;
-            try {
-                URI uri = URI.create(url);
-                String host = uri.getHost();
-                if (!("linux.do".equalsIgnoreCase(host)
-                        || host != null && host.toLowerCase().endsWith(".linux.do"))) return false;
-                return isAuthenticationPath(uri.getPath() == null ? "/" : uri.getPath().toLowerCase());
-            } catch (IllegalArgumentException ignored) {
-                return false;
-            }
-        }
-
-        private static boolean isAuthenticationPath(String path) {
-            return path.equals("/login")
-                    || path.startsWith("/login/")
-                    || path.equals("/signup")
-                    || path.startsWith("/signup/")
-                    || path.equals("/session")
-                    || path.startsWith("/session/")
-                    || path.equals("/auth")
-                    || path.startsWith("/auth/")
-                    || path.equals("/oauth2")
-                    || path.startsWith("/oauth2/");
-        }
-
         private void startGuestSession() {
             guestSessionInitializing = true;
-            pendingNavigationUrl = HOME_URL;
+            pendingNavigationUrl = currentSite.homeUrl();
             status.setText("正在清理游客会话...");
-            clearLinuxDoCookies(() -> {
+            clearForumCookies(() -> {
                 guestSessionInitializing = false;
-                if (pendingNavigationUrl == null) pendingNavigationUrl = HOME_URL;
+                if (pendingNavigationUrl == null) pendingNavigationUrl = currentSite.homeUrl();
                 continuePendingNavigation();
             });
         }
 
-        private void loadHome() {
-            if (!disposed) {
-                navigateTo(HOME_URL);
-            }
-        }
-
-        private void clearLinuxDoCookies(Runnable afterClear) {
-            GuestSessionCleanup.run(() -> {
-                Future<Boolean> deletion = cookieManager.deleteCookies(DOMAIN_URL, null);
-                return Boolean.TRUE.equals(deletion.get(COOKIE_CLEANUP_TIMEOUT_SECONDS, TimeUnit.SECONDS));
-            }, AppExecutorUtil.getAppExecutorService(), COOKIE_CLEANUP_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        private void clearForumCookies(Runnable afterClear) {
+            GuestSessionCleanup.CookieStore store = new JcefCookieStore(cookieManager);
+            GuestSessionCleanup.run(() -> GuestSessionCleanup.clearForumCookies(store),
+                            AppExecutorUtil.getAppExecutorService(), COOKIE_CLEANUP_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                     .whenComplete((cleared, error) -> SwingUtilities.invokeLater(() -> {
                 if (!disposed) {
                     if (error != null || !Boolean.TRUE.equals(cleared)) {
@@ -1750,10 +1771,49 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             removeBreakOverlay();
             disposed = true;
             try {
-                cookieManager.deleteCookies(DOMAIN_URL, null);
+                for (ForumSite site : ForumSite.values()) {
+                    site.cookieUrls().forEach(url -> cookieManager.deleteCookies(url, null));
+                }
+                // 域 Cookie 只能逐个按名称删；关闭时尽力而为，下次启动的清理才是兜底。
+                GuestSessionCleanup.CookieStore store = new JcefCookieStore(cookieManager);
+                AppExecutorUtil.getAppExecutorService().execute(() -> {
+                    try {
+                        GuestSessionCleanup.clearForumCookies(store);
+                    } catch (Exception error) {
+                        LOG.info("LINUX DO JCEF cookie sweep on dispose did not finish: " + error.getClass().getSimpleName());
+                    }
+                });
+            } catch (RuntimeException error) {
+                LOG.info("LINUX DO JCEF cookie cleanup on dispose skipped: " + error.getClass().getSimpleName());
             } finally {
                 browser.dispose();
             }
+        }
+    }
+
+    private static final class JcefCookieStore implements GuestSessionCleanup.CookieStore {
+        private static final int TIMEOUT_SECONDS = GuestBrowserPanel.COOKIE_CLEANUP_TIMEOUT_SECONDS;
+        private final JBCefCookieManager cookieManager;
+
+        private JcefCookieStore(JBCefCookieManager cookieManager) {
+            this.cookieManager = cookieManager;
+        }
+
+        @Override
+        public boolean deleteHostCookies(String url) throws Exception {
+            return Boolean.TRUE.equals(cookieManager.deleteCookies(url, null).get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public List<GuestSessionCleanup.CookieRef> listCookies() throws Exception {
+            return cookieManager.getCookies(null, true).get(TIMEOUT_SECONDS, TimeUnit.SECONDS).stream()
+                    .map(cookie -> new GuestSessionCleanup.CookieRef(cookie.getName(), cookie.getDomain(), cookie.getPath()))
+                    .toList();
+        }
+
+        @Override
+        public boolean deleteCookie(String url, String name) throws Exception {
+            return Boolean.TRUE.equals(cookieManager.deleteCookies(url, name).get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
         }
     }
 }

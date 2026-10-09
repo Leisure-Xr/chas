@@ -1,0 +1,11 @@
+#Top, #Rightbar, #Bottom, .adsbygoogle, .wwads-cn, .pro-unit,
+#Main img, #Main svg, #Main video, #Main iframe,
+#Main .avatar, #Main .badges, #Main .votes, #Main .header > .fr {
+  visibility: hidden !important;
+}
+#Main .topic_content img,
+#Main .reply_content img,
+#Main .topic_content video,
+#Main .reply_content video {
+  visibility: visible !important;
+}

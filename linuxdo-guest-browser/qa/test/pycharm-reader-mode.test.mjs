@@ -4,8 +4,26 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = await readFile(new URL('../../pycharm/src/main/resources/reader-mode.js', import.meta.url), 'utf8');
+const factorySource = await readFile(new URL('../../pycharm/src/main/java/studio/lexiao/linuxdo/LinuxDoToolWindowFactory.java', import.meta.url), 'utf8');
+const forumSiteSource = await readFile(new URL('../../pycharm/src/main/java/studio/lexiao/linuxdo/ForumSite.java', import.meta.url), 'utf8');
 
-function createReaderMode({ hasContent = true, visible = true, collapsesWhenStyled = false } = {}) {
+// Mirrors ForumSite.Engine.DISCOURSE; the drift test below keeps the two in sync.
+const DISCOURSE = {
+  root: '#main-outlet',
+  content: '.topic-list,.category-list,#topic-title,.topic-post',
+  identity: '.avatar,.user-card',
+  username: '.topic-post .names .username',
+};
+
+function inject(enabled, site) {
+  return source
+    .replace('__LEXIAO_DEMO_MODE__', String(enabled))
+    .replace('__LEXIAO_READER_SITE__', JSON.stringify(site));
+}
+
+function createReaderMode({
+  hasContent = true, visible = true, collapsesWhenStyled = false, site = DISCOURSE, contentToken = '.topic-list',
+} = {}) {
   const frames = new Map();
   const timers = new Map();
   const logs = [];
@@ -36,8 +54,8 @@ function createReaderMode({ hasContent = true, visible = true, collapsesWhenStyl
   const document = {
     body,
     readyState: 'complete',
-    querySelector: selector => selector.includes('.topic-list') && hasContent ? content : null,
-    querySelectorAll: selector => selector.includes('.topic-list') && hasContent ? [content] : [],
+    querySelector: selector => selector.includes(contentToken) && hasContent ? content : null,
+    querySelectorAll: selector => selector.includes(contentToken) && hasContent ? [content] : [],
   };
   const context = {
     Element: FakeElement,
@@ -55,7 +73,7 @@ function createReaderMode({ hasContent = true, visible = true, collapsesWhenStyl
     getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
     window: {},
   };
-  vm.runInNewContext(source.replace('__LEXIAO_DEMO_MODE__', 'true'), context);
+  vm.runInNewContext(inject(true, site), context);
   return {
     active: () => body.classList.contains('lexiao-demo-mode'),
     logs,
@@ -76,10 +94,10 @@ function createReaderMode({ hasContent = true, visible = true, collapsesWhenStyl
     setContent(value) { hasContent = value; content = new FakeElement(); },
     sync() { context.window.__lexiaoReaderModeSync(); },
     cleanup() { context.window.__lexiaoReaderModeCleanup(); },
-    disable() { vm.runInNewContext(source.replace('__LEXIAO_DEMO_MODE__', 'false'), context); },
+    disable() { vm.runInNewContext(inject(false, site), context); },
     retry() {
       disconnected = false;
-      vm.runInNewContext(source.replace('__LEXIAO_DEMO_MODE__', 'true'), context);
+      vm.runInNewContext(inject(true, site), context);
     },
     pending: () => frames.size + timers.size,
   };
@@ -90,6 +108,31 @@ test('reader mode waits for supported Discourse content', () => {
   assert.equal(page.active(), false);
   page.setContent(true); page.mutate(); page.frames(); page.timer(1000);
   assert.equal(page.active(), true);
+});
+
+test('reader mode follows the injected site selectors instead of Discourse markup', () => {
+  const site = {
+    root: '#nsk-body',
+    content: '.post-list-item,article.post-content',
+    identity: '.avatar-normal',
+    username: '.author-name',
+  };
+  const page = createReaderMode({ site, contentToken: '.post-list-item' });
+  page.frames(); page.timer(1000);
+  assert.equal(page.active(), true);
+  assert.equal(page.logs.at(-1).reason, 'stable');
+
+  const discoursePage = createReaderMode({ site, contentToken: '.topic-list' });
+  discoursePage.frames();
+  assert.equal(discoursePage.active(), false);
+});
+
+test('site selectors live in ForumSite, not in the shared reader script', () => {
+  assert.ok(!source.includes('.topic-list'));
+  assert.ok(!source.includes('#main-outlet'));
+  assert.ok(factorySource.includes('.replace("__LEXIAO_READER_SITE__", readerSiteJson(reader))'));
+  assert.ok(forumSiteSource.includes(`"${DISCOURSE.content}"`), 'Discourse content selector drifted from the QA fixture');
+  assert.ok(forumSiteSource.includes(`"${DISCOURSE.root}"`));
 });
 
 test('reader mode fails open for actual CSS collapse without retry loops', () => {

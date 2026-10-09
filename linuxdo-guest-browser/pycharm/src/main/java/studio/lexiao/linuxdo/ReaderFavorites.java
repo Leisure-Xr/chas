@@ -90,7 +90,7 @@ final class ReaderFavorites {
     static List<Folder> add(List<Folder> current, String folderId, String url, String title, long savedAt) {
         List<Folder> folders = normalize(current);
         Item item = normalizeItem(new Item(url, title, savedAt));
-        if (item == null) throw new IllegalArgumentException("只能收藏公开的 LINUX DO 主题。");
+        if (item == null) throw new IllegalArgumentException("只能收藏受支持论坛的公开主题。");
         int totalItems = folders.stream().mapToInt(folder -> folder.items().size()).sum();
         boolean found = false;
         ArrayList<Folder> result = new ArrayList<>();
@@ -183,7 +183,7 @@ final class ReaderFavorites {
     private static Item normalizeItem(Item item) {
         if (item == null || item.savedAt() <= 0) return null;
         ReaderHistory.Entry normalized = ReaderHistory.create(item.url(), item.title(), item.savedAt());
-        if (normalized == null || !normalized.url().startsWith("https://linux.do/t/")) return null;
+        if (normalized == null || !ForumSite.isTopicUrl(normalized.url())) return null;
         return new Item(normalized.url(), normalized.title(), item.savedAt());
     }
 

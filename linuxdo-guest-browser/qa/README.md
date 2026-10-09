@@ -79,3 +79,16 @@ python3 pycharm/scripts/verify-favorites-ui.py
 ```
 
 以上命令从 `linuxdo-guest-browser/` 执行。检查直接实例化正式 `FavoritesPanel`，加载 IDE 的亮暗主题，验证 320/480/760 宽度、长标题、30 个目录、大字体、空状态、表单校验、跨目录搜索、重命名/删除、打开/复制回调、滚动保持和数据格式往返。PNG 输出在 `pycharm/build/favorites-ui/screenshots/`。这些是原生组件离屏渲染，不是 HTML 原型，也不代替真实 IDE 的菜单焦点、系统剪贴板、网页导航和重启检查；对应手工用例为 `PYC-013`。
+
+## 多论坛候选包校验
+
+多论坛源码与已发布的单论坛 16.0 ZIP 暂时共用版本号。`npm test` 中的已发布包测试只验证包结构和版本元数据，不能证明包内包含当前多论坛实现。新构建必须额外执行源码资源校验：
+
+```bash
+bash pycharm/scripts/build-local.sh
+bash pycharm/scripts/verify-package.sh pycharm/build/distributions/linuxdo-guest-browser-pycharm-16.0.zip --source
+```
+
+本地构建脚本已自动执行第二步，CI 也对新生成的 ZIP 执行同样检查。检查要求包含 `ForumSite.class`，并逐字节核对全部非 `plugin.xml` 资源，包括六份站点 CSS、阅读脚本和名称资源；`plugin.xml` 由 Gradle 改写，因此其版本与构建范围继续由 QA 元数据检查负责。旧发布包仍可以不加 `--source` 做基础完整性校验。
+
+本地构建同时兼容 2026.2 将 JCEF 拆分到 `plugins/jcef-plugin` 的 SDK 目录结构。

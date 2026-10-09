@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { capabilitiesFor, inspectIde } from '../src/environment.mjs';
+import { capabilitiesFor, inspectIde, renderVmOptions } from '../src/environment.mjs';
 
 test('VS Code inspection reads the real application metadata layout', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'linuxdo-qa-vscode-'));
@@ -53,4 +53,13 @@ test('PyCharm inspection reads product-info and normalizes its build', async () 
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('isolated PyCharm VM options keep the product defaults and append local-only flags', () => {
+  const base = '-Xms128m\r\n-Xmx2048m\n\n';
+  assert.equal(renderVmOptions(base), '-Xms128m\n-Xmx2048m\n');
+  assert.equal(
+    renderVmOptions(base, ['-Dide.browser.jcef.debug.port=9222', '  ']),
+    '-Xms128m\n-Xmx2048m\n-Dide.browser.jcef.debug.port=9222\n'
+  );
 });

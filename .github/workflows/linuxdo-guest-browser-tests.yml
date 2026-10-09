@@ -83,7 +83,10 @@ jobs:
       - name: Verify committed release package
         run: ./scripts/verify-package.sh ../dist/linuxdo-guest-browser-pycharm-16.0.zip
       - name: Verify newly built ZIP integrity
-        run: find build/distributions -name '*.zip' -print -exec unzip -tq {} \;
+        run: |
+          for package in build/distributions/*.zip; do
+            ./scripts/verify-package.sh "$package" --source
+          done
 
   release-gate:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.release != '' }}

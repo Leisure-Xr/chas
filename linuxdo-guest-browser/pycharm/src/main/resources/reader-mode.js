@@ -2,8 +2,9 @@
   'use strict';
 
   var enabled = __LEXIAO_DEMO_MODE__;
+  var site = __LEXIAO_READER_SITE__;
   if (window.__lexiaoReaderModeCleanup) window.__lexiaoReaderModeCleanup();
-  var contentSelector = '.topic-list,.category-list,#topic-title,.topic-post';
+  var contentSelector = site.content;
   var validationFrame = 0;
   var validationTimer = 0;
   var validationStable = false;
@@ -44,7 +45,7 @@
           && (element.textContent || '').trim().length > 0;
       }).length,
       body: layoutState(document.body),
-      mainOutlet: layoutState(document.querySelector('#main-outlet')),
+      mainOutlet: layoutState(document.querySelector(site.root)),
       readerStyle: Boolean(document.querySelector('#lexiao-guest-reader-style')),
       loadingStyle: Boolean(document.querySelector('#lexiao-guest-loading-privacy'))
     };
@@ -146,17 +147,8 @@
   syncReaderMode();
   if (!enabled) return;
 
-  var privateSelector = [
-    '.avatar', '.avatar-flair', '.avatar-flair-preview', '.topic-avatar', '.topic-list .posters',
-    '.user-card', '.user-card-avatar', '.user-card-popup', '.user-card .badge-wrapper',
-    '.user-card .badge-grouping', '.user-card .user-badge', '.user-card .user-status-message',
-    '.topic-post .names .badge-wrapper', '.topic-post .names .badge-grouping',
-    '.topic-post .names .user-title', '.topic-post .names .user-status',
-    '.topic-post .names .poster-icon', '.topic-post .names .full-name',
-    '.topic-post .names .primary-group', '.topic-post .names .user-profile-link',
-    '.poster-icon', '.presence', '.user-status-background', '.user-status-message'
-  ].join(',');
-  var usernameSelector = '.topic-post .names a.username,.topic-post .names .username,.topic-post .names a[data-user-card]';
+  var privateSelector = site.identity;
+  var usernameSelector = site.username;
 
   function mark(element, kind) {
     if (element instanceof Element) element.dataset.lexiaoPrivate = kind;

@@ -13,7 +13,19 @@ public final class PluginDescriptorTest {
 
     public static void main(String[] args) throws IOException {
         declareSupportedBuildsAndVersion();
+        keepIdentityAcrossRename();
         matchBuildScriptWithDescriptor();
+    }
+
+    // 改成通用显示名后，插件 ID 和工具窗口 ID 必须不变：前者决定能否原地升级，后者保存着用户的窗口布局。
+    private static void keepIdentityAcrossRename() throws IOException {
+        String descriptor = readResource("/META-INF/plugin.xml");
+        assert descriptor.contains("<id>studio.lexiao.linuxdo.guestbrowser</id>");
+        assert descriptor.contains("<toolWindow id=\"LINUX DO\"");
+        assert descriptor.contains("factoryClass=\"studio.lexiao.linuxdo.LinuxDoToolWindowFactory\"");
+        assert descriptor.contains("<resource-bundle>messages.ForumReaderBundle</resource-bundle>");
+        String bundle = readResource("/messages/ForumReaderBundle.properties");
+        assert bundle.contains("toolwindow.stripe.LINUX_DO=");
     }
 
     private static void declareSupportedBuildsAndVersion() throws IOException {

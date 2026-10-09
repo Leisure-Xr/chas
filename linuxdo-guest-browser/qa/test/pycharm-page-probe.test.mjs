@@ -81,7 +81,7 @@ function runProbe({ bodyOpacity = '1', pointElement = 'content' } = {}) {
   };
   context.window.document = document;
 
-  vm.runInNewContext(probeSource, context);
+  vm.runInNewContext(probeSource.replace('__LEXIAO_ROOT_SELECTOR__', JSON.stringify('#main-outlet')), context);
   const tagged = messages.filter((message) => message.startsWith('LEXIAO_PAGE_PROBE '));
   return tagged.map((message) => JSON.parse(message.slice('LEXIAO_PAGE_PROBE '.length)));
 }

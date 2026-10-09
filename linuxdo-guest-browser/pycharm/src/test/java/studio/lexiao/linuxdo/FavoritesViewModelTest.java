@@ -14,6 +14,10 @@ public final class FavoritesViewModelTest {
         assert model.rows().size() == 3;
         assert model.rows().get(0).item().title().equals("数据库");
         assert model.rows().get(1).folder().id().equals("b");
+        assert model.rows().get(0).siteName().equals("LINUX DO");
+        model.search("linux do");
+        assert model.rows().size() == 3;
+        model.search("");
         model.select("a");
         assert model.rows().size() == 2;
         model.search("稍后");

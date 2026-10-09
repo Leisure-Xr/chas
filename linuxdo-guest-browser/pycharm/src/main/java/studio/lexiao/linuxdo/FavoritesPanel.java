@@ -299,7 +299,8 @@ final class FavoritesPanel extends JPanel implements Disposable {
         title.addActionListener(event -> open.accept(entry.item().url()));
         JPanel text = new JPanel(new BorderLayout(0, JBUI.scale(4)));
         text.add(title, BorderLayout.CENTER);
-        JBLabel metadata = new JBLabel(entry.folder().name() + "  ·  " + DATE.format(Instant.ofEpochMilli(entry.item().savedAt())) + " 收藏");
+        JBLabel metadata = new JBLabel(entry.siteName() + "  ·  " + entry.folder().name() + "  ·  "
+                + DATE.format(Instant.ofEpochMilli(entry.item().savedAt())) + " 收藏");
         metadata.setForeground(secondary());
         metadata.setToolTipText(metadata.getText());
         text.add(metadata, BorderLayout.SOUTH);

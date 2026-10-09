@@ -3,6 +3,11 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-16.0.zip}"
+VERIFY_SOURCE="${2:-}"
+if [[ -n "$VERIFY_SOURCE" && "$VERIFY_SOURCE" != "--source" ]]; then
+  echo "Usage: $0 [package.zip] [--source]" >&2
+  exit 2
+fi
 
 "$PROJECT_DIR/../shared/check-game-core.sh"
 "$PROJECT_DIR/../shared/check-game-ui.sh"
@@ -35,5 +40,23 @@ grep -Fxq 'studio/lexiao/linuxdo/FavoritesPanel.class' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'studio/lexiao/linuxdo/FavoritesViewModel.class' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'studio/lexiao/linuxdo/ReaderFavorites.class' "$TEMP_DIR/jar-list.txt"
 grep -Fxq 'studio/lexiao/linuxdo/ShareCode.class' "$TEMP_DIR/jar-list.txt"
+
+if [[ "$VERIFY_SOURCE" == "--source" ]]; then
+  if ! grep -Fxq 'studio/lexiao/linuxdo/ForumSite.class' "$TEMP_DIR/jar-list.txt"; then
+    echo "Candidate package is missing multi-forum support: ForumSite.class" >&2
+    exit 1
+  fi
+  mkdir "$TEMP_DIR/resources"
+  unzip -q "$PLUGIN_JAR" -d "$TEMP_DIR/resources"
+  while IFS= read -r -d '' source; do
+    relative="${source#"$PROJECT_DIR/src/main/resources/"}"
+    # Gradle patches plugin.xml; its metadata is checked by the QA runner.
+    [[ "$relative" == "META-INF/plugin.xml" ]] && continue
+    if ! cmp -s "$source" "$TEMP_DIR/resources/$relative"; then
+      echo "Candidate resource missing or stale: $relative" >&2
+      exit 1
+    fi
+  done < <(find "$PROJECT_DIR/src/main/resources" -type f -print0)
+fi
 
 echo "Package verification passed: $PACKAGE"

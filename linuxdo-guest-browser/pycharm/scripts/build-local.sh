@@ -5,6 +5,11 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PYCHARM_HOME="${PYCHARM_HOME:-/Applications/PyCharm.app}"
 IDE_CONTENTS="$PYCHARM_HOME/Contents"
 JAVAC="$IDE_CONTENTS/jbr/Contents/Home/bin/javac"
+# 2026.2 extracts JCEF from the platform lib directory into a bundled plugin.
+SDK_CLASSPATH="$IDE_CONTENTS/lib/*"
+if [[ -d "$IDE_CONTENTS/plugins/jcef-plugin/lib" ]]; then
+  SDK_CLASSPATH="$SDK_CLASSPATH:$IDE_CONTENTS/plugins/jcef-plugin/lib/*:$IDE_CONTENTS/plugins/jcef-plugin/lib/modules/*"
+fi
 BUILD_DIR="$PROJECT_DIR/build/local"
 CLASSES_DIR="$BUILD_DIR/classes"
 TEST_CLASSES_DIR="$BUILD_DIR/test-classes"
@@ -28,7 +33,7 @@ find "$PROJECT_DIR/src/main/java" -name '*.java' -print0 \
   | xargs -0 "$JAVAC" \
       --release 17 \
       -encoding UTF-8 \
-      -cp "$IDE_CONTENTS/lib/*" \
+      -cp "$SDK_CLASSPATH" \
       -d "$CLASSES_DIR"
 
 cp -R "$PROJECT_DIR/src/main/resources/." "$CLASSES_DIR/"
@@ -38,15 +43,16 @@ find "$PROJECT_DIR/src/test/java" -name '*.java' -print0 \
   | xargs -0 "$JAVAC" \
       --release 17 \
       -encoding UTF-8 \
-      -cp "$CLASSES_DIR:$IDE_CONTENTS/lib/*" \
+      -cp "$CLASSES_DIR:$SDK_CLASSPATH" \
       -d "$TEST_CLASSES_DIR"
-"$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR:$IDE_CONTENTS/lib/*" studio.lexiao.linuxdo.IdeThemePaletteTest
+"$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR:$SDK_CLASSPATH" studio.lexiao.linuxdo.IdeThemePaletteTest
+"$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR" studio.lexiao.linuxdo.ForumSiteTest
 "$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR" studio.lexiao.linuxdo.GuestSessionCleanupTest
 "$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR" studio.lexiao.linuxdo.ShareCodeTest
 "$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR" studio.lexiao.linuxdo.ReaderHistoryTest
 "$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR" studio.lexiao.linuxdo.ReaderFavoritesTest
 "$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR" studio.lexiao.linuxdo.FavoritesViewModelTest
-"$IDE_CONTENTS/jbr/Contents/Home/bin/java" -Djava.awt.headless=true -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR:$IDE_CONTENTS/lib/*" studio.lexiao.linuxdo.FavoritesPanelTest
+"$IDE_CONTENTS/jbr/Contents/Home/bin/java" -Djava.awt.headless=true -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR:$SDK_CLASSPATH" studio.lexiao.linuxdo.FavoritesPanelTest
 "$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR" studio.lexiao.linuxdo.DocumentLoadStateTest
 (cd "$PROJECT_DIR" && "$IDE_CONTENTS/jbr/Contents/Home/bin/java" -ea -cp "$CLASSES_DIR:$TEST_CLASSES_DIR" studio.lexiao.linuxdo.PluginDescriptorTest)
 
@@ -61,4 +67,5 @@ rm -f "$OUTPUT_ZIP"
   zip -q -r "$OUTPUT_ZIP" LinuxDoGuestBrowser
 )
 
+"$PROJECT_DIR/scripts/verify-package.sh" "$OUTPUT_ZIP" --source
 echo "$OUTPUT_ZIP"

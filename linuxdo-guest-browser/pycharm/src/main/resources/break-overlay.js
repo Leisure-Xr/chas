@@ -2,7 +2,7 @@
   'use strict';
 
   function hostAction(action, params) {
-    window.location.href = 'https://linux.do/__lexiao_break/' + action + '?t=' + Date.now() + (params ? '&' + params : '');
+    window.location.href = __LEXIAO_BREAK_BASE__ + action + '?t=' + Date.now() + (params ? '&' + params : '');
   }
 
   var controller = window.LinuxDoGameUI.open({

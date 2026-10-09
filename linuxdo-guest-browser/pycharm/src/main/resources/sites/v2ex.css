@@ -1,0 +1,240 @@
+body.lexiao-demo-mode #Top,
+body.lexiao-demo-mode #Leftbar,
+body.lexiao-demo-mode #Rightbar,
+body.lexiao-demo-mode #Bottom,
+body.lexiao-demo-mode .adsbygoogle,
+body.lexiao-demo-mode .wwads-cn,
+body.lexiao-demo-mode .pro-unit,
+body.lexiao-demo-mode .scroll-top,
+body.lexiao-demo-mode #Main .fa,
+body.lexiao-demo-mode #Main .votes,
+body.lexiao-demo-mode #Main .thank_area,
+body.lexiao-demo-mode #Main .topic_buttons,
+body.lexiao-demo-mode #Main .header > .fr,
+body.lexiao-demo-mode #Main .cell td[width="48"],
+body.lexiao-demo-mode #Main .cell td[width="10"] {
+  display: none !important;
+}
+
+body.lexiao-demo-mode {
+  min-width: 0 !important;
+}
+
+body.lexiao-demo-mode #Wrapper {
+  min-width: 0 !important;
+  padding: 0 14px 28px !important;
+  background: var(--lex-mono-bg) !important;
+  background-image: none !important;
+}
+
+body.lexiao-demo-mode #Wrapper > .content {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 1080px !important;
+  margin: 0 auto !important;
+  padding: 10px 0 0 !important;
+}
+
+body.lexiao-demo-mode #Main {
+  width: auto !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+}
+
+body.lexiao-demo-mode :where(#Main *:not(.topic_content):not(.topic_content *):not(.reply_content):not(.reply_content *)),
+body.lexiao-demo-mode :where(#Main *:not(.topic_content):not(.topic_content *):not(.reply_content):not(.reply_content *)::before),
+body.lexiao-demo-mode :where(#Main *:not(.topic_content):not(.topic_content *):not(.reply_content):not(.reply_content *)::after) {
+  border-color: var(--lex-mono-border) !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  color: var(--lex-mono-text) !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+body.lexiao-demo-mode #Main .box {
+  margin: 0 0 10px !important;
+  border: 1px solid var(--lex-mono-border) !important;
+  border-radius: 5px !important;
+  background: var(--lex-mono-panel) !important;
+  box-shadow: none !important;
+  overflow: hidden !important;
+}
+
+body.lexiao-demo-mode #Main .box > .cell,
+body.lexiao-demo-mode #Main .box > .inner,
+body.lexiao-demo-mode #Main .box > .header {
+  padding: 8px 12px !important;
+  border-bottom: 1px solid var(--lex-mono-border) !important;
+}
+
+body.lexiao-demo-mode #Main .box > :last-child {
+  border-bottom: 0 !important;
+}
+
+body.lexiao-demo-mode #Main #Tabs a,
+body.lexiao-demo-mode #Main #SecondaryTabs a {
+  display: inline-block !important;
+  margin: 0 10px 0 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--lex-mono-muted) !important;
+  font: 500 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  text-decoration: none !important;
+}
+
+body.lexiao-demo-mode #Main #Tabs a.tab_current {
+  color: var(--lex-mono-text) !important;
+  text-decoration: underline !important;
+}
+
+body.lexiao-demo-mode #Main #Tabs img {
+  display: none !important;
+}
+
+body.lexiao-demo-mode #Main .item_title,
+body.lexiao-demo-mode #Main .item_title a,
+body.lexiao-demo-mode #Main .item_hot_topic_title a {
+  color: var(--lex-mono-text) !important;
+  font: 500 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  letter-spacing: 0 !important;
+  text-decoration: none !important;
+}
+
+body.lexiao-demo-mode #Main .topic_info,
+body.lexiao-demo-mode #Main .topic_info *,
+body.lexiao-demo-mode #Main .header small,
+body.lexiao-demo-mode #Main .header small *,
+body.lexiao-demo-mode #Main .header .flex-one-row,
+body.lexiao-demo-mode #Main .header .flex-one-row *,
+body.lexiao-demo-mode #Main .ago,
+body.lexiao-demo-mode #Main .no,
+body.lexiao-demo-mode #Main .fade,
+body.lexiao-demo-mode #Main .gray,
+body.lexiao-demo-mode [data-lexiao-private="username"] {
+  color: var(--lex-mono-muted) !important;
+  font: 500 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  letter-spacing: 0 !important;
+  text-decoration: none !important;
+}
+
+body.lexiao-demo-mode #Main .topic_info .node,
+body.lexiao-demo-mode #Main .count_livid,
+body.lexiao-demo-mode #Main .count_orange,
+body.lexiao-demo-mode #Main .item_node,
+body.lexiao-demo-mode #Main a.tag {
+  display: inline-block !important;
+  margin: 0 4px 0 0 !important;
+  padding: 0 5px !important;
+  border: 1px solid var(--lex-mono-border) !important;
+  border-radius: 3px !important;
+  background: var(--lex-mono-soft) !important;
+  color: var(--lex-mono-muted) !important;
+  font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  text-decoration: none !important;
+}
+
+body.lexiao-demo-mode #Main .header h1 {
+  margin: 6px 0 !important;
+  color: var(--lex-mono-text) !important;
+  font: 600 16px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  letter-spacing: 0 !important;
+}
+
+body.lexiao-demo-mode #Main .subtle {
+  border-left: 3px solid var(--lex-mono-border) !important;
+  background: var(--lex-mono-soft) !important;
+}
+
+body.lexiao-demo-mode #Main .avatar,
+body.lexiao-demo-mode #Main .badges,
+body.lexiao-demo-mode #Main .badge,
+body.lexiao-demo-mode [data-lexiao-private="identity"] {
+  display: none !important;
+}
+
+body.lexiao-demo-mode #Main .topic_content,
+body.lexiao-demo-mode #Main .reply_content {
+  color: var(--lex-mono-text) !important;
+  font-size: 13px !important;
+  line-height: 1.62 !important;
+}
+
+body.lexiao-demo-mode #Main .reply_content {
+  margin-top: 4px !important;
+}
+
+body.lexiao-demo-mode #Main .topic_content p {
+  margin: 0 0 10px !important;
+}
+
+body.lexiao-demo-mode #Main :is(.topic_content, .reply_content) *:not(img):not(picture):not(source) {
+  color: inherit !important;
+  border-color: var(--lex-mono-border) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+  text-shadow: none !important;
+}
+
+body.lexiao-demo-mode #Main :is(.topic_content, .reply_content) a {
+  color: inherit !important;
+  text-decoration: underline !important;
+}
+
+body.lexiao-demo-mode #Main :is(.topic_content, .reply_content) :is(pre, code, blockquote) {
+  border-color: var(--lex-mono-border) !important;
+  background: var(--lex-mono-soft) !important;
+  box-shadow: none !important;
+}
+
+body.lexiao-demo-mode #Main :where(a:not(.topic_content a):not(.reply_content a), button, [role="button"], input) {
+  color: var(--lex-mono-muted) !important;
+  background-color: transparent !important;
+  border-color: var(--lex-mono-border) !important;
+}
+
+body.lexiao-demo-mode #Main .item_title a {
+  color: var(--lex-mono-text) !important;
+}
+
+body.lexiao-demo-mode #Main :focus-visible {
+  outline: 2px solid var(--lex-mono-accent) !important;
+  outline-offset: 2px !important;
+}
+
+body.lexiao-demo-mode #Main img,
+body.lexiao-demo-mode #Main svg,
+body.lexiao-demo-mode #Main video,
+body.lexiao-demo-mode #Main canvas,
+body.lexiao-demo-mode #Main iframe,
+body.lexiao-demo-mode #Main object,
+body.lexiao-demo-mode #Main embed {
+  display: none !important;
+}
+
+body.lexiao-demo-mode #Main :is(.topic_content, .reply_content) img,
+body.lexiao-demo-mode #Main :is(.topic_content, .reply_content) svg {
+  display: revert !important;
+  max-width: 100% !important;
+  height: auto !important;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+@media (max-width: 520px) {
+  body.lexiao-demo-mode #Wrapper {
+    padding: 0 7px 18px !important;
+  }
+
+  body.lexiao-demo-mode #Main .box > .cell,
+  body.lexiao-demo-mode #Main .box > .inner,
+  body.lexiao-demo-mode #Main .box > .header {
+    padding: 9px 10px 12px !important;
+  }
+}
