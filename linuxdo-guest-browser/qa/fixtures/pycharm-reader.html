@@ -15,7 +15,7 @@ const colors=params.get('scheme')==='dark'?['#2b2d30','#232529','#393b40','#4e51
 const keys=['BG','PANEL','SOFT','BORDER','TEXT','MUTED','ACCENT','SCHEME'];
 const fill=css=>keys.reduce((s,key,i)=>s.replaceAll('__LEX_IDE_'+key+'__',colors[i]),css);
 const resources='../../pycharm/src/main/resources/';
-const paths=params.has('baseline')?['../artifacts/reader-layout-before/reader-mode.css',`../artifacts/reader-layout-before/${engine}.css`]:[resources+'reader-mode.css',resources+`sites/${engine}.css`];
+const paths=[resources+'reader-mode.css',resources+`sites/${engine}.css`];
 const title='把多个论坛放进 IDE 之后，怎样让长标题和中文正文都读起来更舒服？';
 const avatar='<img class="avatar avatar-normal" alt="测试头像" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2248%22%3E%3Crect width=%2248%22 height=%2248%22 fill=%22orange%22/%3E%3C/svg%3E">';
 const meta='<a href="#author">reader_01</a> · 10 月 9 日 · 阅读体验';

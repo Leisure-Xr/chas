@@ -77,7 +77,7 @@ public final class DocumentLoadStateTest {
         assert state.challengeRemainingMillis(20_000_000_000L) == 15_000;
         state.begin(); // Switch to NodeSeek, with its own longer verification budget.
         state.challengeReceived(21_000_000_000L, 45_000);
-        assert state.challengeTimeoutMillis() == 45_000;
+        assert state.challengeRemainingMillis(21_000_000_000L) == 45_000;
         assert state.challengeRemainingMillis(22_000_000_000L) == 44_000;
     }
 

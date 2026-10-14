@@ -65,10 +65,6 @@ final class DocumentLoadState {
         return (int) Math.max(0, (remaining + 999_999L) / 1_000_000L);
     }
 
-    synchronized int challengeTimeoutMillis() {
-        return challengeTimeoutMillis;
-    }
-
     synchronized void fail() {
         awaiting = false;
         loadingObserved = false;

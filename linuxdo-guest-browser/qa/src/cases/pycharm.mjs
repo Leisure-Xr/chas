@@ -38,7 +38,8 @@ export const pycharmCases = [
     id: 'PYC-016', title: '人机验证、登录墙与受限内容', product: 'pycharm', priority: 'P0', type: 'guided',
     capabilities: ['live-network', 'jcef'],
     steps: [
-      { action: '用全新隔离配置依次打开四个论坛首页。', expected: 'Cloudflare 验证页可见并自动通过或点击后通过；NodeSeek 最长等待 45 秒；idea.log 记录主框架 cf-mitigated。' },
+      { action: '用全新隔离配置依次打开四个论坛首页，等待或点击真实验证框。', expected: '验证页可见；NodeSeek 自动等待 45 秒，其余站点 20 秒，自动刷新不重置期限。成功后提示栏隐藏，正文恢复隐私布局；无法通过时记录阻塞，不记为成功。' },
+      { action: '等待超过自动验证期限，再测试重新验证、停止验证、重试及切换论坛。', expected: '期限结束后显示手动验证提示，页面和脚本继续运行；停止后显示错误页，重试开始新等待；切换论坛后旧提示和计时不会干扰新页面。' },
       { action: '打开 V2EX 需要登录的节点（如 /go/chamber）。', expected: '显示“站点将游客请求重定向到登录页面”，不绕过登录墙。' },
       { action: '打开 NodeSeek 内版（/categories/inside）或设有阅读等级的帖子。', expected: '立即显示可重试错误页，不空等验证超时。' }
     ], expected: '真正的验证得到等待，登录墙和受限内容如实报告。'
@@ -46,7 +47,7 @@ export const pycharmCases = [
   defineCase({
     id: 'PYC-017', title: '从 16.0 升级、回退与 Cookie 清理', product: 'pycharm', priority: 'P0', type: 'guided',
     capabilities: ['visible-desktop', 'jcef'],
-    preconditions: ['隔离配置先安装 16.0，并产生 LINUX DO 的历史与收藏。'],
+    preconditions: ['从 Git 历史取得 16.0 安装包，在隔离配置中安装并产生 LINUX DO 的历史与收藏。'],
     steps: [
       { action: '原地升级到新版本。', expected: '插件 ID 不变，工具窗口位置保留，旧历史与收藏完整可用。' },
       { action: '浏览四个论坛后执行“清理 Cookie 并重置会话”，再关闭项目。', expected: '四个论坛的主机与域 Cookie（如 .linux.do 的 cf_clearance）被删除，其它 JCEF Cookie 保留；日志不含 Cookie 值。' },

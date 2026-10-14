@@ -2,11 +2,13 @@
 
 本目录用可执行 JavaScript 用例维护 VS Code 和 PyCharm 插件的兼容性测试。自动化负责版本与制品校验、隔离安装、稳定断言和报告生成；Cloudflare、JCEF 视觉行为等无法可靠无人值守的部分由同一 runner 引导人工确认。
 
+所有命令默认从 `linuxdo-guest-browser/` 执行。当前检查范围见 [PyCharm 验证记录](docs/pycharm-validation.md)；`runs/` 中的旧矩阵只反映对应历史版本。
+
 ## 环境
 
 - Node.js 20 或更高版本。
 - macOS 真实桌面，或带交互桌面的 Windows 实体机/虚拟机。
-- 访问 VS Code、JetBrains 官方发布源以及 `linux.do` 的网络。
+- 访问 VS Code、JetBrains 官方发布源以及待测论坛的网络。
 - 真实联网测试必须使用全新游客配置，不得使用论坛账号或把 Cookie、请求头、完整 User-Agent 放入证据。
 
 首次运行先安装锁定的纯 Node ZIP 解析依赖：
@@ -66,8 +68,7 @@ runner 会记录工作树是否干净，并从隔离 IDE 日志中提取、脱�
 
 每个矩阵目标都必须在 macOS 和 Windows 上完成全部适用 P0/P1。`report --gate` 对未解析版本、未校验 IDE 下载文件、缺少运行记录、人工 PASS 无证据及任何未通过用例返回失败。提交级 CI 不访问 `linux.do`；联网矩阵只在候选发布阶段执行。
 
-GitHub Actions 定义位于 `chas/.github/workflows/linuxdo-guest-browser-tests.yml`。提交任务运行确定性测试与打包；带 `release` 输入的手动任务执行已经提交的 macOS/Windows 矩阵门禁。
-
+GitHub Actions 定义位于 [工作流文件](../../.github/workflows/linuxdo-guest-browser-tests.yml)。提交任务运行确定性测试与打包；带 `release` 输入的手动任务执行已经提交的 macOS/Windows 矩阵门禁。
 
 ## PyCharm 收藏夹原生面板检查
 
@@ -82,7 +83,7 @@ python3 pycharm/scripts/verify-favorites-ui.py
 
 ## 多论坛候选包校验
 
-16.1 安装包包含多论坛支持、统一隐私布局和验证等待修复；旧 16.0 ZIP 保留用于回退。`npm test` 的安装包测试校验包结构与版本元数据，提交的 16.1 包及新构建还必须执行源码资源校验：
+16.1 安装包包含多论坛支持、统一隐私布局和验证等待修复；旧 16.0 ZIP 可从 Git 历史获取，用于隔离环境的升级/回退测试。`npm test` 的安装包测试校验包结构与版本元数据，提交的 16.1 包及新构建还必须执行源码资源校验：
 
 ```bash
 bash pycharm/scripts/build-local.sh

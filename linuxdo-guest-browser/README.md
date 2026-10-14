@@ -1,111 +1,66 @@
-# LINUX DO 游客阅读器
+# 论坛游客阅读器
 
-在 VS Code 和 PyCharm 中以游客身份浏览 [LINUX DO](https://linux.do/)；PyCharm 版（显示名“论坛游客阅读器”）还支持 [NodeSeek](https://www.nodeseek.com/)、[V2EX](https://www.v2ex.com/) 和 [IDC Flare](https://idcflare.com/)。无需论坛账号，不保存登录凭据。
+在 VS Code 和 PyCharm 中以游客身份浏览公开论坛内容，无需论坛账号。VS Code 支持 [LINUX DO](https://linux.do/)；PyCharm 还支持 [NodeSeek](https://www.nodeseek.com/)、[V2EX](https://www.v2ex.com/) 和 [IDC Flare](https://idcflare.com/)。
 
 ## 下载
 
-当前构建包见下表，PyCharm 另保留 16.0 和 15.1 安装包供回退；此前的 GitHub Release `0.2.0` 保留为历史发布：
+`dist/` 只保留当前版本安装包。旧版源码、文档和安装包可在 Git 历史中查看；[GitHub Release 0.2.0](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0) 是历史版本。
 
-| IDE | 插件版本 | Release 下载页 | 安装包 | SHA-256 |
-| --- | --- | --- | --- | --- |
-| VS Code | `0.19.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.19.0.vsix) | `linuxdo-guest-browser-vscode-0.19.0.vsix` | `3d83c65888a67f171997c570ab2f1c95e9cf28246853ab2947a967a68114bd8e` |
-| PyCharm | `16.1` | [下载 ZIP](dist/linuxdo-guest-browser-pycharm-16.1.zip) | `linuxdo-guest-browser-pycharm-16.1.zip` | `fbe1264626febb80627429aab4315a75039b3841d407e1c7d260d24a1ca44ab5` |
+| 平台 | 版本 | 安装包 | SHA-256 |
+| --- | --- | --- | --- |
+| VS Code | 0.19.0 | [下载 VSIX](dist/linuxdo-guest-browser-vscode-0.19.0.vsix) | `3d83c65888a67f171997c570ab2f1c95e9cf28246853ab2947a967a68114bd8e` |
+| PyCharm | 16.1 | [下载 ZIP](dist/linuxdo-guest-browser-pycharm-16.1.zip) | `fbe1264626febb80627429aab4315a75039b3841d407e1c7d260d24a1ca44ab5` |
 
-下载后可用
-`certutil -hashfile <文件> SHA256`（Windows）或 `shasum -a 256 <文件>`（macOS/Linux）核对完整性。
-
-[`dist/`](dist/) 包含上述当前安装包，并保留 PyCharm 16.0 和 15.1 ZIP 供回退；源码和 Git 历史完整保留。
+校验下载文件：Windows 使用 `certutil -hashfile <文件> SHA256`，macOS/Linux 使用 `shasum -a 256 <文件>`。
 
 ### VS Code
 
-打开扩展面板，选择右上角菜单中的 `Install from VSIX...`，然后选择 VSIX 文件。`0.19.0` 验证包安装前请确认 VS Code 版本不低于 `1.114` 才能使用内置浏览器引擎；较旧版本仍可安装，但需要切换到手动参数请求引擎。
+在扩展面板中选择 **Install from VSIX...**，安装 VSIX 文件。扩展最低支持 VS Code 1.85；默认优先使用内置浏览器的请求引擎需要 VS Code 1.114 或更新版本，旧版使用手动参数引擎。
 
-VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续载、页面状态恢复和 Cloudflare 游客验证。`0.17.0` 默认优先在 VS Code 内置 Integrated Browser 中完成 challenge，并让后续请求保持同一 Chromium 会话；不启动外部 Chrome 或 ChromeDriver。没有该能力时可切换到手动参数。请求可选智能、流畅、均衡和稳妥四档，始终单并发；平滑令牌桶取代 60 秒本地硬窗口，正常导航优先于续载，尚未发送的旧导航会取消。只有明确的 429、`Retry-After` 或限流标记才进入服务器冷却；challenge 与无标记 403 不再被单次判定为档案失效，而是使用独立短退避并保留现有页面。最近 60 条公开页面历史可搜索、重新打开、复制 URL 或全部清除。验证页支持粘贴同一次 `/latest.json` 的完整 Request Headers 或 Chrome、Edge、Brave 的 Copy as cURL，也可同时手动填写 Cookie 与 User-Agent。完整的 Windows DevTools 步骤、接口差异表和示意图见 [VS Code 说明](vscode/README.md)。
+支持列表与帖子续载、搜索、历史与收藏、限速请求和已读内容缓存。头像默认关闭，正文图片由扩展按需代理。内置浏览器空闲后释放，下次使用可能需要重新完成站点验证。
 
-`0.17.0` 起，图片不再绕过请求节奏。头像默认改为首字母色块（`linuxdoGuest.showAvatars` 可恢复），帖子正文图片由扩展代理：独立图片令牌桶、最多 2 并发、滚动进入视口才请求，并与页面请求共享冷却与服务器预算；正文 emoji 直接渲染为文本。图片只缓存在内存中（最多 120 条 / 24 MB），不写入磁盘。原生浏览器引擎默认空闲 5 分钟后释放标签页与调试连接，下次请求自动重连（`linuxdoGuest.nativeIdleReleaseMinutes`，`0` 表示不释放）；代价是重连需要重新完成一次 Cloudflare 验证。
+完整功能、设置与验证教程见 [VS Code 使用说明](vscode/README.md)，版本变化见 [更新记录](vscode/CHANGELOG.md)。
 
 ### PyCharm
 
-打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。插件声明支持 PyCharm 2022.3 及以上（构建号 223–263.*）。16.1 使用 2026.1 SDK 构建并通过本地回归测试；此前的收藏夹实现通过 2022.3 SDK 编译检查。历史版本曾在 2022.3.3、2024.2.6 和 2026.2.2 上验证启动与插件加载，这不代表 16.1 已完成全部版本的 GUI 验收。
+在 **Settings > Plugins > 齿轮菜单 > Install Plugin from Disk...** 中选择 ZIP 并重启，安装时无需解压。打开 **View > Tool Windows > 论坛游客阅读器**，从“⋯ > 切换论坛”选择站点。
 
-PyCharm `16.1` 已支持多个论坛：在“…”菜单的“切换论坛”中选择 LINUX DO、NodeSeek、V2EX 或 IDC Flare，点到其它受支持论坛的链接时自动跟随。四个论坛都有单色隐私阅读布局，历史与收藏跨论坛共用；NodeSeek 与 V2EX 不向游客开放站内搜索，加密分享暂只支持 LINUX DO。详见 [PyCharm 说明](pycharm/README.md#支持的论坛)。
+16.1 包含四论坛支持、统一的隐私阅读排版和验证等待修复。验证期间显示真实网页；自动等待结束后保留验证框，并提供重新验证、停止验证操作。
 
-`16.1` 统一四个论坛的文字层级与窄窗口排版；站点自动验证等待结束后保留真实验证页面，提示手动操作，并提供重新验证和停止验证。
+声明支持 PyCharm 2022.3–2026.3（构建号 `223–263.*`），需要带 JCEF 的 JetBrains Runtime。声明范围不代表所有版本均完成 GUI 验收，实际范围见 [PyCharm 验证记录](qa/docs/pycharm-validation.md)。功能、数据行为及故障处理见 [PyCharm 使用说明](pycharm/README.md)。
 
-PyCharm `16.0` 重构收藏夹：顶部目录标签、两行标题、跨目录搜索与精简菜单，目录管理使用内嵌表单，操作后原地更新并保留搜索与滚动。
+## 共同功能
 
-PyCharm 版使用内嵌 JCEF 浏览器，默认采用自适应的单色隐私阅读布局，可从“…”菜单切回原始网页。`15.1` 修复加载及 SPA 跳转后停留在原始布局的问题：通过撤掉隐私样式重新测量，区分渲染暂态和真正的样式异常；渲染期间保留隐私样式，内容恢复后继续验证，不再永久抑制。真正的样式异常仍回退为可读的原始网页，连续异常最多重试三次；“…”菜单在回退时显示“重新应用隐私阅读布局（当前已回退）”，可手动清除抑制并重新应用。恢复轮询也会重新检查两种布局，避免加载结束后发生样式异常时一直白屏。此前 Cloudflare 验证、刷新完成判定、加载遮罩自清理及页面诊断继续保留；登录重定向会进入可重试错误页。隐私阅读页、加载背景、休息提醒和小游戏采用当前 PyCharm 的背景、文字、边框与强调色；小字号次要文字会在保留主题色调的同时确保至少 `4.5:1` 对比度。
+- 最近 60 条公开页面历史及本地收藏目录，支持搜索与重新打开。
+- LINUX DO 公开主题可用密码加密分享，期限为 10 分钟至 7 天，两平台互通。密码与分享内容应分开发送；到期后拒绝导入，但无法撤回已经打开的公开 URL。
+- 默认关闭的休息提醒，开启后随机等待 31–60 分钟；可延后 10 分钟或进入 2048、贪吃蛇、单道路赛车、像素跳跃、扫雷。
 
-隐私布局删除伪代码、行号和示例标签，隐藏正文外的图片、SVG、视频、头像、徽章、表情、用户卡与身份装饰，并将标题、标签、链接、状态和纯用户名统一为 IDE 黑白灰；帖子正文里的截图、附件、Onebox 和技术图片保持原色。固定顶栏只保留返回、前进、刷新和“…”；最新、热门、分类及搜索位于导航行，历史、收藏、提醒、游戏、分享、导入、教程、布局切换和重置会话只放在“…”菜单。
+## 构建和测试
 
-两个版本都修复了已打开主题未进入历史的问题，并提供本地收藏夹。收藏夹可创建、重命名和删除多个目录，每个目录保存对应的公开主题；支持搜索、打开、复制 URL 和移除主题，同一主题可放入多个目录。
-
-### 休息提醒与小游戏
-
-两个版本都提供默认关闭的休息提醒开关。开启后会随机等待 31–60 分钟，再显示可跳过或延后 10 分钟的休息提示。五款小游戏使用同一套玩法核心，支持自适应棋盘和高 DPI Canvas、倒计时、暂停、重新开始、键盘/屏幕控制、失焦自动暂停和本地最高分；调整 IDE、主题或工具窗口大小不会重置当前游戏，不含音效、粒子或震动。
-
-### 限时分享
-
-1. 在任一插件中打开一个公开主题，点击“分享”，选择 10 分钟、1 小时、24 小时或 7 天。
-2. 填写并确认至少 12 个字符的分享密码，也可以让插件生成 20 位强密码。
-3. 插件自动复制加密分享内容；生成强密码后可直接复制密码，也可在生成完成后重新复制分享内容或密码。把两者通过不同渠道发送。
-4. 对方选择“打开加密分享”，粘贴分享内容并输入相同密码即可。
-
-主题编号、slug、标题、生成时间和过期时间全部经过 AES-256-GCM 加密，不包含 Cookie、UA、列表状态或阅读历史。密码经每次随机生成的 16 字节盐和 600,000 次 PBKDF2-HMAC-SHA256 派生 AES 密钥，密码本身不会进入分享内容或插件存储。中间人只有分享内容、即使知道算法和全部源码，也无法直接还原主题；盐是公开的防预计算参数，不是密码。
-
-请使用不易猜测的密码，并与加密分享内容分渠道发送。如果中间人同时取得分享内容和密码，或密码过于简单，纯客户端插件无法继续保密。内部格式标识由插件自动生成，无需手动填写或理解。旧版未加密分享内容会被拒绝。到期后插件拒绝导入，但不能撤回已经打开或另行保存的公开 URL。
-
-## 源码
-
-- [`vscode/`](vscode/)：VS Code 扩展
-- [`pycharm/`](pycharm/)：PyCharm 插件
-
-## 构建
-
-VS Code：
+以下命令从 `linuxdo-guest-browser/` 执行：
 
 ```bash
-cd vscode
-npm run check
-npm run package
+# VS Code
+npm --prefix vscode run check
+npm --prefix vscode run package
+
+# PyCharm：macOS，默认使用 /Applications/PyCharm.app 的 SDK
+bash pycharm/scripts/build-local.sh
+bash pycharm/scripts/verify-package.sh
+
+# 两平台的 QA 与制品检查
+npm --prefix qa ci
+npm --prefix qa run check
 ```
 
-`npm run package` 会按需通过 `npx` 下载官方 VS Code 打包工具，不会在仓库中保存依赖目录。
+VS Code 打包会按需下载官方 `vsce` 工具。PyCharm 可通过 `PYCHARM_HOME` 指定已安装的 SDK；本地构建会执行 Java 回归测试和源码资源一致性校验。
 
-PyCharm（macOS，使用已安装的 PyCharm SDK）：
+[QA 说明](qa/README.md) 包含隔离 IDE、布局检查、矩阵测试及发布门禁。`shared/` 是游戏源码来源，修改后需同步两平台副本并通过共享资源检查。
 
-```bash
-cd pycharm
-./scripts/build-local.sh
-./scripts/verify-package.sh
-```
+## 隐私与数据
 
-可以通过 `PYCHARM_HOME` 指定其他 PyCharm 安装位置。
+不要求或保存论坛账号、密码，不包含遥测代码。历史与收藏保存公开 URL、标题和时间，不保存帖子正文或登录凭据。加密分享不包含 Cookie 或请求档案，分享密码不落盘。
 
-## 兼容性测试
+VS Code 的手动请求档案通过 SecretStorage 保存白名单游客参数；已读公开 JSON 可按设置缓存至本地，正文图片仅缓存在内存。PyCharm 在游客会话开始、重置及结束时清理受支持论坛的 JCEF Cookie，同一 JCEF 库里的其他站点及外部浏览器不受影响。具体存储范围见各平台使用说明。
 
-[`qa/`](qa/) 是代码化的 VS Code / PyCharm 真实兼容性测试工程。它维护锁定版本矩阵、P0/P1 用例、隔离安装、人工交互引导、脱敏证据索引和发布门禁：
-
-```bash
-node qa/bin/qa.mjs validate
-node qa/bin/qa.mjs inspect --product vscode --ide "/Applications/Visual Studio Code.app"
-node qa/bin/qa.mjs run --product vscode --target vscode-latest \
-  --ide "/Applications/Visual Studio Code.app" --release 0.3.0 --mode all --interactive --launch
-node qa/bin/qa.mjs report --release 0.3.0 --gate
-```
-
-自动化单测或包结构校验不能代替真实 IDE 测试。最新构建的版本矩阵与未完成项记录在 [`qa/runs/0.3.0/`](qa/runs/0.3.0/)；Windows 真实 GUI 和人工联网用例补齐前，不能把声明范围写成已全部实测。
-
-## 隐私
-
-- 不要求或保存论坛账号、密码和登录令牌。
-- VS Code 使用 SecretStorage 保存原子游客请求档案，只包含白名单 Cookie、User-Agent、允许的客户端提示、来源与验证状态。
-- PyCharm 会清理其 JCEF 配置中受支持论坛（`linux.do`、`nodeseek.com`、`v2ex.com`、`idcflare.com`）的主机与域 Cookie，不影响同一 Cookie 库里的其它站点，也不影响系统浏览器。
-- 两个插件最多保存最近 60 条公开页面的标题、URL 和访问时间；历史界面可复制 URL 或一键清除。
-- 收藏夹只保存目录名、公开主题标题、规范 URL 和收藏时间，不保存帖子正文、Cookie、User-Agent 或登录状态。
-- VS Code 代理的帖子图片只缓存在扩展进程内存中（最多 120 条 / 24 MB），不写入磁盘，关闭 VS Code 或切换请求引擎即清空。
-- VS Code 会把已读页面的公开 JSON 快照写入插件存储目录（最多 80 条 / 4 MB，保留 6 小时），用于站点限流时继续显示上次内容；只含论坛公开数据，不含任何凭据。可用 `linuxdoGuest.persistContentCache` 关闭，关闭时立即删除该文件；阅读器历史界面的“全部清除”也会一并删除。
-- 游戏只保存休息提醒开关和五款游戏的最高分整数，不记录游戏过程或使用时长。
-- 不包含分析、遥测或广告代码。
-
-本项目与 LINUX DO 官方无隶属关系。使用时请遵守站点服务条款和访问频率限制。
+本项目与上述论坛官方无隶属关系。使用时请遵守站点服务条款和访问频率限制。

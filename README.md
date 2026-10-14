@@ -1,37 +1,27 @@
 # Chas 插件仓库
 
-这个仓库用于存放个人开发的 IDE 插件、编辑器扩展及相关工具。每个插件使用独立目录维护源码、构建说明和可安装文件。
+在 IDE 中以游客身份阅读公开论坛内容，无需论坛账号。
 
-## 插件列表
-
-| 插件 | 平台 | 简介 | 项目地址 |
+| 平台 | 当前版本 | 支持站点 | 安装与使用 |
 | --- | --- | --- | --- |
-| LINUX DO 游客阅读器 | VS Code、PyCharm | 无需登录，以游客身份在 IDE 中浏览 LINUX DO；PyCharm 版另支持 NodeSeek、V2EX 和 IDC Flare | [linuxdo-guest-browser](linuxdo-guest-browser/) |
+| VS Code | 0.19.0 | LINUX DO | [VS Code 说明](linuxdo-guest-browser/vscode/README.md) |
+| PyCharm | 16.1 | LINUX DO、NodeSeek、V2EX、IDC Flare | [PyCharm 说明](linuxdo-guest-browser/pycharm/README.md) |
 
-## LINUX DO 游客阅读器
+[下载安装包与校验值](linuxdo-guest-browser/README.md#下载)。`dist/` 只保留当前版本；历史源码、文档和安装包可在 Git 历史中查看。
 
-支持游客浏览公开主题、Cloudflare 手动请求档案验证、主题续载、浏览历史、限时加密分享、可选休息提醒和五个内置小游戏，不保存论坛登录凭据。VS Code 使用平滑令牌桶控制公开接口节奏，图片走独立限速的扩展代理，原生浏览器引擎空闲后自动释放；PyCharm 提供正文图片之外全单色的隐私阅读布局，最低支持 2022.3。
+两个插件都支持公开主题阅读、本地历史与收藏、密码加密分享、可选休息提醒和五款小游戏。PyCharm 提供跟随 IDE 主题的隐私阅读布局；VS Code 提供公开接口限速、图片代理和已读页面缓存。
 
-- [插件源码与使用说明](linuxdo-guest-browser/)
-- [GitHub Release 0.2.0 下载页](https://github.com/Leisure-Xr/chas/releases/tag/0.2.0)
-- [VS Code 安装包说明](linuxdo-guest-browser/README.md#vs-code)
-- [PyCharm 安装包说明](linuxdo-guest-browser/README.md#pycharm)
+## 开发入口
 
-当前主分支还提供了尚未单独发布的验证构建包：
-
-- [VS Code 0.18.0 VSIX](linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.18.0.vsix)：默认使用 VS Code 内置 Chromium 请求引擎；头像默认关闭、正文图片走限速代理，原生引擎空闲 5 分钟自动释放；已读页面的公开 JSON 写入快照，站点限流时重启后仍可继续阅读。
-- [PyCharm 0.12.0 ZIP](linuxdo-guest-browser/dist/linuxdo-guest-browser-pycharm-0.12.0.zip)：精修单色隐私阅读布局，帖子正文图片保持原色；最低支持 2022.3，加密分享不再阻塞界面，隐私布局与游戏脚本的注入开销大幅下降。
-
-两个验证包的 SHA-256 和安装说明见 [插件使用说明](linuxdo-guest-browser/README.md)。
-
-## 仓库结构
+- [项目说明与构建命令](linuxdo-guest-browser/README.md)
+- [兼容性测试与验证记录](linuxdo-guest-browser/qa/README.md)
+- [VS Code 更新记录](linuxdo-guest-browser/vscode/CHANGELOG.md)
 
 ```text
-chas/
-└── linuxdo-guest-browser/
-    ├── vscode/
-    ├── pycharm/
-    └── dist/
+linuxdo-guest-browser/
+├── vscode/     # VS Code 扩展
+├── pycharm/    # PyCharm 插件
+├── shared/     # 两个平台共用的游戏源码
+├── qa/         # 测试用例、夹具与历史验证记录
+└── dist/       # 当前可安装包
 ```
-
-后续插件会继续以独立目录加入插件列表。
