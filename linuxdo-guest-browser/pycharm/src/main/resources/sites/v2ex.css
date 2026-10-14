@@ -10,9 +10,7 @@ body.lexiao-demo-mode #Main .fa,
 body.lexiao-demo-mode #Main .votes,
 body.lexiao-demo-mode #Main .thank_area,
 body.lexiao-demo-mode #Main .topic_buttons,
-body.lexiao-demo-mode #Main .header > .fr,
-body.lexiao-demo-mode #Main .cell td[width="48"],
-body.lexiao-demo-mode #Main .cell td[width="10"] {
+body.lexiao-demo-mode #Main .header > .fr {
   display: none !important;
 }
 
@@ -31,7 +29,7 @@ body.lexiao-demo-mode #Wrapper > .content {
   box-sizing: border-box !important;
   width: 100% !important;
   min-width: 0 !important;
-  max-width: 1080px !important;
+  max-width: var(--lex-reader-width) !important;
   margin: 0 auto !important;
   padding: 10px 0 0 !important;
 }
@@ -40,6 +38,38 @@ body.lexiao-demo-mode #Main {
   width: auto !important;
   min-width: 0 !important;
   margin: 0 !important;
+}
+
+/* Avatar and reply-count columns otherwise keep reserving space at 320px.
+   Only flatten layout tables: tables inside topic/reply prose stay scrollable. */
+body.lexiao-demo-mode #Main .cell > table,
+body.lexiao-demo-mode #Main .cell > table > tbody,
+body.lexiao-demo-mode #Main .cell > table > tbody > tr,
+body.lexiao-demo-mode #Main .cell > table > tbody > tr > td {
+  display: block !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+}
+
+body.lexiao-demo-mode #Main .cell > table > tbody > tr > td[width="48"],
+body.lexiao-demo-mode #Main .cell > table > tbody > tr > td[width="10"],
+body.lexiao-demo-mode #Main .cell > table > tbody > tr > td[width="70"] {
+  display: none !important;
+}
+
+body.lexiao-demo-mode #Main .topic_info {
+  display: block !important;
+  margin-top: 4px !important;
+}
+
+body.lexiao-demo-mode #Main .cell.item .sep5 {
+  display: none !important;
+}
+
+body.lexiao-demo-mode #Wrapper > .content > .sep20 {
+  display: none !important;
 }
 
 body.lexiao-demo-mode :where(#Main *:not(.topic_content):not(.topic_content *):not(.reply_content):not(.reply_content *)),
@@ -67,7 +97,7 @@ body.lexiao-demo-mode #Main .box {
 body.lexiao-demo-mode #Main .box > .cell,
 body.lexiao-demo-mode #Main .box > .inner,
 body.lexiao-demo-mode #Main .box > .header {
-  padding: 8px 12px !important;
+  padding: var(--lex-reader-row-padding) !important;
   border-bottom: 1px solid var(--lex-mono-border) !important;
 }
 
@@ -83,8 +113,20 @@ body.lexiao-demo-mode #Main #SecondaryTabs a {
   border: 0 !important;
   background: transparent !important;
   color: var(--lex-mono-muted) !important;
-  font: 500 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 500 12px/1.6 var(--lex-reader-font) !important;
   text-decoration: none !important;
+}
+
+body.lexiao-demo-mode #Main #Tabs,
+body.lexiao-demo-mode #Main #SecondaryTabs {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 4px 12px !important;
+}
+
+body.lexiao-demo-mode #Main #Tabs a,
+body.lexiao-demo-mode #Main #SecondaryTabs a {
+  margin: 0 !important;
 }
 
 body.lexiao-demo-mode #Main #Tabs a.tab_current {
@@ -100,7 +142,7 @@ body.lexiao-demo-mode #Main .item_title,
 body.lexiao-demo-mode #Main .item_title a,
 body.lexiao-demo-mode #Main .item_hot_topic_title a {
   color: var(--lex-mono-text) !important;
-  font: 500 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 600 var(--lex-reader-body-size)/1.55 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
   text-decoration: none !important;
 }
@@ -113,11 +155,11 @@ body.lexiao-demo-mode #Main .header .flex-one-row,
 body.lexiao-demo-mode #Main .header .flex-one-row *,
 body.lexiao-demo-mode #Main .ago,
 body.lexiao-demo-mode #Main .no,
-body.lexiao-demo-mode #Main .fade,
-body.lexiao-demo-mode #Main .gray,
+body.lexiao-demo-mode #Main .fade:not(.topic_content *):not(.reply_content *),
+body.lexiao-demo-mode #Main .gray:not(.topic_content *):not(.reply_content *),
 body.lexiao-demo-mode [data-lexiao-private="username"] {
   color: var(--lex-mono-muted) !important;
-  font: 500 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 400 var(--lex-reader-meta-size)/1.5 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
   text-decoration: none !important;
 }
@@ -134,14 +176,14 @@ body.lexiao-demo-mode #Main a.tag {
   border-radius: 3px !important;
   background: var(--lex-mono-soft) !important;
   color: var(--lex-mono-muted) !important;
-  font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: var(--lex-reader-meta-size)/1.5 var(--lex-reader-font) !important;
   text-decoration: none !important;
 }
 
 body.lexiao-demo-mode #Main .header h1 {
   margin: 6px 0 !important;
   color: var(--lex-mono-text) !important;
-  font: 600 16px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 600 var(--lex-reader-title-size)/1.4 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
 }
 
@@ -160,16 +202,12 @@ body.lexiao-demo-mode [data-lexiao-private="identity"] {
 body.lexiao-demo-mode #Main .topic_content,
 body.lexiao-demo-mode #Main .reply_content {
   color: var(--lex-mono-text) !important;
-  font-size: 13px !important;
-  line-height: 1.62 !important;
+  font-size: var(--lex-reader-body-size) !important;
+  line-height: 1.7 !important;
 }
 
 body.lexiao-demo-mode #Main .reply_content {
   margin-top: 4px !important;
-}
-
-body.lexiao-demo-mode #Main .topic_content p {
-  margin: 0 0 10px !important;
 }
 
 body.lexiao-demo-mode #Main :is(.topic_content, .reply_content) *:not(img):not(picture):not(source) {
@@ -235,6 +273,6 @@ body.lexiao-demo-mode #Main :is(.topic_content, .reply_content) svg {
   body.lexiao-demo-mode #Main .box > .cell,
   body.lexiao-demo-mode #Main .box > .inner,
   body.lexiao-demo-mode #Main .box > .header {
-    padding: 9px 10px 12px !important;
+    padding: var(--lex-reader-row-padding) !important;
   }
 }

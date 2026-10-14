@@ -5,7 +5,7 @@ export const pycharmCases = [
   defineCase({
     id: 'PYC-013', title: '收藏夹顶部目录与原地更新', product: 'pycharm', priority: 'P0', type: 'guided',
     capabilities: ['visible-desktop'],
-    preconditions: ['隔离配置安装 16.0，导入 15.1 格式的示例收藏。'],
+    preconditions: ['隔离配置安装当前候选包，导入 15.1 格式的示例收藏。'],
     steps: [
       { action: '在 320、480、760 宽度和亮暗主题、放大字体下查看两行长标题、50 字目录名和 30 个目录。', expected: '目录标签换行且可滚动；无横向溢出，标题与菜单不重叠。' },
       { action: '选中目录后搜索其他目录名、标题及 URL，再清空搜索。', expected: '搜索跨全部目录，按时间倒序，清空后恢复原目录。' },
@@ -30,6 +30,7 @@ export const pycharmCases = [
     capabilities: ['live-network', 'jcef', 'visible-desktop'],
     steps: [
       { action: '在 320、480、760 宽度与亮暗主题下查看 NodeSeek、V2EX、IDC Flare 的列表和主题页。', expected: '站点顶栏、侧栏、页脚、广告、头像和徽章隐藏；正文图片保持原色；无横向溢出；LEXIAO_READER_STATE 进入 stable。' },
+      { action: '在四站查看中英文长标题、正文小标题、引用、列表、代码块和宽表格，再缩窄窗口。', expected: '正文 14px、主标题 18px、元信息 12px；字体与间距一致；长链接换行，代码及表格在自身区域横向滚动；头像隐藏后不残留空列。' },
       { action: '切到原始网页布局再切回。', expected: '布局即时切换，导航状态不丢失。' }
     ], expected: '每个论坛都有与 LINUX DO 一致的单色隐私阅读布局。'
   }),

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-16.0.zip}"
+PACKAGE="${1:-$PROJECT_DIR/build/distributions/linuxdo-guest-browser-pycharm-16.1.zip}"
 VERIFY_SOURCE="${2:-}"
 if [[ -n "$VERIFY_SOURCE" && "$VERIFY_SOURCE" != "--source" ]]; then
   echo "Usage: $0 [package.zip] [--source]" >&2

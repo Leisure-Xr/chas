@@ -164,7 +164,7 @@ test('Cloudflare challenge status codes are not treated as load failures', () =>
   assert.match(challengeStatus, /503/, '503 must count as a challenge');
 });
 
-test('the challenge path never stops the in-flight verification script', () => {
+test('the challenge path leaves verification running until its deadline', () => {
   const start = factorySource.indexOf('private void handleChallengeResponse');
   assert.ok(start > 0, 'challenge handler must exist');
   const handler = factorySource.slice(start).slice(
@@ -181,7 +181,7 @@ test('the challenge path never stops the in-flight verification script', () => {
   );
   // 遮罩必须撤掉，否则验证界面会被糊成纯白，用户看不见也点不了。
   assert.match(handler, /clearLoadingPrivacyStyle/, 'challenge page must be unmasked so it is visible');
-  assert.match(handler, /challengeTimer\.restart\(\)/, 'challenge must still be bounded by a timeout');
+  assert.match(handler, /handleChallengeTimeout\(\)/, 'challenge must check and schedule the remaining timeout');
 });
 
 test('a load that stops without settling never silently disarms both timers', () => {

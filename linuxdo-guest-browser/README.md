@@ -4,17 +4,17 @@
 
 ## 下载
 
-当前构建包见下表，PyCharm 另保留 15.1 安装包供回退；此前的 GitHub Release `0.2.0` 保留为历史发布：
+当前构建包见下表，PyCharm 另保留 16.0 和 15.1 安装包供回退；此前的 GitHub Release `0.2.0` 保留为历史发布：
 
 | IDE | 插件版本 | Release 下载页 | 安装包 | SHA-256 |
 | --- | --- | --- | --- | --- |
 | VS Code | `0.19.0` | [下载 VSIX](https://github.com/Leisure-Xr/chas/raw/main/linuxdo-guest-browser/dist/linuxdo-guest-browser-vscode-0.19.0.vsix) | `linuxdo-guest-browser-vscode-0.19.0.vsix` | `3d83c65888a67f171997c570ab2f1c95e9cf28246853ab2947a967a68114bd8e` |
-| PyCharm | `16.0` | [下载 ZIP](dist/linuxdo-guest-browser-pycharm-16.0.zip) | `linuxdo-guest-browser-pycharm-16.0.zip` | `21d0f49a45bbc596dae10713bd1405ad6f068ef21074447fdcf38585b1c0123d` |
+| PyCharm | `16.1` | [下载 ZIP](dist/linuxdo-guest-browser-pycharm-16.1.zip) | `linuxdo-guest-browser-pycharm-16.1.zip` | `fbe1264626febb80627429aab4315a75039b3841d407e1c7d260d24a1ca44ab5` |
 
 下载后可用
 `certutil -hashfile <文件> SHA256`（Windows）或 `shasum -a 256 <文件>`（macOS/Linux）核对完整性。
 
-[`dist/`](dist/) 包含上述当前安装包，并保留 PyCharm 15.1 ZIP 供回退；源码和 Git 历史完整保留。
+[`dist/`](dist/) 包含上述当前安装包，并保留 PyCharm 16.0 和 15.1 ZIP 供回退；源码和 Git 历史完整保留。
 
 ### VS Code
 
@@ -26,9 +26,11 @@ VS Code 版使用公开 Discourse JSON 接口，支持列表续页、主题续�
 
 ### PyCharm
 
-打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。插件声明支持 PyCharm 2022.3 及以上（构建号 223–263.*）。16.0 使用 2026.1 SDK 构建并通过本地回归测试；同一收藏夹实现也通过 2022.3 SDK 编译检查。历史版本曾在 2022.3.3、2024.2.6 和 2026.2.2 上验证启动与插件加载，这不代表 16.0 已完成全部版本的 GUI 验收。
+打开 `Settings > Plugins > gear icon > Install Plugin from Disk...`，选择 ZIP 文件并重启 PyCharm。不要解压 ZIP。插件声明支持 PyCharm 2022.3 及以上（构建号 223–263.*）。16.1 使用 2026.1 SDK 构建并通过本地回归测试；此前的收藏夹实现通过 2022.3 SDK 编译检查。历史版本曾在 2022.3.3、2024.2.6 和 2026.2.2 上验证启动与插件加载，这不代表 16.1 已完成全部版本的 GUI 验收。
 
-PyCharm 主分支已支持多个论坛：在“…”菜单的“切换论坛”中选择 LINUX DO、NodeSeek、V2EX 或 IDC Flare，点到其它受支持论坛的链接时自动跟随。四个论坛都有单色隐私阅读布局，历史与收藏跨论坛共用；NodeSeek 与 V2EX 不向游客开放站内搜索，加密分享暂只支持 LINUX DO。详见 [PyCharm 说明](pycharm/README.md#支持的论坛)。
+PyCharm `16.1` 已支持多个论坛：在“…”菜单的“切换论坛”中选择 LINUX DO、NodeSeek、V2EX 或 IDC Flare，点到其它受支持论坛的链接时自动跟随。四个论坛都有单色隐私阅读布局，历史与收藏跨论坛共用；NodeSeek 与 V2EX 不向游客开放站内搜索，加密分享暂只支持 LINUX DO。详见 [PyCharm 说明](pycharm/README.md#支持的论坛)。
+
+`16.1` 统一四个论坛的文字层级与窄窗口排版；站点自动验证等待结束后保留真实验证页面，提示手动操作，并提供重新验证和停止验证。
 
 PyCharm `16.0` 重构收藏夹：顶部目录标签、两行标题、跨目录搜索与精简菜单，目录管理使用内嵌表单，操作后原地更新并保留搜索与滚动。
 

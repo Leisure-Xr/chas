@@ -26,12 +26,25 @@ body.lexiao-demo-mode #main-outlet,
 body.lexiao-demo-mode .wrap {
   box-sizing: border-box !important;
   width: 100% !important;
-  max-width: 1080px !important;
+  max-width: var(--lex-reader-width) !important;
   background: var(--lex-mono-bg) !important;
 }
 
 body.lexiao-demo-mode #main-outlet {
   padding-top: 10px !important;
+  min-width: 0 !important;
+  margin: 0 auto !important;
+}
+
+body.lexiao-demo-mode .topic-area,
+body.lexiao-demo-mode .posts-wrapper,
+body.lexiao-demo-mode .topic-post,
+body.lexiao-demo-mode .topic-post .row {
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  margin-left: 0 !important;
 }
 
 body.lexiao-demo-mode :where(#main-outlet *:not(.cooked):not(.cooked *)),
@@ -70,7 +83,7 @@ body.lexiao-demo-mode .category-list tbody {
 body.lexiao-demo-mode .topic-list tr,
 body.lexiao-demo-mode .category-list tr {
   display: block !important;
-  min-height: 52px !important;
+  min-height: 0 !important;
   border-bottom: 1px solid var(--lex-mono-border) !important;
   background: transparent !important;
 }
@@ -85,7 +98,7 @@ body.lexiao-demo-mode .category-list td {
   display: block !important;
   width: auto !important;
   max-width: none !important;
-  padding: 8px 12px !important;
+  padding: var(--lex-reader-row-padding) !important;
   border: 0 !important;
 }
 
@@ -102,7 +115,7 @@ body.lexiao-demo-mode .topic-list .main-link a.title,
 body.lexiao-demo-mode .topic-list .link-top-line a.title,
 body.lexiao-demo-mode .category-list a.category-title-link {
   color: var(--lex-mono-text) !important;
-  font: 500 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 600 var(--lex-reader-body-size)/1.55 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
 }
 
@@ -112,14 +125,14 @@ body.lexiao-demo-mode .category-list .category-description {
   margin-top: 4px !important;
   overflow: hidden !important;
   color: var(--lex-mono-muted) !important;
-  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 12px/1.45 var(--lex-reader-font) !important;
   -webkit-box-orient: vertical !important;
   -webkit-line-clamp: 2 !important;
 }
 
 body.lexiao-demo-mode #topic-title {
   margin: 0 0 10px !important;
-  padding: 12px 14px !important;
+  padding: var(--lex-reader-row-padding) !important;
   border: 1px solid var(--lex-mono-border) !important;
   border-radius: 5px !important;
   background: var(--lex-mono-panel) !important;
@@ -129,7 +142,7 @@ body.lexiao-demo-mode #topic-title h1,
 body.lexiao-demo-mode #topic-title .fancy-title {
   margin: 0 !important;
   color: var(--lex-mono-text) !important;
-  font: 600 16px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 600 var(--lex-reader-title-size)/1.4 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
 }
 
@@ -166,9 +179,12 @@ body.lexiao-demo-mode .topic-post .names .user-profile-link {
 }
 
 body.lexiao-demo-mode .topic-body {
+  display: block !important;
+  float: none !important;
+  margin: 0 !important;
   width: auto !important;
   min-width: 0 !important;
-  padding: 11px 14px 14px !important;
+  padding: var(--lex-reader-row-padding) !important;
   border: 0 !important;
 }
 
@@ -176,26 +192,34 @@ body.lexiao-demo-mode .topic-post .names,
 body.lexiao-demo-mode .topic-post .post-infos,
 body.lexiao-demo-mode [data-lexiao-private="username"] {
   color: var(--lex-mono-muted) !important;
-  font: 500 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 400 var(--lex-reader-meta-size)/1.5 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
+}
+
+body.lexiao-demo-mode .topic-post .names,
+body.lexiao-demo-mode .topic-post .post-infos {
+  min-width: 0 !important;
+  flex-wrap: wrap !important;
+  gap: 4px 8px !important;
+}
+
+body.lexiao-demo-mode .topic-list .link-bottom-line {
+  margin-top: 4px !important;
+  font: 400 var(--lex-reader-meta-size)/1.5 var(--lex-reader-font) !important;
 }
 
 body.lexiao-demo-mode .topic-post .names a,
 body.lexiao-demo-mode .topic-post .names .username {
   color: var(--lex-mono-muted) !important;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font-family: var(--lex-reader-font) !important;
   text-decoration: none !important;
 }
 
 body.lexiao-demo-mode .topic-post .cooked {
   margin-top: 8px !important;
   color: var(--lex-mono-text) !important;
-  font-size: 13px !important;
-  line-height: 1.62 !important;
-}
-
-body.lexiao-demo-mode .topic-post .cooked p {
-  margin: 0 0 10px !important;
+  font-size: var(--lex-reader-body-size) !important;
+  line-height: 1.7 !important;
 }
 
 body.lexiao-demo-mode .topic-post .cooked *:not(img):not(picture):not(source) {
@@ -316,6 +340,6 @@ body.lexiao-demo-mode .topic-post .cooked :where(
   body.lexiao-demo-mode .topic-list td,
   body.lexiao-demo-mode .category-list td,
   body.lexiao-demo-mode .topic-body {
-    padding: 9px 10px 12px !important;
+    padding: var(--lex-reader-row-padding) !important;
   }
 }

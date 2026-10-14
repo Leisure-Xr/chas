@@ -25,7 +25,7 @@ body.lexiao-demo-mode > header {
 body.lexiao-demo-mode #nsk-head {
   box-sizing: border-box !important;
   width: 100% !important;
-  max-width: 1080px !important;
+  max-width: var(--lex-reader-width) !important;
   height: auto !important;
   margin: 0 auto !important;
   padding: 6px 14px !important;
@@ -50,7 +50,7 @@ body.lexiao-demo-mode #nsk-head .nav-menu a {
   display: inline !important;
   writing-mode: horizontal-tb !important;
   color: var(--lex-mono-muted) !important;
-  font: 500 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 500 12px/1.6 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
   text-decoration: none !important;
 }
@@ -67,7 +67,7 @@ body.lexiao-demo-mode #nsk-body {
   display: block !important;
   box-sizing: border-box !important;
   width: 100% !important;
-  max-width: 1080px !important;
+  max-width: var(--lex-reader-width) !important;
   margin: 0 auto !important;
   padding: 10px 0 0 !important;
   background: var(--lex-mono-bg) !important;
@@ -116,7 +116,7 @@ body.lexiao-demo-mode .post-list-controler .sorter a,
 body.lexiao-demo-mode .nsk-pager a,
 body.lexiao-demo-mode .nsk-pager span {
   color: var(--lex-mono-muted) !important;
-  font: 500 11px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 400 var(--lex-reader-meta-size)/1.5 var(--lex-reader-font) !important;
 }
 
 body.lexiao-demo-mode .post-list-controler .sorter a.selected,
@@ -155,7 +155,7 @@ body.lexiao-demo-mode .post-list-item {
   display: block !important;
   min-height: 0 !important;
   margin: 0 !important;
-  padding: 8px 12px !important;
+  padding: var(--lex-reader-row-padding) !important;
   border-bottom: 1px solid var(--lex-mono-border) !important;
 }
 
@@ -166,12 +166,26 @@ body.lexiao-demo-mode .post-list-item:last-child {
 body.lexiao-demo-mode .post-list-content {
   margin: 0 !important;
   padding: 0 !important;
+  width: auto !important;
+  min-width: 0 !important;
+  float: none !important;
+}
+
+body.lexiao-demo-mode .post-list-item .post-title {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+
+body.lexiao-demo-mode .post-list-item .post-info {
+  margin-top: 4px !important;
+  white-space: normal !important;
 }
 
 body.lexiao-demo-mode .post-list-item .post-title,
 body.lexiao-demo-mode .post-list-item .post-title a {
   color: var(--lex-mono-text) !important;
-  font: 500 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 600 var(--lex-reader-body-size)/1.55 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
   text-decoration: none !important;
 }
@@ -179,7 +193,7 @@ body.lexiao-demo-mode .post-list-item .post-title a {
 body.lexiao-demo-mode .post-list-item .post-info,
 body.lexiao-demo-mode .post-list-item .post-info * {
   color: var(--lex-mono-muted) !important;
-  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: var(--lex-reader-meta-size)/1.5 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
   text-decoration: none !important;
 }
@@ -197,7 +211,7 @@ body.lexiao-demo-mode .post-list-item .post-category {
 
 body.lexiao-demo-mode .nsk-post .post-title {
   margin: 0 0 10px !important;
-  padding: 12px 14px !important;
+  padding: var(--lex-reader-row-padding) !important;
   border: 1px solid var(--lex-mono-border) !important;
   border-radius: 5px !important;
   background: var(--lex-mono-panel) !important;
@@ -207,7 +221,7 @@ body.lexiao-demo-mode .nsk-post .post-title h1,
 body.lexiao-demo-mode .nsk-post .post-title a {
   margin: 0 !important;
   color: var(--lex-mono-text) !important;
-  font: 600 16px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 600 var(--lex-reader-title-size)/1.4 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
   text-decoration: none !important;
 }
@@ -225,7 +239,7 @@ body.lexiao-demo-mode .comments {
 body.lexiao-demo-mode .content-item {
   display: block !important;
   margin: 0 0 10px !important;
-  padding: 11px 14px 14px !important;
+  padding: var(--lex-reader-row-padding) !important;
   border: 1px solid var(--lex-mono-border) !important;
   border-radius: 5px !important;
   background: var(--lex-mono-panel) !important;
@@ -245,13 +259,15 @@ body.lexiao-demo-mode .nsk-content-meta-info,
 body.lexiao-demo-mode .nsk-content-meta-info *,
 body.lexiao-demo-mode [data-lexiao-private="username"] {
   color: var(--lex-mono-muted) !important;
-  font: 500 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font: 400 var(--lex-reader-meta-size)/1.5 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
   text-decoration: none !important;
 }
 
 body.lexiao-demo-mode .nsk-content-meta-info {
   display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 4px 8px !important;
   align-items: baseline !important;
   min-height: 0 !important;
   margin: 0 !important;
@@ -274,12 +290,8 @@ body.lexiao-demo-mode .post-content {
   padding: 0 !important;
   color: var(--lex-mono-text) !important;
   background: transparent !important;
-  font-size: 13px !important;
-  line-height: 1.62 !important;
-}
-
-body.lexiao-demo-mode .post-content p {
-  margin: 0 0 10px !important;
+  font-size: var(--lex-reader-body-size) !important;
+  line-height: 1.7 !important;
 }
 
 body.lexiao-demo-mode .post-content > :last-child {
@@ -351,6 +363,6 @@ body.lexiao-demo-mode #nsk-body .post-content svg {
 
   body.lexiao-demo-mode .post-list-item,
   body.lexiao-demo-mode .content-item {
-    padding: 9px 10px 12px !important;
+    padding: var(--lex-reader-row-padding) !important;
   }
 }

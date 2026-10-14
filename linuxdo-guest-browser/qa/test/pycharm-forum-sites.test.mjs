@@ -22,7 +22,28 @@ test('break overlay posts actions to the current forum, not a fixed host', () =>
 
 test('the challenge timeout comes from the forum being verified', () => {
   const handler = methodBody(factorySource, 'private void handleChallengeResponse');
-  assert.match(handler, /challengeTimer\.setInitialDelay\(challengeTimeoutMillis\);\s*challengeTimer\.restart\(\)/);
+  assert.match(handler, /documentLoadState\.challengeReceived\(System\.nanoTime\(\), siteFor\(cefBrowser\.getURL\(\)\)\.challengeTimeoutMillis\(\)\)/);
+  const watchdog = methodBody(factorySource, 'private void handleChallengeTimeout');
+  assert.match(watchdog, /documentLoadState\.challengeRemainingMillis\(System\.nanoTime\(\)\)/);
+  assert.match(watchdog, /challengeTimer\.setInitialDelay\(remaining\)/);
+});
+
+test('automatic challenge navigation keeps the deadline and generic settle cannot clear verification', () => {
+  const navigation = methodBody(factorySource, 'public boolean onBeforeBrowse');
+  assert.ok(!navigation.includes('challengeTimer.stop()'));
+  assert.match(navigation, /if \(documentLoadState\.isChallengeActive\(\)\) \{[^}]*return false;/);
+  assert.match(methodBody(factorySource, 'private void handleSettleTimeout'), /documentLoadState\.isChallengeActive\(\)\) return;/);
+  assert.match(factorySource, /if \(demoMode && !documentLoadState\.isChallengeActive\(\)\) applyLoadingPrivacyStyle/);
+});
+
+test('the automatic deadline preserves the live challenge and offers explicit retry and stop actions', () => {
+  const watchdog = methodBody(factorySource, 'private void handleChallengeTimeout');
+  assert.match(watchdog, /documentLoadState\.requestChallengeInteraction\(\)/);
+  assert.ok(!watchdog.includes('showLoadFailure('));
+  const notice = methodBody(factorySource, 'private JPanel createChallengeNotice');
+  assert.match(notice, /reloadCurrentPage\(\)/);
+  assert.match(notice, /showLoadFailure\("已停止站点验证"/);
+  assert.match(factorySource, /pageArea\.add\(createChallengeNotice\(\), BorderLayout\.NORTH\)/);
 });
 
 // JCEF 的 Cookie 库全 IDE 共用：清理必须覆盖所有论坛（含 .linux.do 这类域 Cookie），

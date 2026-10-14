@@ -69,7 +69,7 @@ runner 会记录工作树是否干净，并从隔离 IDE 日志中提取、脱�
 GitHub Actions 定义位于 `chas/.github/workflows/linuxdo-guest-browser-tests.yml`。提交任务运行确定性测试与打包；带 `release` 输入的手动任务执行已经提交的 macOS/Windows 矩阵门禁。
 
 
-## PyCharm 16.0 收藏夹原生面板检查
+## PyCharm 收藏夹原生面板检查
 
 在 macOS 上使用已安装的 PyCharm 2026.1 SDK：
 
@@ -82,13 +82,23 @@ python3 pycharm/scripts/verify-favorites-ui.py
 
 ## 多论坛候选包校验
 
-多论坛源码与已发布的单论坛 16.0 ZIP 暂时共用版本号。`npm test` 中的已发布包测试只验证包结构和版本元数据，不能证明包内包含当前多论坛实现。新构建必须额外执行源码资源校验：
+16.1 安装包包含多论坛支持、统一隐私布局和验证等待修复；旧 16.0 ZIP 保留用于回退。`npm test` 的安装包测试校验包结构与版本元数据，提交的 16.1 包及新构建还必须执行源码资源校验：
 
 ```bash
 bash pycharm/scripts/build-local.sh
-bash pycharm/scripts/verify-package.sh pycharm/build/distributions/linuxdo-guest-browser-pycharm-16.0.zip --source
+bash pycharm/scripts/verify-package.sh pycharm/build/distributions/linuxdo-guest-browser-pycharm-16.1.zip --source
 ```
 
 本地构建脚本已自动执行第二步，CI 也对新生成的 ZIP 执行同样检查。检查要求包含 `ForumSite.class`，并逐字节核对全部非 `plugin.xml` 资源，包括六份站点 CSS、阅读脚本和名称资源；`plugin.xml` 由 Gradle 改写，因此其版本与构建范围继续由 QA 元数据检查负责。旧发布包仍可以不加 `--source` 做基础完整性校验。
 
 本地构建同时兼容 2026.2 将 JCEF 拆分到 `plugins/jcef-plugin` 的 SDK 目录结构。
+
+## 多论坛隐私排版检查
+
+`fixtures/pycharm-reader.html` 加载正式阅读 CSS 和 JS，用三个论坛引擎的代表性结构模拟原站字体、固定列宽、嵌套 Markdown、长链接和宽表格。它是离线布局夹具，不等同于真实站点完整快照。
+
+从 `linuxdo-guest-browser/` 启动 `python3 -m http.server 8765 --bind 127.0.0.1`，打开
+`http://127.0.0.1:8765/qa/fixtures/pycharm-reader.html?site=v2ex&view=topic&scheme=dark`。
+`site` 支持 `linuxdo/idcflare/nodeseek/v2ex`，`view` 支持 `list/topic`，`scheme` 支持 `light/dark`。
+
+安装了 Playwright 的环境可运行 `node qa/scripts/verify-reader-layout.mjs`。也可通过 `PLAYWRIGHT_MODULE` 指定模块入口绝对路径，通过 `CHROME_BIN` 指定已安装 Chromium 浏览器。脚本使用独立的无头浏览器执行 48 个布局组合，检查字体、横向溢出、图片、代码、表格及关闭阅读布局后的恢复；截图和结果在 `qa/artifacts/reader-layout/`。

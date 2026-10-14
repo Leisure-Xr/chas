@@ -9,7 +9,7 @@
       会阻止登录页面，并在游客阅读会话开始和结束时清理这些论坛的 Cookie。
     ]]></description>
 
-    <version>16.0</version>
+    <version>16.1</version>
     <idea-version since-build="223" until-build="263.*"/>
     <depends>com.intellij.modules.platform</depends>
     <resource-bundle>messages.ForumReaderBundle</resource-bundle>
