@@ -9,7 +9,7 @@
 | 平台 | 版本 | 安装包 | SHA-256 |
 | --- | --- | --- | --- |
 | VS Code | 0.19.0 | [下载 VSIX](dist/linuxdo-guest-browser-vscode-0.19.0.vsix) | `3d83c65888a67f171997c570ab2f1c95e9cf28246853ab2947a967a68114bd8e` |
-| PyCharm | 16.1 | [下载 ZIP](dist/linuxdo-guest-browser-pycharm-16.1.zip) | `fbe1264626febb80627429aab4315a75039b3841d407e1c7d260d24a1ca44ab5` |
+| PyCharm | 16.2 | [下载 ZIP](dist/linuxdo-guest-browser-pycharm-16.2.zip) | `1ff07f94cedc5fb54dc07d3c77bc9b9532dad4c24921a14ad90435993182f4ee` |
 
 校验下载文件：Windows 使用 `certutil -hashfile <文件> SHA256`，macOS/Linux 使用 `shasum -a 256 <文件>`。
 
@@ -25,7 +25,7 @@
 
 在 **Settings > Plugins > 齿轮菜单 > Install Plugin from Disk...** 中选择 ZIP 并重启，安装时无需解压。打开 **View > Tool Windows > 论坛游客阅读器**，从“⋯ > 切换论坛”选择站点。
 
-16.1 包含四论坛支持、统一的隐私阅读排版和验证等待修复。验证期间显示真实网页；自动等待结束后保留验证框，并提供重新验证、停止验证操作。
+16.2 修复同地址自动刷新漏跟踪、错误响应误判完成及重试时遗留的加载状态，并取消帖子标题与正文加粗。收到验证响应头即显示验证状态；等待期间保留真实网页，并提供重新验证、停止验证和在浏览器打开操作。
 
 声明支持 PyCharm 2022.3–2026.3（构建号 `223–263.*`），需要带 JCEF 的 JetBrains Runtime。声明范围不代表所有版本均完成 GUI 验收，实际范围见 [PyCharm 验证记录](qa/docs/pycharm-validation.md)。功能、数据行为及故障处理见 [PyCharm 使用说明](pycharm/README.md)。
 

@@ -113,7 +113,7 @@ body.lexiao-demo-mode #Main #SecondaryTabs a {
   border: 0 !important;
   background: transparent !important;
   color: var(--lex-mono-muted) !important;
-  font: 500 12px/1.6 var(--lex-reader-font) !important;
+  font: 400 12px/1.6 var(--lex-reader-font) !important;
   text-decoration: none !important;
 }
 
@@ -142,7 +142,7 @@ body.lexiao-demo-mode #Main .item_title,
 body.lexiao-demo-mode #Main .item_title a,
 body.lexiao-demo-mode #Main .item_hot_topic_title a {
   color: var(--lex-mono-text) !important;
-  font: 600 var(--lex-reader-body-size)/1.55 var(--lex-reader-font) !important;
+  font: 400 var(--lex-reader-body-size)/1.55 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
   text-decoration: none !important;
 }
@@ -183,7 +183,7 @@ body.lexiao-demo-mode #Main a.tag {
 body.lexiao-demo-mode #Main .header h1 {
   margin: 6px 0 !important;
   color: var(--lex-mono-text) !important;
-  font: 600 var(--lex-reader-title-size)/1.4 var(--lex-reader-font) !important;
+  font: 400 var(--lex-reader-title-size)/1.4 var(--lex-reader-font) !important;
   letter-spacing: 0 !important;
 }
 

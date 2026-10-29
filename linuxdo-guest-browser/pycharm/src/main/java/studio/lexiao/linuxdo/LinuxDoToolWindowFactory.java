@@ -2,6 +2,7 @@ package studio.lexiao.linuxdo;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.ui.LafManagerListener;
+import com.intellij.ide.BrowserUtil;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -259,6 +260,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             stop.addActionListener(event -> showLoadFailure("已停止站点验证", lastRequestedUrl));
             actions.add(retry);
             actions.add(stop);
+            JButton external = new JButton("在浏览器打开");
+            external.addActionListener(event -> BrowserUtil.browse(lastRequestedUrl));
+            actions.add(external);
             challengeNotice.add(actions, BorderLayout.SOUTH);
             challengeNotice.setVisible(false);
             return challengeNotice;
@@ -272,7 +276,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private void updateChallengeNotice() {
             boolean active = documentLoadState.isChallengeActive();
             challengeMessage.setText(documentLoadState.challengeNeedsInteraction()
-                    ? "<html>验证尚未完成。请在下方完成验证；若一直没有反应，可重新验证或停止。</html>"
+                    ? "<html>验证尚未通过。请完成下方验证；若反复验证或没有验证框，可在浏览器检查站点及网络后重试。</html>"
                     : "<html>站点正在验证浏览器。若下方出现验证框，请按提示操作。</html>");
             challengeNotice.setVisible(active);
             challengeNotice.revalidate();
@@ -651,12 +655,13 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         showLoadFailure("站点将游客请求重定向到登录页面", frame.getURL());
                         return;
                     }
-                    if (frame != null && frame.isMain() && httpStatusCode < 400) {
+                    if (frame != null && frame.isMain() && httpStatusCode < 400 && !"challenge".equalsIgnoreCase(mainFrameCfMitigated)) {
                         if (documentLoadState.completeFromMainFrame()) {
                             completeDocumentLoad(cefBrowser, "main-frame", httpStatusCode);
                         }
                     } else if (frame != null && frame.isMain()) {
-                        if (isChallengeStatus(httpStatusCode) && !deniedWithoutChallenge(httpStatusCode)) {
+                        if ("challenge".equalsIgnoreCase(mainFrameCfMitigated)
+                                || (isChallengeStatus(httpStatusCode) && !deniedWithoutChallenge(httpStatusCode))) {
                             handleChallengeResponse(cefBrowser, httpStatusCode);
                         } else if (httpStatusCode == 403) {
                             showLoadFailure("HTTP 403：站点拒绝了游客访问（可能需要登录）", cefBrowser.getURL());
@@ -696,6 +701,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             CefBrowser cefBrowser = browser.getCefBrowser();
             challengeTimer.stop();
             documentLoadState.begin();
+            mainLoadFailed = false;
+            mainFrameCfMitigated = null;
+            documentSettleTimer.stop();
             updateChallengeNotice();
             pageLoadTimer.restart();
             status.setText("加载中...");
@@ -718,6 +726,9 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             pageLayout.show(pageContainer, "browser");
             challengeTimer.stop();
             documentLoadState.begin();
+            mainLoadFailed = false;
+            mainFrameCfMitigated = null;
+            documentSettleTimer.stop();
             updateChallengeNotice();
             pageLoadTimer.restart();
             status.setText("加载中...");
@@ -731,6 +742,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
             documentSettleTimer.stop();
             challengeTimer.stop();
             mainLoadFailed = false;
+            showingErrorPage = false;
             String statusCode = httpStatusCode == null ? "unknown" : httpStatusCode.toString();
             LOG.info("LINUX DO JCEF document completed: " + diagnosticUrl(cefBrowser.getURL())
                     + ", trigger=" + trigger + ", status=" + statusCode
@@ -740,6 +752,10 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                 pageLayout.show(pageContainer, "browser");
                 updateChallengeNotice();
                 status.setText(idleStatus());
+                refreshButton.setEnabled(true);
+                navigationLocked = false;
+                navigationButtons.values().forEach(button -> button.setEnabled(true));
+                updateSearchAvailability();
                 updateNavigationState(cefBrowser.getURL());
                 recordHistory(cefBrowser.getURL(), safeCurrentTitle());
             });
@@ -768,7 +784,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
         private void handleSettleTimeout() {
             if (disposed || showingErrorPage || mainLoadFailed || documentLoadState.isChallengeActive()) return;
             CefBrowser cefBrowser = browser.getCefBrowser();
-            if (documentLoadState.completeFromMainFrame()) {
+            if (documentLoadState.completeFromSettledDocument()) {
                 LOG.warn("LINUX DO JCEF settle watchdog recovered: " + diagnosticUrl(cefBrowser.getURL()));
                 completeDocumentLoad(cefBrowser, "settle-watchdog", null);
             }
@@ -863,7 +879,7 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                     ? failedUrl : lastRequestedUrl;
             LOG.warn("LINUX DO JCEF main frame failed: " + diagnosticUrl(target) + ", reason=" + reason);
             SwingUtilities.invokeLater(() -> {
-                if (disposed) return;
+                if (disposed || !mainLoadFailed || documentLoadState.isAwaiting()) return;
                 showingErrorPage = true;
                 updateChallengeNotice();
                 status.setText("加载失败，可重试");
@@ -1503,6 +1519,20 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                         if ("cf-mitigated".equalsIgnoreCase(header.getKey())) mitigated = header.getValue();
                     }
                     mainFrameCfMitigated = headers.isEmpty() ? null : mitigated;
+                    int responseStatus = response.getStatus();
+                    String responseUrl = request.getURL();
+                    documentLoadState.responseReceived(responseStatus);
+                    if ("challenge".equalsIgnoreCase(mitigated.trim())) {
+                        // Do not wait for the challenge's slow subresources to finish before
+                        // removing the loading mask or switching from the page timeout.
+                        documentLoadState.challengeReceived(System.nanoTime(),
+                                siteFor(request.getURL()).challengeTimeoutMillis());
+                        SwingUtilities.invokeLater(() -> {
+                            if (ForumSite.samePage(responseUrl, cefBrowser.getURL())) {
+                                handleChallengeResponse(cefBrowser, responseStatus);
+                            }
+                        });
+                    }
                     LOG.info("LINUX DO JCEF main frame response: " + diagnosticUrl(request.getURL())
                             + ", status=" + response.getStatus() + ", headers=" + headers.size()
                             + ", cf-mitigated=" + mainFrameCfMitigated);
@@ -1546,21 +1576,17 @@ public final class LinuxDoToolWindowFactory implements ToolWindowFactory, DumbAw
                                     + diagnosticUrl(url));
                             return false;
                         }
-                        if (!ForumSite.samePage(cefBrowser.getURL(), url)) {
-                            documentLoadState.begin();
-                            lastRequestedUrl = url;
-                            showingErrorPage = false;
-                            SwingUtilities.invokeLater(() -> {
-                                if (disposed || documentLoadState.isChallengeActive()) return;
-                                pageLoadTimer.restart();
-                                pageLayout.show(pageContainer, "browser");
-                                status.setText("加载中...");
-                            });
-                        } else {
-                            SwingUtilities.invokeLater(() -> {
-                                if (!disposed && !documentLoadState.isChallengeActive()) status.setText(idleStatus());
-                            });
-                        }
+                        documentLoadState.navigationStarted();
+                        lastRequestedUrl = url;
+                        mainLoadFailed = false;
+                        showingErrorPage = false;
+                        SwingUtilities.invokeLater(() -> {
+                            if (disposed || !documentLoadState.isAwaiting()
+                                    || documentLoadState.isChallengeActive()) return;
+                            pageLoadTimer.restart();
+                            pageLayout.show(pageContainer, "browser");
+                            status.setText("加载中...");
+                        });
                         return false;
                     }
 

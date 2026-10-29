@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "studio.lexiao"
-version = "16.1"
+version = "16.2"
 
 repositories {
     mavenCentral()

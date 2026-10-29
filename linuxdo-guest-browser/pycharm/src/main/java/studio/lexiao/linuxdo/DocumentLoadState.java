@@ -3,6 +3,7 @@ package studio.lexiao.linuxdo;
 final class DocumentLoadState {
     private boolean awaiting;
     private boolean loadingObserved;
+    private int responseStatus;
     private boolean challengeActive;
     private boolean challengeNeedsInteraction;
     private long challengeStartedNanos;
@@ -11,8 +12,20 @@ final class DocumentLoadState {
     synchronized void begin() {
         awaiting = true;
         loadingObserved = false;
+        responseStatus = 0;
         challengeActive = false;
         challengeNeedsInteraction = false;
+    }
+
+    // Every actual navigation, including a same-URL automatic reload, needs tracking.
+    // Keep an in-flight challenge's original deadline until a successful document.
+    synchronized void navigationStarted() {
+        if (!awaiting) begin();
+        responseStatus = 0;
+    }
+
+    synchronized void responseReceived(int status) {
+        responseStatus = status;
     }
 
     synchronized boolean isAwaiting() {
@@ -24,10 +37,15 @@ final class DocumentLoadState {
     }
 
     synchronized boolean completeFromLoadingState() {
-        if (!awaiting || !loadingObserved || challengeActive) return false;
+        if (!awaiting || !loadingObserved || challengeActive || responseStatus >= 400) return false;
         awaiting = false;
         loadingObserved = false;
         return true;
+    }
+
+    synchronized boolean completeFromSettledDocument() {
+        if (challengeActive || responseStatus >= 400) return false;
+        return completeFromMainFrame();
     }
 
     synchronized boolean completeFromMainFrame() {
@@ -68,6 +86,7 @@ final class DocumentLoadState {
     synchronized void fail() {
         awaiting = false;
         loadingObserved = false;
+        responseStatus = 0;
         challengeActive = false;
         challengeNeedsInteraction = false;
     }

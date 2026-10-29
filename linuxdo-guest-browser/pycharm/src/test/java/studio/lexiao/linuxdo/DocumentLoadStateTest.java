@@ -3,6 +3,9 @@ package studio.lexiao.linuxdo;
 public final class DocumentLoadStateTest {
     public static void main(String[] args) {
         loadingStateCompletesOnlyAnObservedLoad();
+        automaticReloadAfterSuccessIsTracked();
+        navigationKeepsObservedLoadAndChallengeDeadline();
+        errorResponseCannotCompleteAsSuccess();
         mainFrameCompletionIsIdempotent();
         failureClearsPendingLoad();
         challengeReloadsShareOneDeadline();
@@ -114,4 +117,50 @@ public final class DocumentLoadStateTest {
         assert !state.challengeNeedsInteraction();
         assert !state.isAwaiting();
     }
+    private static void automaticReloadAfterSuccessIsTracked() {
+        DocumentLoadState state = new DocumentLoadState();
+        state.begin();
+        assert state.completeFromMainFrame();
+        state.navigationStarted(); // Same-URL reload by the website, not the toolbar.
+        assert state.isAwaiting();
+        state.loadingStarted();
+        state.responseReceived(200);
+        assert state.completeFromLoadingState();
+        state.fail();
+        state.navigationStarted(); // Retry after an error also receives styling.
+        assert state.completeFromMainFrame();
+    }
+
+    private static void navigationKeepsObservedLoadAndChallengeDeadline() {
+        DocumentLoadState state = new DocumentLoadState();
+        state.begin();
+        state.loadingStarted(); // JCEF may deliver this before onBeforeBrowse.
+        state.navigationStarted();
+        assert state.completeFromLoadingState();
+        state.begin();
+        state.challengeReceived(0, 20_000);
+        state.requestChallengeInteraction();
+        state.navigationStarted();
+        assert state.challengeNeedsInteraction();
+        assert state.challengeRemainingMillis(15_000_000_000L) == 5_000;
+        assert !state.completeFromLoadingState();
+    }
+
+    private static void errorResponseCannotCompleteAsSuccess() {
+        for (int status : new int[] {403, 503, 500}) {
+            DocumentLoadState state = new DocumentLoadState();
+            state.begin();
+            state.loadingStarted();
+            state.responseReceived(status);
+            assert !state.completeFromLoadingState() : "load-stopped must not accept HTTP " + status;
+            assert state.isAwaiting();
+            assert !state.completeFromSettledDocument();
+            state.fail();
+            state.navigationStarted();
+            state.loadingStarted();
+            state.responseReceived(200);
+            assert state.completeFromLoadingState();
+        }
+    }
+
 }

@@ -5,7 +5,7 @@
 | 平台 | 当前版本 | 支持站点 | 安装与使用 |
 | --- | --- | --- | --- |
 | VS Code | 0.19.0 | LINUX DO | [VS Code 说明](linuxdo-guest-browser/vscode/README.md) |
-| PyCharm | 16.1 | LINUX DO、NodeSeek、V2EX、IDC Flare | [PyCharm 说明](linuxdo-guest-browser/pycharm/README.md) |
+| PyCharm | 16.2 | LINUX DO、NodeSeek、V2EX、IDC Flare | [PyCharm 说明](linuxdo-guest-browser/pycharm/README.md) |
 
 [下载安装包与校验值](linuxdo-guest-browser/README.md#下载)。`dist/` 只保留当前版本；历史源码、文档和安装包可在 Git 历史中查看。
 

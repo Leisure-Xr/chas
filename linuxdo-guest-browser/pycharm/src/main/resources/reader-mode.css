@@ -71,7 +71,7 @@ body.lexiao-demo-mode :is(#main-outlet .cooked, #Main .topic_content, #Main .rep
   margin: 20px 0 8px !important;
   padding: 0 !important;
   border: 0 !important;
-  font: 600 15px/1.5 var(--lex-reader-font) !important;
+  font: 400 15px/1.5 var(--lex-reader-font) !important;
 }
 
 body.lexiao-demo-mode :is(#main-outlet .cooked, #Main .topic_content, #Main .reply_content, #nsk-body .post-content)
@@ -193,4 +193,10 @@ body.lexiao-demo-mode :is(#main-outlet .cooked, #Main .topic_content, #Main .rep
 html {
   color-scheme: __LEX_IDE_SCHEME__;
   background: __LEX_IDE_BG__ !important;
+}
+
+/* Keep all forum text at regular weight, including site overrides and <strong>. */
+body.lexiao-demo-mode :is(#main-outlet, #Main, #nsk-body, #nsk-head),
+body.lexiao-demo-mode :is(#main-outlet, #Main, #nsk-body, #nsk-head) * {
+  font-weight: 400 !important;
 }

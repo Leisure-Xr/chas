@@ -54,8 +54,11 @@ try {
             assert.equal(state.table.overflowX, 'auto', `${label}: table scrolling`);
             assert.ok(state.image.width > 0 && state.image.right <= width, `${label}: visible responsive image`);
             assert.equal(state.image.filter, 'none', `${label}: original image colors`);
-            assert.ok(Number(state.strong.weight) >= 600, `${label}: bold is preserved`);
+            assert.equal(state.strong.weight, '400', `${label}: emphasis uses regular weight`);
+            assert.equal(state.title.weight, '400', `${label}: title uses regular weight`);
+            assert.equal(state.heading.weight, '400', `${label}: heading uses regular weight`);
           } else {
+            assert.equal(state.listTitle.weight, '400', `${label}: list title uses regular weight`);
             assert.equal(state.listTitle.size, '14px', `${label}: list title size`);
             assert.ok(state.listTitle.right <= width + 1, `${label}: list title clipping`);
           }
