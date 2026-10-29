@@ -76,3 +76,11 @@ Windows、2026.3 和四站完整实时链路仍缺少本轮验证证据。`runs/
 IDC Flare 已补到实际列表截图。23:45:01 日志记录插件刷新，23:45:02 返回 HTTP 200，23:45:12 完成主文档，23:45:13 阅读布局达到 stable，readerStyle=true、loadingStyle=false。刷新后的列表内容可见，列表文字未加粗。证据为本地 `qa/artifacts/pycharm-live-20261028/idcflare-list-after-refresh-20261030.png` 和 `idcflare-refresh-20261029.log`。
 
 自动操作能读取界面、修改搜索输入框并取得截图，但帖子点击和部分按钮操作仍未产生可确认的预期结果；不能把这一现象判定为人工操作也失败。测试输入已清空。IDC Flare 帖子与返回、NodeSeek/V2EX 帖子与返回及刷新、三站正文的实际字重复核仍待完成。
+
+### IDC Flare 帖子往返验收（10-30）
+
+在 PyCharm 中实际打开 `https://idcflare.com/t/topic/7342`（First, let’s establish a fundamental positioning.），标题和正文可见且无加粗。点击插件刷新后，00:12:32 记录 reload requested，返回 HTTP 200，00:12:34 完成主文档，截图确认正文仍正常；点击返回后截图确认恢复 Latest 列表。页面内打开帖子不一定产生新的主文档导航日志，因此本项以截图和刷新日志共同确认，修正此前仅凭没有新增导航日志判断点击未生效的局限。
+
+证据位于本地 `qa/artifacts/pycharm-live-20261028/`：`idcflare-topic-20261030.png`、`idcflare-topic-refreshed-20261030.png`、`idcflare-return-20261030.png`、`idcflare-topic-events-20261030.log`。
+
+随后以 NodeSeek 为记忆站点重启 IDE，00:24:13 请求首页，00:24:19 以 200 完成。重启后桌面工具只能返回无关的 Git“路径”菜单，截图不可用；重新获取应用、恢复连接及开关设置后仍如此，因此 NodeSeek/V2EX 的剩余帖子往返与刷新验收仍未完成。IDC Flare 的列表、帖子、返回、刷新及当前正文正常字重已通过本轮实测。
