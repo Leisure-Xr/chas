@@ -559,3 +559,21 @@
 | 3 | 回退安装 16.0。 | 16.0 正常加载；非 LINUX DO 的历史与收藏被丢弃，收藏目录保留。 |
 
 最终预期：升级与回退不损坏数据，Cookie 清理只覆盖受支持的论坛。
+
+### PYC-018 Cloudflare 验证流程本地回归
+
+- 优先级：P0
+- 类型：guided
+- 平台：darwin, win32
+- 能力：jcef, visible-desktop
+
+前置条件：
+
+- 本机已安装目标 PyCharm 与 openssl。日常 PyCharm 可以保持运行：回归使用进程内 JCEF，不连接它的 cef_server。
+
+| # | 操作 | 预期 |
+| --- | --- | --- |
+| 1 | 在 linuxdo-guest-browser/ 运行 node qa/scripts/verify-challenge-flow.mjs --ide <目标 PyCharm> --zip <候选包>。 | 脚本在隔离 IDE 中把四个论坛的主机经 --proxy-server 引到本地夹具，17 项检查全部 PASS，结果写入 qa/artifacts/challenge-flow/<时间>/summary.json。 |
+| 2 | 查看 summary.json 与 plugin.log。 | 冷启动首个页面经验证后放行；没有验证特征的 403 约 1.5 秒后显示拒绝访问；持续验证时轮次递增，LINUX DO 20 秒后提示手动验证；四站主题页均放行且分享入口可用；验证页内没有探针输出，也没有加载超时；日常 IDE 的 cef_server PID 不变。 |
+
+最终预期：验证页识别、验证页脚本隔离、拒绝访问判定和四站分享入口在确定性夹具上回归通过；真实 Cloudflare 的判定仍由 PYC-016 覆盖。

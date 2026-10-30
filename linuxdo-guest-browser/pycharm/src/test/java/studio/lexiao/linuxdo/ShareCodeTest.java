@@ -37,6 +37,77 @@ public final class ShareCodeTest {
         encodesEveryForumWithGoldenVectors();
         readsTopicsFromEveryForum();
         rejectsMalformedForumPayloads();
+        forumSharesExpireAndResistTampering();
+        forumCodesRevealNothingWithoutPassword();
+        normalizesTitlesAndRejectsUnshareablePages();
+        opensVsCodeShareWithNumericSlug();
+    }
+
+    // v3 与 v2 共用同一套信封：过期、改动、错误密码和超前的生成时间都要按同样的规则拒绝。
+    private static void forumSharesExpireAndResistTampering() {
+        for (String[] row : FORUM_VECTORS) {
+            String code = row[3];
+            expectMessage(() -> ShareCode.parse(code, PASSWORD, NOW + 60 * 60 * 1000L), "加密分享已于", row[0] + " expiry");
+            expectMessage(() -> ShareCode.parse(code, "Wrong-Password-123!", NOW + 1), "分享密码不正确", row[0] + " password");
+            String[] parts = code.split("\\.");
+            byte[] sealed = Base64.getUrlDecoder().decode(parts[3]);
+            sealed[sealed.length - 1] ^= 1;
+            String damaged = parts[0] + "." + parts[1] + "." + parts[2] + "."
+                    + Base64.getUrlEncoder().withoutPadding().encodeToString(sealed);
+            expectMessage(() -> ShareCode.parse(damaged, PASSWORD, NOW + 1), "分享密码不正确", row[0] + " tamper");
+            expectMessage(() -> ShareCode.parse(code, PASSWORD, NOW - 6 * 60 * 1000L), "分享生成时间晚于当前设备时间", row[0] + " clock");
+        }
+    }
+
+    private static void forumCodesRevealNothingWithoutPassword() {
+        for (String[] row : FORUM_VECTORS) {
+            StringBuilder visible = new StringBuilder();
+            for (String part : row[3].split("\\.", -1)) {
+                if (!"LDGS2".equals(part)) visible.append(new String(Base64.getUrlDecoder().decode(part), StandardCharsets.UTF_8));
+            }
+            String value = visible.toString();
+            for (String secret : new String[]{row[0], "12345", "公开主题", "1800003600000", "site="}) {
+                require(!value.contains(secret), row[0] + " code leaks " + secret);
+            }
+        }
+    }
+
+    private static void normalizesTitlesAndRejectsUnshareablePages() {
+        ShareCode.Topic topic = new ShareCode.Topic(ForumSite.NODESEEK, 12345, "", "  多行\r\n标题  ");
+        String code = ShareCode.create(topic, PASSWORD, 60_000, NOW);
+        require("多行 标题".equals(ShareCode.parse(code, PASSWORD, NOW + 1).topic().title()), "title must be normalised");
+        expectMessage(() -> ShareCode.create(new ShareCode.Topic(ForumSite.V2EX, 1, "", "x".repeat(201)), PASSWORD, 60_000, NOW),
+                "主题标题无效", "long title");
+        expectMessage(() -> ShareCode.create(new ShareCode.Topic(ForumSite.V2EX, 1, "slug", "T"), PASSWORD, 60_000, NOW),
+                "主题地址无效", "slug on a forum without slugs");
+        expectMessage(() -> ShareCode.create(new ShareCode.Topic(ForumSite.IDCFLARE, 1, "", "T"), PASSWORD, 60_000, NOW),
+                "主题地址无效", "Discourse topic without slug");
+        expectMessage(() -> ShareCode.create(new ShareCode.Topic(ForumSite.LINUX_DO, 1, "topic", "T"), PASSWORD, 59_999, NOW),
+                "分享有效期必须在 1 分钟到 7 天之间", "too short");
+        String[] unshareable = {
+                "https://sub.linux.do/t/x/1", "https://notlinux.do/t/x/1", "https://www.nodeseek.com/categories/tech",
+                "https://www.v2ex.com/t/0", "https://idcflare.com/t/topic/0045", "https://linux.do/t/x/1?__cf_chl_rt_tk=a"
+        };
+        for (String url : unshareable) require(ShareCode.fromTopicUrl(url, "T") == null, "must not share " + url);
+        require(ShareCode.fromTopicUrl("https://linux.do/t/x/1", "") == null, "an empty title cannot be shared");
+    }
+
+    // VS Code 版可能把 Discourse 的纯数字 slug 原样放进 v=2；打开时改用 /t/topic/编号，避免被当成楼层地址。
+    private static void opensVsCodeShareWithNumericSlug() throws Exception {
+        String code = sealIndependently("v=2&id=12345&slug=2048&title=T&iat=" + NOW + "&exp=" + (NOW + 60_000));
+        ShareCode.Topic topic = ShareCode.parse(code, PASSWORD, NOW + 1).topic();
+        require(topic.site() == ForumSite.LINUX_DO && "2048".equals(topic.slug()), "numeric slug kept for VS Code");
+        require("https://linux.do/t/topic/12345".equals(topic.url()), "numeric slug must not become a post number");
+    }
+
+    private static void expectMessage(Runnable action, String prefix, String label) {
+        try {
+            action.run();
+            throw new AssertionError(label + ": expected rejection");
+        } catch (IllegalArgumentException expected) {
+            require(expected.getMessage() != null && expected.getMessage().startsWith(prefix),
+                    label + ": unexpected message " + expected.getMessage());
+        }
     }
 
     private static void encodesEveryForumWithGoldenVectors() throws Exception {

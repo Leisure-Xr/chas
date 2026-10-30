@@ -103,3 +103,24 @@ bash pycharm/scripts/verify-package.sh pycharm/build/distributions/linuxdo-guest
 `site` 支持 `linuxdo/idcflare/nodeseek/v2ex`，`view` 支持 `list/topic`，`scheme` 支持 `light/dark`。
 
 安装了 Playwright 的环境可运行 `node qa/scripts/verify-reader-layout.mjs`。也可通过 `PLAYWRIGHT_MODULE` 指定模块入口绝对路径，通过 `CHROME_BIN` 指定已安装 Chromium 浏览器。脚本使用独立的无头浏览器执行 48 个布局组合，检查字体、横向溢出、图片、代码、表格及关闭阅读布局后的恢复；截图和结果在 `qa/artifacts/reader-layout/`。
+
+## Cloudflare 验证流程本地回归
+
+`scripts/verify-challenge-flow.mjs` 在隔离 PyCharm 中回归插件的验证流程，对应用例 PYC-018。脚本用 `openssl` 生成临时证书，在本机启动一个按 Cloudflare 托管验证页形状应答的 HTTPS 夹具，再通过只转发论坛主机的 CONNECT 代理，用 `--proxy-server` 把沙箱 JCEF 的四个论坛主机引到夹具，不访问真实论坛。
+
+```bash
+node qa/scripts/verify-challenge-flow.mjs --ide /Applications/PyCharm.app --zip dist/linuxdo-guest-browser-pycharm-16.3.zip
+```
+
+默认使用 `dist/` 中与 `plugin.xml` 版本相同的安装包，四个论坛依次检查：
+
+- 冷启动首个页面经验证后放行；
+- 没有验证特征的 403 显示拒绝访问；
+- 持续验证时轮次递增（LINUX DO 另等到手动验证提示）；
+- 主题页放行，分享入口可用。
+
+全程断言验证页内没有插件脚本输出，也没有误报加载超时。界面导航由 JCEF 调试端口发起，相当于浏览器发起的 `loadURL`。
+
+隔离 IDE 使用进程内 JCEF，日常 PyCharm 可以保持运行；脚本会比对它的 cef_server PID 前后是否一致。结果写入 `qa/artifacts/challenge-flow/<时间>/` 下的 `summary.json` 与 `plugin.log`，沙箱目录与证书在结束后删除，`--keep` 可保留。`--sites linuxdo,v2ex` 可只测部分论坛。
+
+夹具只能回归插件自身的状态机（验证页识别、脚本隔离、拒绝访问判定、轮次与分享入口），不能模拟 Cloudflare 基于请求特征的判定；真实站点仍按 PYC-016 验收。夹具应答与插件日志解析由 `test/challenge-flow.test.mjs` 覆盖，CI 中同样运行。

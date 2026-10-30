@@ -33,6 +33,11 @@ public final class DocumentLoadStateTest {
         state.begin();
         state.challengeReceived(4_000_000_000L, 20_000);
         assert state.challengeRound() == 1 : "an explicit retry counts from the first round again";
+        state.fail();
+        state.challengeNavigationStarted();
+        assert state.challengeRound() == 0 && state.challengeElapsedMillis(9_000_000_000L) == 0 : "stopped verification stays stopped";
+        state.challengeReceived(10_000_000_000L, 20_000);
+        assert !state.isChallengeActive() : "a late challenge after stopping must not restart verification";
     }
 
     private static void loadingStateCompletesOnlyAnObservedLoad() {

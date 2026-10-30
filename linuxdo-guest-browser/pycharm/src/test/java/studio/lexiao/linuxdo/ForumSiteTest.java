@@ -52,6 +52,7 @@ public final class ForumSiteTest {
             {"https://www.v2ex.com/member/someone", "https://www.v2ex.com/member/someone", "false"},
             {"https://www.v2ex.com/signin?next=/go/chamber", null, "false"},
             {"https://idcflare.com/t/topic/39038/5", "https://idcflare.com/t/topic/39038", "true"},
+            {"https://idcflare.com/t/39038/5", "https://idcflare.com/t/topic/39038", "true"},
             {"https://idcflare.com", "https://idcflare.com/latest", "false"},
             {"https://cdn.idcflare.com/t/topic/1", null, "false"},
     };
@@ -225,6 +226,16 @@ public final class ForumSiteTest {
         check(ForumSite.reloadUrl("https://www.v2ex.com/t/1?p=2"), "https://www.v2ex.com/t/1?p=2", "keep page");
         check(ForumSite.reloadUrl("https://linux.do/search?q=%E4%B8%AD"), "https://linux.do/search?q=%E4%B8%AD", "keep encoding");
         check(ForumSite.reloadUrl("about:blank"), "about:blank", "opaque url");
+        check(ForumSite.reloadUrl("https://v2ex.com/t/1?__cf_chl_tk=x"), "https://v2ex.com/t/1", "alias host kept");
+        check(ForumSite.reloadUrl("https://linux.do/latest?&&__cf_chl_rt_tk=a&"), "https://linux.do/latest", "empty parameters");
+        check(ForumSite.reloadUrl("https://linux.do"), "https://linux.do", "no path");
+        check(ForumSite.reloadUrl("not a url"), "not a url", "unparsable url");
+        check(ForumSite.reloadUrl(null), null, "null url");
+        assert ForumSite.hasChallengeParameters("https://www.nodeseek.com/?sortBy=postTime&__cf_chl_tk=x#a");
+        assert !ForumSite.hasChallengeParameters("https://linux.do/latest#__cf_chl_rt_tk=x") : "fragments are not parameters";
+        // 带一次性验证参数的地址既不入历史，也不能被收藏或分享。
+        assert ReaderHistory.create("https://www.v2ex.com/t/1?__cf_chl_f_tk=x", "T", 1) == null;
+        assert ForumSite.topicUrl("https://www.nodeseek.com/post-1-1?__cf_chl_tk=x") == null;
         assert ForumSite.isChallengeTitle("Just a moment...") && ForumSite.isChallengeTitle(" just a moment… ");
         assert ForumSite.isChallengeTitle("请稍候…") && ForumSite.isChallengeTitle("请稍候...");
         assert !ForumSite.isChallengeTitle("Attention Required! | Cloudflare");

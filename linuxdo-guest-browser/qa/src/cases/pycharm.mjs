@@ -55,6 +55,15 @@ export const pycharmCases = [
     ], expected: '升级与回退不损坏数据，Cookie 清理只覆盖受支持的论坛。'
   }),
   defineCase({
+    id: 'PYC-018', title: 'Cloudflare 验证流程本地回归', product: 'pycharm', priority: 'P0', type: 'guided',
+    capabilities: ['jcef', 'visible-desktop'],
+    preconditions: ['本机已安装目标 PyCharm 与 openssl。日常 PyCharm 可以保持运行：回归使用进程内 JCEF，不连接它的 cef_server。'],
+    steps: [
+      { action: '在 linuxdo-guest-browser/ 运行 node qa/scripts/verify-challenge-flow.mjs --ide <目标 PyCharm> --zip <候选包>。', expected: '脚本在隔离 IDE 中把四个论坛的主机经 --proxy-server 引到本地夹具，17 项检查全部 PASS，结果写入 qa/artifacts/challenge-flow/<时间>/summary.json。' },
+      { action: '查看 summary.json 与 plugin.log。', expected: '冷启动首个页面经验证后放行；没有验证特征的 403 约 1.5 秒后显示拒绝访问；持续验证时轮次递增，LINUX DO 20 秒后提示手动验证；四站主题页均放行且分享入口可用；验证页内没有探针输出，也没有加载超时；日常 IDE 的 cef_server PID 不变。' }
+    ], expected: '验证页识别、验证页脚本隔离、拒绝访问判定和四站分享入口在确定性夹具上回归通过；真实 Cloudflare 的判定仍由 PYC-016 覆盖。'
+  }),
+  defineCase({
     id: 'PYC-001', title: 'PyCharm ZIP 清单与源码一致', product: 'pycharm', priority: 'P0', type: 'automated',
     capabilities: ['package'], expected: '插件版本、构建范围、关键资源和包结构一致。', run: checkPyCharmArtifact
   }),
