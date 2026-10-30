@@ -90,7 +90,7 @@ bash pycharm/scripts/build-local.sh
 bash pycharm/scripts/verify-package.sh pycharm/build/distributions/linuxdo-guest-browser-pycharm-16.3.zip --source
 ```
 
-本地构建脚本已自动执行第二步，CI 也对新生成的 ZIP 执行同样检查。检查要求包含 `ForumSite.class`，并逐字节核对全部非 `plugin.xml` 资源，包括六份站点 CSS、阅读脚本和名称资源；`plugin.xml` 由 Gradle 改写，因此其版本与构建范围继续由 QA 元数据检查负责。旧发布包仍可以不加 `--source` 做基础完整性校验。
+本地构建脚本已自动执行第二步。CI 对 Gradle 新生成的 ZIP 加 `--gradle-layout` 做同样的资源检查：Gradle 产物按项目名命名插件目录和 jar，且不含第三方声明，只放宽这两项。检查要求包含 `ForumSite.class`，并逐字节核对全部非 `plugin.xml` 资源，包括六份站点 CSS、阅读脚本和名称资源；`plugin.xml` 由 Gradle 改写，因此其版本与构建范围继续由 QA 元数据检查负责。旧发布包仍可以不加 `--source` 做基础完整性校验。
 
 本地构建同时兼容 2026.2 将 JCEF 拆分到 `plugins/jcef-plugin` 的 SDK 目录结构。
 

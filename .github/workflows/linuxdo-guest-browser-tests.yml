@@ -87,7 +87,7 @@ jobs:
       - name: Verify newly built ZIP integrity
         run: |
           for package in build/distributions/*.zip; do
-            ./scripts/verify-package.sh "$package" --source
+            ./scripts/verify-package.sh "$package" --source --gradle-layout
           done
 
   release-gate:
