@@ -28,6 +28,14 @@ test('VS Code decrypts the encrypted share produced by PyCharm', () => {
   });
 });
 
+// PyCharm 16.3 起，LINUX DO 以外论坛的主题用带站点字段的 v=3 分享。VS Code 版只支持 LINUX DO，
+// 必须拒绝它，而不是把同编号的主题当成 LINUX DO 主题打开。
+const PYCHARM_NODESEEK_SHARE = 'LDGS2.AAECAwQFBgcICQoLDA0ODw.oKGio6Slpqeoqaqr.qPTWbBrvkpcRegpRaaDpuJ1q-Cv_v3IWQuajPrzt9F0to1W4-QRDW0ddpoTbMhMnVcZFnlKuNPAmEjY_e3S1-6dxSNPAf7p_jJ8HJoyhayIUhIdmEtE41cTl-AUsf_DREuasA49KRQSYz-_tx3U-r01oFdOWhraBKA';
+
+test('a PyCharm share for another forum is rejected instead of opening a LINUX DO topic', () => {
+  assert.throws(() => parseShareCode(PYCHARM_NODESEEK_SHARE, PASSWORD, NOW + 1), /加密分享内容无效/);
+});
+
 test('encrypted content does not expose topic metadata or expiry', () => {
   const code = fixedCode();
   const visible = code.split('.').slice(1).map((part) => Buffer.from(part, 'base64url').toString('utf8')).join(' ');

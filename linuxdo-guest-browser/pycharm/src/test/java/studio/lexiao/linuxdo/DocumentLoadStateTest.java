@@ -13,6 +13,26 @@ public final class DocumentLoadStateTest {
         retryAndSiteSwitchStartFreshVerification();
         lateChallengeAfterFailureIsIgnored();
         manualVerificationSurvivesTheAutomaticDeadline();
+        challengeRoundsCountAutomaticRetries();
+    }
+
+    private static void challengeRoundsCountAutomaticRetries() {
+        DocumentLoadState state = new DocumentLoadState();
+        state.begin();
+        state.challengeNavigationStarted(); // An ordinary navigation is not a verification round.
+        assert state.challengeRound() == 0;
+        state.challengeReceived(0, 20_000);
+        assert state.challengeRound() == 1;
+        state.challengeNavigationStarted();
+        state.challengeReceived(1_000_000_000L, 20_000);
+        state.challengeNavigationStarted();
+        assert state.challengeRound() == 3;
+        assert state.challengeElapsedMillis(2_500_000_000L) == 2_500;
+        assert state.completeFromMainFrame();
+        assert state.challengeRound() == 0 && state.challengeElapsedMillis(3_000_000_000L) == 0;
+        state.begin();
+        state.challengeReceived(4_000_000_000L, 20_000);
+        assert state.challengeRound() == 1 : "an explicit retry counts from the first round again";
     }
 
     private static void loadingStateCompletesOnlyAnObservedLoad() {

@@ -56,10 +56,39 @@ test('guest cleanup sweeps every forum and never wipes the shared cookie store',
 });
 
 // NodeSeek 需要登录的帖子直接回 403。把它当成 Cloudflare 验证会让用户白等一个超时；
-// 但只有确实读到了响应头才能这样判断，读不到时必须继续按验证页等待。
-test('a 403 without a Cloudflare challenge header is reported instead of awaited', () => {
-  const denied = methodBody(factorySource, 'private boolean deniedWithoutChallenge');
-  assert.match(denied, /httpStatusCode == 403 && mitigated != null/);
-  assert.match(factorySource, /mainFrameCfMitigated = headers\.isEmpty\(\) \? null : mitigated;/);
-  assert.match(factorySource, /isChallengeStatus\(httpStatusCode\) && !deniedWithoutChallenge\(httpStatusCode\)/);
+// 但验证页的标题和 __cf_chl_ 地址可能晚于加载结束才到，所以先等一小会儿再判定。
+test('a 403 without challenge markers is reported instead of awaited', () => {
+  const denied = methodBody(factorySource, 'private void checkDenialAfterSettling');
+  assert.match(denied, /navigation != mainFrameNavigations/, 'a later navigation cancels the pending verdict');
+  assert.match(denied, /challengeDocument \|\| ForumSite\.isChallengeTitle\(currentPageTitle\)\) \{\s*handleChallengeResponse/);
+  assert.match(denied, /HTTP 403：站点拒绝了游客访问/);
+  assert.ok(!denied.includes('stopLoad'));
+  assert.match(factorySource, /DENIAL_CHECK_MILLIS = 1_500/);
+});
+
+// 16.2 为了读 cf-mitigated 给每个主框架导航挂了响应观察器。挂上后 CEF 改走拦截通道转发导航，
+// linux.do 的 Cloudflare 在 A/B 实测中每次都要求验证、也不承认刚下发的 cf_clearance；去掉后直接放行。
+test('main-frame navigations are not routed through a resource request handler', () => {
+  const handler = methodBody(factorySource, 'public CefResourceRequestHandler getResourceRequestHandler');
+  assert.match(handler, /return ForumSite\.isAuthenticationWrite\(request\.getMethod\(\), request\.getURL\(\)\) \? authenticationBlocker : null;/);
+  assert.ok(!handler.includes('isNavigation &&'), 'navigations must use the default network path');
+  assert.ok(!factorySource.includes('onResourceResponse'));
+});
+
+// CEF 对 POST 结果页的 reload() 是空操作；CefBrowser.loadURL 在浏览器创建前会被丢掉。
+test('refresh, retry and navigation load a clean URL through the deferred loader', () => {
+  assert.ok(!/\.reload\(\)/.test(factorySource), 'reload() silently does nothing on POST results');
+  assert.ok(!factorySource.includes('getCefBrowser().loadURL'), 'navigation before browser creation is dropped');
+  assert.match(methodBody(factorySource, 'private void loadCleanUrl'), /browser\.loadURL\(ForumSite\.reloadUrl\(url\)\)/);
+  assert.match(methodBody(factorySource, 'private void reloadCurrentPage'), /loadCleanUrl\(url\)/);
+  assert.match(methodBody(factorySource, 'private void navigateTo'), /loadCleanUrl\(url\)/);
+  const navigation = methodBody(factorySource, 'public boolean onBeforeBrowse');
+  const challengeBranch = navigation.slice(navigation.indexOf('if (documentLoadState.isChallengeActive())'));
+  assert.ok(!challengeBranch.slice(0, challengeBranch.indexOf('return false;')).includes('lastRequestedUrl'),
+    "an automatic challenge reload must not replace the user's target URL");
+});
+
+test('encrypted sharing is offered on every forum', () => {
+  assert.ok(!factorySource.includes('暂仅支持 LINUX DO'));
+  assert.match(methodBody(factorySource, 'private void updateNavigationState'), /ShareCode\.fromTopicUrl\(currentUrl, safeCurrentTitle\(\)\) != null/);
 });

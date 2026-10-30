@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 // 只依赖 JDK：ReaderHistory、ReaderFavorites 的测试在没有 IDE jar 的 classpath 上运行。
@@ -16,24 +17,24 @@ enum ForumSite {
             List.of(new NavEntry("最新", "/latest", "最新主题"),
                     new NavEntry("热门", "/top", "本周热门"),
                     new NavEntry("分类", "/categories", "浏览分类")),
-            "/search?q=", "\\s+-\\s+(?:LINUX DO|搞七捻三)\\s*$", List.of("LINUX DO", "搞七捻三"), 20_000, true),
+            "/search?q=", "\\s+-\\s+(?:LINUX DO|搞七捻三)\\s*$", List.of("LINUX DO", "搞七捻三"), 20_000),
     // 游客搜索会被转到 Google；托管验证有时要用户点一下，所以超时放宽。
     NODESEEK("nodeseek", "NodeSeek", Engine.NODESEEK, "www.nodeseek.com", List.of("nodeseek.com"), false,
             List.of(new NavEntry("最新", "/", "NodeSeek 最新回复"),
                     new NavEntry("新帖", "/?sortBy=postTime", "NodeSeek 最新发帖"),
                     new NavEntry("精品", "/award", "NodeSeek 精品贴")),
-            null, "^NodeSeek\\s*-\\s*|\\s+-\\s+NodeSeek\\s*$", List.of("NodeSeek"), 45_000, false),
+            null, "^NodeSeek\\s*-\\s*|\\s+-\\s+NodeSeek\\s*$", List.of("NodeSeek"), 45_000),
     // 站内搜索只对登录用户开放；需要登录的节点会跳到 /signin，按登录重定向处理，不绕过。
     V2EX("v2ex", "V2EX", Engine.V2EX, "www.v2ex.com", List.of("v2ex.com"), false,
             List.of(new NavEntry("全部", "/?tab=all", "V2EX 全部主题"),
                     new NavEntry("最热", "/?tab=hot", "V2EX 最热主题"),
                     new NavEntry("节点", "/planes", "V2EX 节点导航")),
-            null, "^V2EX\\s*›\\s*|\\s+-\\s+V2EX\\s*$", List.of("V2EX"), 20_000, false),
+            null, "^V2EX\\s*›\\s*|\\s+-\\s+V2EX\\s*$", List.of("V2EX"), 20_000),
     IDCFLARE("idcflare", "IDC Flare", Engine.DISCOURSE, "idcflare.com", List.of(), false,
             List.of(new NavEntry("最新", "/latest", "IDC Flare 最新主题"),
                     new NavEntry("热门", "/top", "IDC Flare 本周热门"),
                     new NavEntry("分类", "/categories", "IDC Flare 浏览分类")),
-            "/search?q=", "\\s+-\\s+IDC Flare\\s*$", List.of("IDC Flare"), 20_000, false);
+            "/search?q=", "\\s+-\\s+IDC Flare\\s*$", List.of("IDC Flare"), 20_000);
 
     static final ForumSite DEFAULT = LINUX_DO;
     private static final Pattern DISCOURSE_TOPIC_PATH = Pattern.compile("^/t/(?:([^/]+)/)?([1-9][0-9]*)(?:/.*)?$");
@@ -41,6 +42,9 @@ enum ForumSite {
     private static final Pattern NODESEEK_TOPIC_PATH = Pattern.compile("^/post-([1-9][0-9]*)-[0-9]+/?$");
     // 首页、版块和精品列表的分页都折叠到第一页；group(1) 为空表示首页。
     private static final Pattern NODESEEK_LIST_PATH = Pattern.compile("^(/categories/[^/]+|/award)?(?:/page-[0-9]+)?/?$");
+    // Cloudflare 验证页的标题：英文原文，以及按 Accept-Language 本地化后的中文。
+    private static final Pattern CHALLENGE_TITLE = Pattern.compile("^(?:Just a moment|请稍候)(?:\\.\\.\\.|…)?$",
+            Pattern.CASE_INSENSITIVE);
 
     enum Engine {
         DISCOURSE("/latest",
@@ -117,11 +121,10 @@ enum ForumSite {
     private final List<String> bareTitles;
     // Cloudflare 的验证页带着 403/503 返回；给页内脚本（需要点击时还有用户）留出完成并自动重载的时间。
     private final int challengeTimeoutMillis;
-    private final boolean shareSupported;
 
     ForumSite(String id, String displayName, Engine engine, String host, List<String> aliasHosts,
               boolean allowSubdomains, List<NavEntry> navigation, String searchPath, String siteName,
-              List<String> bareTitles, int challengeTimeoutMillis, boolean shareSupported) {
+              List<String> bareTitles, int challengeTimeoutMillis) {
         this.id = id;
         this.displayName = displayName;
         this.engine = engine;
@@ -133,7 +136,6 @@ enum ForumSite {
         this.siteName = Pattern.compile(siteName);
         this.bareTitles = bareTitles;
         this.challengeTimeoutMillis = challengeTimeoutMillis;
-        this.shareSupported = shareSupported;
     }
 
     String id() {
@@ -191,10 +193,6 @@ enum ForumSite {
             }
         }
         return null;
-    }
-
-    boolean shareSupported() {
-        return shareSupported;
     }
 
     boolean supportsSearch() {
@@ -378,13 +376,12 @@ enum ForumSite {
             if (lowerPath.startsWith(prefix)) return null;
         }
         String query = uri.getQuery();
-        if (query != null && query.toLowerCase(Locale.ROOT).contains("__cf_chl")) return null;
+        if (hasChallengeQuery(uri.getRawQuery())) return null;
         switch (engine) {
             case DISCOURSE -> {
                 Matcher topic = DISCOURSE_TOPIC_PATH.matcher(path);
                 if (topic.matches()) {
-                    String slug = topic.group(1) == null ? "topic" : topic.group(1);
-                    path = "/t/" + slug + "/" + topic.group(2);
+                    path = "/t/" + discourseSlug(topic) + "/" + discourseTopicId(topic);
                     query = null;
                 } else if (lowerPath.matches("/(?:latest|top|categories)/?")) {
                     path = lowerPath.replaceAll("/$", "");
@@ -429,6 +426,48 @@ enum ForumSite {
         return null;
     }
 
+    // Cloudflare 验证流程的一次性参数（__cf_chl_tk、__cf_chl_f_tk、__cf_chl_rt_tk 等），按参数名前缀识别。
+    static boolean hasChallengeParameters(String url) {
+        if (url == null) return false;
+        try {
+            return hasChallengeQuery(URI.create(url).getRawQuery());
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean hasChallengeQuery(String rawQuery) {
+        if (rawQuery == null) return false;
+        for (String parameter : rawQuery.split("&")) {
+            if (isChallengeParameter(parameter)) return true;
+        }
+        return false;
+    }
+
+    private static boolean isChallengeParameter(String parameter) {
+        return parameter.toLowerCase(Locale.ROOT).startsWith("__cf_chl_");
+    }
+
+    static boolean isChallengeTitle(String title) {
+        return title != null && CHALLENGE_TITLE.matcher(title.trim()).matches();
+    }
+
+    // 刷新、重试和“在浏览器打开”用的地址：去掉一次性验证参数和片段，其余查询参数保留。
+    static String reloadUrl(String url) {
+        if (url == null) return null;
+        try {
+            URI uri = URI.create(url);
+            if (uri.isOpaque() || uri.getRawAuthority() == null) return url;
+            String query = uri.getRawQuery() == null ? "" : Stream.of(uri.getRawQuery().split("&"))
+                    .filter(parameter -> !parameter.isEmpty() && !isChallengeParameter(parameter))
+                    .collect(Collectors.joining("&"));
+            String path = uri.getRawPath() == null ? "" : uri.getRawPath();
+            return uri.getScheme() + "://" + uri.getRawAuthority() + path + (query.isEmpty() ? "" : "?" + query);
+        } catch (IllegalArgumentException ignored) {
+            return url;
+        }
+    }
+
     // 当前页面是主题时返回它的规范 URL，否则返回 null。
     static String topicUrl(String rawUrl) {
         String url = canonicalUrl(rawUrl);
@@ -439,5 +478,64 @@ enum ForumSite {
         ForumSite site = forUrl(canonicalUrl);
         return site != null && canonicalUrl.startsWith(site.origin() + "/")
                 && site.engine.topicPath.matcher(canonicalUrl.substring(site.origin().length())).matches();
+    }
+
+    // Discourse 的 /t/123/4 是“主题 123 的第 4 楼”，不是 slug 为 123 的主题 4：第一段是编号时它就是主题。
+    private static String discourseTopicId(Matcher topic) {
+        return isTopicNumber(topic.group(1)) ? topic.group(1) : topic.group(2);
+    }
+
+    private static String discourseSlug(Matcher topic) {
+        return topic.group(1) == null || isTopicNumber(topic.group(1)) ? "topic" : topic.group(1);
+    }
+
+    private static boolean isTopicNumber(String segment) {
+        return segment != null && segment.matches("[1-9][0-9]*");
+    }
+
+    // 加密分享里的主题：站点、主题编号，以及 Discourse 站点用的 ASCII slug（NodeSeek、V2EX 为空串）。
+    record TopicRef(ForumSite site, long id, String slug) {}
+
+    // 地址是可分享的主题时返回它的引用，否则返回 null。
+    static TopicRef topicRef(String rawUrl) {
+        String url = topicUrl(rawUrl);
+        ForumSite site = url == null ? null : forUrl(url);
+        if (site == null) return null;
+        Matcher topic = (switch (site.engine) {
+            case DISCOURSE -> DISCOURSE_TOPIC_PATH;
+            case V2EX -> V2EX_TOPIC_PATH;
+            case NODESEEK -> NODESEEK_TOPIC_PATH;
+        }).matcher(url.substring(site.origin().length()));
+        if (!topic.matches()) return null;
+        try {
+            if (site.engine != Engine.DISCOURSE) return new TopicRef(site, Long.parseLong(topic.group(1)), "");
+            // 非 ASCII 的 slug 放不进分享格式（VS Code 版同样如此）；Discourse 会把 /t/topic/编号 重定向到原主题。
+            String slug = discourseSlug(topic);
+            return new TopicRef(site, Long.parseLong(discourseTopicId(topic)),
+                    slug.matches("[A-Za-z0-9_-]{1,200}") ? slug : "topic");
+        } catch (NumberFormatException overflow) {
+            return null;
+        }
+    }
+
+    // 打开分享时的主题地址，与 topicRef 互逆。
+    String shareTopicUrl(long id, String slug) {
+        return switch (engine) {
+            case DISCOURSE -> origin() + "/t/" + (isTopicNumber(slug) ? "topic" : slug) + "/" + id;
+            case V2EX -> origin() + "/t/" + id;
+            case NODESEEK -> origin() + "/post-" + id + "-1";
+        };
+    }
+
+    boolean usesTopicSlug() {
+        return engine == Engine.DISCOURSE;
+    }
+
+    // 分享内容里的站点 ID 必须精确匹配，不能像 byId 那样回退到默认站点。
+    static ForumSite forShareId(String id) {
+        for (ForumSite site : values()) {
+            if (site.id.equals(id)) return site;
+        }
+        return null;
     }
 }

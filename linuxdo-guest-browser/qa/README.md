@@ -83,11 +83,11 @@ python3 pycharm/scripts/verify-favorites-ui.py
 
 ## 多论坛候选包校验
 
-16.2 安装包包含多论坛支持、统一隐私布局和验证等待修复；旧 16.0 ZIP 可从 Git 历史获取，用于隔离环境的升级/回退测试。`npm test` 的安装包测试校验包结构与版本元数据，提交的 16.2 包及新构建还必须执行源码资源校验：
+16.3 安装包包含多论坛支持、统一隐私布局、Cloudflare 验证循环修复与四站加密分享；旧 16.0 ZIP 可从 Git 历史获取，用于隔离环境的升级/回退测试。`npm test` 的安装包测试校验包结构与版本元数据，提交的 16.3 包及新构建还必须执行源码资源校验：
 
 ```bash
 bash pycharm/scripts/build-local.sh
-bash pycharm/scripts/verify-package.sh pycharm/build/distributions/linuxdo-guest-browser-pycharm-16.2.zip --source
+bash pycharm/scripts/verify-package.sh pycharm/build/distributions/linuxdo-guest-browser-pycharm-16.3.zip --source
 ```
 
 本地构建脚本已自动执行第二步，CI 也对新生成的 ZIP 执行同样检查。检查要求包含 `ForumSite.class`，并逐字节核对全部非 `plugin.xml` 资源，包括六份站点 CSS、阅读脚本和名称资源；`plugin.xml` 由 Gradle 改写，因此其版本与构建范围继续由 QA 元数据检查负责。旧发布包仍可以不加 `--source` 做基础完整性校验。

@@ -8,6 +8,7 @@ final class DocumentLoadState {
     private boolean challengeNeedsInteraction;
     private long challengeStartedNanos;
     private int challengeTimeoutMillis;
+    private int challengeNavigations;
 
     synchronized void begin() {
         awaiting = true;
@@ -15,6 +16,7 @@ final class DocumentLoadState {
         responseStatus = 0;
         challengeActive = false;
         challengeNeedsInteraction = false;
+        challengeNavigations = 0;
     }
 
     // Every actual navigation, including a same-URL automatic reload, needs tracking.
@@ -67,6 +69,20 @@ final class DocumentLoadState {
         return challengeActive;
     }
 
+    // 验证期间页面自己发起的重载或跳转。每次都意味着 Cloudflare 又出了一轮验证（或终于放行）。
+    synchronized void challengeNavigationStarted() {
+        if (challengeActive) challengeNavigations++;
+    }
+
+    // 当前是第几轮验证；没有验证时为 0。
+    synchronized int challengeRound() {
+        return challengeActive ? challengeNavigations + 1 : 0;
+    }
+
+    synchronized long challengeElapsedMillis(long nowNanos) {
+        return challengeActive ? Math.max(0, (nowNanos - challengeStartedNanos) / 1_000_000L) : 0;
+    }
+
     synchronized boolean requestChallengeInteraction() {
         if (!challengeActive || challengeNeedsInteraction) return false;
         challengeNeedsInteraction = true;
@@ -89,5 +105,6 @@ final class DocumentLoadState {
         responseStatus = 0;
         challengeActive = false;
         challengeNeedsInteraction = false;
+        challengeNavigations = 0;
     }
 }

@@ -28,6 +28,8 @@ public final class ForumSiteTest {
         mixedForumPersistenceChain();
         cleanOtherForumTitles();
         describeOtherForums();
+        shareTopicsOnEveryForum();
+        recognizeCloudflareChallenges();
     }
 
     // {input, canonical history URL or null, favoritable topic}. Paths and titles checked on the live sites.
@@ -164,9 +166,69 @@ public final class ForumSiteTest {
         check(ForumSite.cookieDeletionUrl(".nodeseek.com", "/"), "https://nodeseek.com/", "nodeseek domain cookie");
         check(ForumSite.cookieDeletionUrl(".v2ex.com", "/"), "https://v2ex.com/", "v2ex domain cookie");
         check(ForumSite.cookieDeletionUrl("stat.nodeseek.org", "/"), null, "analytics host is not a forum");
-        for (ForumSite site : ForumSite.values()) {
-            assert site == ForumSite.LINUX_DO || !site.shareSupported() : site + " has no encrypted share format yet";
+    }
+
+    // {url, site id, topic id, slug} for shareable topics; null site means not shareable.
+    private static final String[][] SHARE_TOPICS = {
+            {"https://linux.do/t/hello-linux-do/12345/7", "linuxdo", "12345", "hello-linux-do"},
+            {"https://linux.do/t/12345", "linuxdo", "12345", "topic"},
+            {"https://linux.do/t/12345/7", "linuxdo", "12345", "topic"},
+            {"https://linux.do/t/中文/12345", "linuxdo", "12345", "topic"},
+            {"https://linux.do/t/%E4%B8%AD/12345?u=a#post_3", "linuxdo", "12345", "topic"},
+            {"https://idcflare.com/t/topic/39038/5", "idcflare", "39038", "topic"},
+            {"https://idcflare.com/t/hello-idc/1/3", "idcflare", "1", "hello-idc"},
+            {"https://www.nodeseek.com/post-969428-3#12", "nodeseek", "969428", ""},
+            {"https://nodeseek.com/post-1-1", "nodeseek", "1", ""},
+            {"https://v2ex.com/t/1246711?p=2#reply5", "v2ex", "1246711", ""},
+            {"https://linux.do/t/abc", null, null, null},
+            {"https://linux.do/t/x/0045", null, null, null},
+            {"https://linux.do/t/x/99999999999999999999", null, null, null},
+            {"https://linux.do/latest", null, null, null},
+            {"https://cdn.linux.do/t/x/1", null, null, null},
+            {"http://linux.do/t/x/1", null, null, null},
+            {"https://linux.do/t/x/1?__cf_chl_tk=abc", null, null, null},
+            {"https://www.nodeseek.com/post-123", null, null, null},
+            {"https://www.v2ex.com/go/python", null, null, null},
+            {"https://example.com/t/x/1", null, null, null},
+    };
+
+    private static void shareTopicsOnEveryForum() {
+        for (String[] row : SHARE_TOPICS) {
+            ForumSite.TopicRef ref = ForumSite.topicRef(row[0]);
+            check(ref == null ? null : ref.site().id(), row[1], "share site " + row[0]);
+            check(ref == null ? null : Long.toString(ref.id()), row[2], "share id " + row[0]);
+            check(ref == null ? null : ref.slug(), row[3], "share slug " + row[0]);
+            if (ref != null) {
+                ForumSite.TopicRef again = ForumSite.topicRef(ref.site().shareTopicUrl(ref.id(), ref.slug()));
+                assert ref.equals(again) : "share URL must round-trip: " + row[0];
+            }
         }
+        check(ForumSite.NODESEEK.shareTopicUrl(12345, ""), "https://www.nodeseek.com/post-12345-1", "nodeseek share url");
+        check(ForumSite.V2EX.shareTopicUrl(12345, ""), "https://www.v2ex.com/t/12345", "v2ex share url");
+        check(ForumSite.IDCFLARE.shareTopicUrl(12345, "topic"), "https://idcflare.com/t/topic/12345", "idcflare share url");
+        check(ForumSite.LINUX_DO.shareTopicUrl(12345, "2048"), "https://linux.do/t/topic/12345", "numeric slug");
+        assert ForumSite.LINUX_DO.usesTopicSlug() && ForumSite.IDCFLARE.usesTopicSlug();
+        assert !ForumSite.NODESEEK.usesTopicSlug() && !ForumSite.V2EX.usesTopicSlug();
+        assert ForumSite.forShareId("nodeseek") == ForumSite.NODESEEK;
+        assert ForumSite.forShareId("missing") == null && ForumSite.forShareId(null) == null;
+    }
+
+    private static void recognizeCloudflareChallenges() {
+        assert ForumSite.hasChallengeParameters("https://linux.do/latest?__cf_chl_rt_tk=abc");
+        assert ForumSite.hasChallengeParameters("https://linux.do/latest?x=1&__CF_CHL_F_TK=abc");
+        assert !ForumSite.hasChallengeParameters("https://linux.do/latest?q=__cf_chl_tk");
+        assert !ForumSite.hasChallengeParameters("https://linux.do/latest");
+        assert !ForumSite.hasChallengeParameters(null) && !ForumSite.hasChallengeParameters("not a url");
+        check(ForumSite.reloadUrl("https://linux.do/latest?__cf_chl_f_tk=abc"), "https://linux.do/latest", "strip token");
+        check(ForumSite.reloadUrl("https://www.v2ex.com/?tab=hot&__cf_chl_rt_tk=x#r"), "https://www.v2ex.com/?tab=hot", "keep tab");
+        check(ForumSite.reloadUrl("https://linux.do/t/topic/1#post_2"), "https://linux.do/t/topic/1", "drop fragment");
+        check(ForumSite.reloadUrl("https://www.v2ex.com/t/1?p=2"), "https://www.v2ex.com/t/1?p=2", "keep page");
+        check(ForumSite.reloadUrl("https://linux.do/search?q=%E4%B8%AD"), "https://linux.do/search?q=%E4%B8%AD", "keep encoding");
+        check(ForumSite.reloadUrl("about:blank"), "about:blank", "opaque url");
+        assert ForumSite.isChallengeTitle("Just a moment...") && ForumSite.isChallengeTitle(" just a moment… ");
+        assert ForumSite.isChallengeTitle("请稍候…") && ForumSite.isChallengeTitle("请稍候...");
+        assert !ForumSite.isChallengeTitle("Attention Required! | Cloudflare");
+        assert !ForumSite.isChallengeTitle("LINUX DO") && !ForumSite.isChallengeTitle(null);
     }
 
     // {input, canonical history URL or null, favoritable topic}. Captured from the 16.0 implementation.
@@ -182,6 +244,8 @@ public final class ForumSiteTest {
             {"https://linux.do/t/example/123", "https://linux.do/t/example/123", "true"},
             {"https://linux.do/t/example/123/10?u=abc#post_10", "https://linux.do/t/example/123", "true"},
             {"https://linux.do/t/123", "https://linux.do/t/topic/123", "true"},
+            // Discourse 的 /t/编号/楼层 是主题 123，不是 slug 为 123 的主题 4。
+            {"https://linux.do/t/123/4", "https://linux.do/t/topic/123", "true"},
             {"https://linux.do/t/Example-Slug/0045", "https://linux.do/t/Example-Slug/0045", "true"},
             {"https://linux.do/t/topic/1/", "https://linux.do/t/topic/1", "true"},
             {"https://linux.do/t/abc", "https://linux.do/t/abc", "true"},
@@ -350,7 +414,6 @@ public final class ForumSiteTest {
         check(site.searchUrl("中 文"), "https://linux.do/search?q=%E4%B8%AD+%E6%96%87", "search url");
         assert site.isSearchUrl("https://linux.do/search?q=x");
         assert !site.isSearchUrl("https://linux.do/latest");
-        assert site.shareSupported();
     }
 
     private static void shipReaderAssetsForEverySite() throws IOException {

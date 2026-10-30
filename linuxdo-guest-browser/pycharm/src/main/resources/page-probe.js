@@ -95,7 +95,10 @@
       html: boxOf(document.documentElement),
       body: boxOf(document.body),
       mainOutlet: boxOf(document.querySelector(__LEXIAO_ROOT_SELECTOR__)),
-      cfChallenge: Boolean(document.querySelector('script[src*="/cdn-cgi/challenge-platform/"],#challenge-form,#challenge-stage')),
+      // 普通页面也会加载 Cloudflare 的检测脚本（同样定义 _cf_chl_opt），只有验证页带验证类型 cType。
+      // 插件不往验证页注入探针，所以这里应始终为 false。
+      cfChallenge: Boolean(window._cf_chl_opt && window._cf_chl_opt.cType)
+        || /^(?:just a moment|请稍候)/i.test(document.title || ''),
       loadingStyle: styleTagInfo('lexiao-guest-loading-privacy'),
       readerStyle: styleTagInfo('lexiao-guest-reader-style'),
       maskTimerPending: Boolean(window.__lexiaoLoadingMaskTimer),

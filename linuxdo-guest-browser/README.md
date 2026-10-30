@@ -9,7 +9,7 @@
 | 平台 | 版本 | 安装包 | SHA-256 |
 | --- | --- | --- | --- |
 | VS Code | 0.19.0 | [下载 VSIX](dist/linuxdo-guest-browser-vscode-0.19.0.vsix) | `3d83c65888a67f171997c570ab2f1c95e9cf28246853ab2947a967a68114bd8e` |
-| PyCharm | 16.2 | [下载 ZIP](dist/linuxdo-guest-browser-pycharm-16.2.zip) | `1ff07f94cedc5fb54dc07d3c77bc9b9532dad4c24921a14ad90435993182f4ee` |
+| PyCharm | 16.3 | [下载 ZIP](dist/linuxdo-guest-browser-pycharm-16.3.zip) | `6e5c31b7e4ada0c7fa261034f6eaa74cb009cf270254465c7e749d71a9a640af` |
 
 校验下载文件：Windows 使用 `certutil -hashfile <文件> SHA256`，macOS/Linux 使用 `shasum -a 256 <文件>`。
 
@@ -25,14 +25,14 @@
 
 在 **Settings > Plugins > 齿轮菜单 > Install Plugin from Disk...** 中选择 ZIP 并重启，安装时无需解压。打开 **View > Tool Windows > 论坛游客阅读器**，从“⋯ > 切换论坛”选择站点。
 
-16.2 修复同地址自动刷新漏跟踪、错误响应误判完成及重试时遗留的加载状态，并取消帖子标题与正文加粗。收到验证响应头即显示验证状态；等待期间保留真实网页，并提供重新验证、停止验证和在浏览器打开操作。
+16.3 修复 LINUX DO 等站点反复停在 Cloudflare 验证页：插件不再给页面导航挂请求处理器（挂上后每次导航都被要求验证，刚拿到的验证结果也不被承认），也不再往验证页里执行任何脚本；首次启动的导航不再丢失并误报加载超时，刷新与重试改为重新加载去掉验证参数的地址。加密分享扩展到 NodeSeek、V2EX 和 IDC Flare。识别到验证页即显示验证状态及轮次；等待期间保留真实网页，并提供重新验证、停止验证和在浏览器打开操作。
 
 声明支持 PyCharm 2022.3–2026.3（构建号 `223–263.*`），需要带 JCEF 的 JetBrains Runtime。声明范围不代表所有版本均完成 GUI 验收，实际范围见 [PyCharm 验证记录](qa/docs/pycharm-validation.md)。功能、数据行为及故障处理见 [PyCharm 使用说明](pycharm/README.md)。
 
 ## 共同功能
 
 - 最近 60 条公开页面历史及本地收藏目录，支持搜索与重新打开。
-- LINUX DO 公开主题可用密码加密分享，期限为 10 分钟至 7 天，两平台互通。密码与分享内容应分开发送；到期后拒绝导入，但无法撤回已经打开的公开 URL。
+- 公开主题可用密码加密分享，期限为 10 分钟至 7 天。LINUX DO 主题的分享两平台互通；PyCharm 另可分享 NodeSeek、V2EX 和 IDC Flare 主题，需用 PyCharm 16.3 或更新版本打开。密码与分享内容应分开发送；到期后拒绝导入，但无法撤回已经打开的公开 URL。
 - 默认关闭的休息提醒，开启后随机等待 31–60 分钟；可延后 10 分钟或进入 2048、贪吃蛇、单道路赛车、像素跳跃、扫雷。
 
 ## 构建和测试

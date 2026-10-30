@@ -4,7 +4,6 @@ import javax.crypto.Cipher;
 import javax.crypto.Mac;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.ByteBuffer;
@@ -20,8 +19,6 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public final class ShareCode {
     public static final long MAX_DURATION_MS = 7L * 24 * 60 * 60 * 1000;
@@ -36,7 +33,6 @@ public final class ShareCode {
     private static final int TAG_BITS = 128;
     private static final byte[] AAD = "LDGS2".getBytes(StandardCharsets.US_ASCII);
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final Pattern TOPIC_PATH = Pattern.compile("^/t/([^/]+)/([1-9][0-9]*)(?:/.*)?$");
     private static final String[] PASSWORD_GROUPS = {
             "ABCDEFGHJKLMNPQRSTUVWXYZ",
             "abcdefghijkmnopqrstuvwxyz",
@@ -46,9 +42,15 @@ public final class ShareCode {
 
     private ShareCode() {}
 
-    public record Topic(long id, String slug, String title) {
+    // slug 只用于 Discourse 论坛（LINUX DO、IDC Flare）；NodeSeek 和 V2EX 的主题地址只有编号，slug 为空串。
+    public record Topic(ForumSite site, long id, String slug, String title) {
+        // VS Code 版和 16.2 及以前只有 LINUX DO 主题。
+        public Topic(long id, String slug, String title) {
+            this(ForumSite.LINUX_DO, id, slug, title);
+        }
+
         public String url() {
-            return "https://linux.do/t/" + slug + "/" + id;
+            return site.shareTopicUrl(id, slug);
         }
     }
 
@@ -70,8 +72,7 @@ public final class ShareCode {
         }
         byte[] salt = fixedLength(rawSalt, SALT_BYTES, "分享盐");
         byte[] nonce = fixedLength(rawNonce, NONCE_BYTES, "分享随机数");
-        String payloadText = "v=2&id=" + normalized.id()
-                + "&slug=" + encode(normalized.slug())
+        String payloadText = topicPayload(normalized)
                 + "&title=" + encode(normalized.title())
                 + "&iat=" + now
                 + "&exp=" + (now + durationMs);
@@ -125,12 +126,7 @@ public final class ShareCode {
         }
 
         Map<String, String> values = parseQuery(new String(payload, StandardCharsets.UTF_8));
-        List<String> expected = List.of("v", "id", "slug", "title", "iat", "exp");
-        if (values.size() != expected.size() || !values.keySet().containsAll(expected) || !"2".equals(values.get("v"))) {
-            throw new IllegalArgumentException("加密分享内容无效。");
-        }
-        long id = parseLong(values.get("id"), "主题编号无效。");
-        Topic topic = normalize(new Topic(id, values.get("slug"), values.get("title")));
+        Topic topic = topicFrom(values);
         long createdAt = parseLong(values.get("iat"), "分享时间信息无效。");
         long expiresAt = parseLong(values.get("exp"), "分享时间信息无效。");
         if (createdAt <= 0 || expiresAt <= createdAt) throw new IllegalArgumentException("分享时间信息无效。");
@@ -166,15 +162,47 @@ public final class ShareCode {
     }
 
     public static Topic fromTopicUrl(String rawUrl, String title) {
+        ForumSite.TopicRef ref = ForumSite.topicRef(rawUrl);
+        if (ref == null) return null;
         try {
-            URI uri = URI.create(rawUrl);
-            if (!"https".equalsIgnoreCase(uri.getScheme()) || !"linux.do".equalsIgnoreCase(uri.getHost())) return null;
-            Matcher matcher = TOPIC_PATH.matcher(uri.getPath() == null ? "" : uri.getPath());
-            if (!matcher.matches()) return null;
-            return normalize(new Topic(Long.parseLong(matcher.group(2)), matcher.group(1), title));
+            return normalize(new Topic(ref.site(), ref.id(), ref.slug(), title));
         } catch (IllegalArgumentException ignored) {
             return null;
         }
+    }
+
+    // LINUX DO 仍用 v=2，与 VS Code 版逐字节互通；其它论坛用带站点的 v=3。VS Code 版和 16.2 及以前
+    // 认不出 v=3，会报“加密分享内容无效”，而不会把它当成 LINUX DO 上同编号的主题打开。
+    private static String topicPayload(Topic topic) {
+        if (topic.site() == ForumSite.LINUX_DO) return "v=2&id=" + topic.id() + "&slug=" + encode(topic.slug());
+        return "v=3&site=" + topic.site().id() + "&id=" + topic.id()
+                + (topic.site().usesTopicSlug() ? "&slug=" + encode(topic.slug()) : "");
+    }
+
+    private static Topic topicFrom(Map<String, String> values) {
+        String version = values.get("v");
+        ForumSite site;
+        List<String> expected;
+        if ("2".equals(version)) {
+            site = ForumSite.LINUX_DO;
+            expected = List.of("v", "id", "slug", "title", "iat", "exp");
+        } else if ("3".equals(version)) {
+            site = ForumSite.forShareId(values.get("site"));
+            // 每个主题只有一种编码：LINUX DO 只能是 v=2。
+            if (site == null || site == ForumSite.LINUX_DO) throw new IllegalArgumentException("加密分享内容无效。");
+            expected = site.usesTopicSlug()
+                    ? List.of("v", "site", "id", "slug", "title", "iat", "exp")
+                    : List.of("v", "site", "id", "title", "iat", "exp");
+        } else if (version != null && version.matches("[4-9]|[1-9][0-9]{1,3}")) {
+            throw new IllegalArgumentException("此加密分享由更新版本的插件生成，请升级插件后再打开。");
+        } else {
+            throw new IllegalArgumentException("加密分享内容无效。");
+        }
+        if (values.size() != expected.size() || !values.keySet().containsAll(expected)) {
+            throw new IllegalArgumentException("加密分享内容无效。");
+        }
+        long id = parseLong(values.get("id"), "主题编号无效。");
+        return normalize(new Topic(site, id, site.usesTopicSlug() ? values.get("slug") : "", values.get("title")));
     }
 
     private static String normalizePassword(String password) {
@@ -186,12 +214,20 @@ public final class ShareCode {
     }
 
     private static Topic normalize(Topic topic) {
-        if (topic == null || topic.id() <= 0) throw new IllegalArgumentException("主题编号无效。");
+        if (topic == null || topic.site() == null || topic.id() <= 0) throw new IllegalArgumentException("主题编号无效。");
         String slug = topic.slug() == null ? "" : topic.slug().trim();
         String title = topic.title() == null ? "" : topic.title().replaceAll("[\\r\\n]+", " ").trim();
-        if (!slug.matches("[A-Za-z0-9_-]{1,200}")) throw new IllegalArgumentException("主题地址无效。");
+        if (topic.site().usesTopicSlug() ? !slug.matches("[A-Za-z0-9_-]{1,200}") : !slug.isEmpty()) {
+            throw new IllegalArgumentException("主题地址无效。");
+        }
         if (title.isEmpty() || title.length() > 200) throw new IllegalArgumentException("主题标题无效。");
-        return new Topic(topic.id(), slug, title);
+        Topic normalized = new Topic(topic.site(), topic.id(), slug, title);
+        // 打开的地址必须仍是该论坛上的同一个主题，而不是别的页面。
+        ForumSite.TopicRef ref = ForumSite.topicRef(normalized.url());
+        if (ref == null || ref.site() != normalized.site() || ref.id() != normalized.id()) {
+            throw new IllegalArgumentException("主题地址无效。");
+        }
+        return normalized;
     }
 
     private static Map<String, String> parseQuery(String query) {

@@ -37,9 +37,10 @@ export const sharedCases = [
     steps: [
       { action: '在 VS Code 生成分享，在 PyCharm 使用相同密码打开。', expected: '打开相同公开主题。' },
       { action: '在 PyCharm 生成分享，在 VS Code 使用相同密码打开。', expected: '打开相同公开主题。' },
-      { action: '分别测试错误密码和已过期内容。', expected: '两端均拒绝且不泄漏主题元数据。' }
+      { action: '分别测试错误密码和已过期内容。', expected: '两端均拒绝且不泄漏主题元数据。' },
+      { action: '在 PyCharm 生成 NodeSeek、V2EX 或 IDC Flare 主题的分享，在 VS Code 使用相同密码打开。', expected: 'VS Code 提示“加密分享内容无效”，不打开任何 LINUX DO 主题。' }
     ],
-    expected: '分享内容双向兼容，错误与过期处理一致。'
+    expected: 'LINUX DO 分享双向兼容；其它论坛的分享只在 PyCharm 打开，错误与过期处理一致。'
   }),
   defineCase({
     id: 'SHR-004',

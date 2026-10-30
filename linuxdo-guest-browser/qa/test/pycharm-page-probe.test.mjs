@@ -143,18 +143,20 @@ test('probe injection is not gated on the load-completion path it diagnoses', ()
   );
 });
 
-// linux.do 挂在 Cloudflare 后面，人机验证页本身就是带着 403 返回的（`cf-mitigated: challenge`）。
+// linux.do 挂在 Cloudflare 后面，人机验证页本身就是带着 403 返回的。
 // 把它当加载失败处理会调用 stopLoad()，页内验证脚本当场中断，cf_clearance 永远拿不到——
-// 报错越"及时"，越不可能连上。
+// 报错越"及时"，越不可能连上。16.3 起不读响应头，靠标题和 __cf_chl_ 地址认出验证页；
+// 没有这些特征的 403/503 也要先等它们到齐再判定，绝不立刻失败。
 test('Cloudflare challenge status codes are not treated as load failures', () => {
   const onLoadEnd = factorySource.slice(
     factorySource.indexOf('public void onLoadEnd'),
     factorySource.indexOf('public void onLoadError')
   );
+  assert.match(onLoadEnd, /else if \(challenge\) \{\s*handleChallengeResponse/, 'a challenge page must route to the challenge handler');
   assert.match(
     onLoadEnd,
-    /isChallengeStatus\(httpStatusCode\)[\s\S]*?handleChallengeResponse/,
-    'a challenge status must route to the challenge handler, not showLoadFailure'
+    /isChallengeStatus\(httpStatusCode\)\) \{\s*checkDenialAfterSettling/,
+    'a 403/503 without challenge markers must wait for them before it can fail'
   );
 
   const challengeStatus = factorySource.slice(
@@ -162,6 +164,17 @@ test('Cloudflare challenge status codes are not treated as load failures', () =>
   ).slice(0, 200);
   assert.match(challengeStatus, /403/, '403 must count as a challenge');
   assert.match(challengeStatus, /503/, '503 must count as a challenge');
+});
+
+test('challenge pages are recognised without reading response headers', () => {
+  const display = factorySource.slice(
+    factorySource.indexOf('public void onAddressChange'),
+    factorySource.indexOf('public boolean onConsoleMessage')
+  );
+  assert.match(display, /ForumSite\.hasChallengeParameters\(url\)\) handleChallengeResponse/);
+  assert.match(display, /ForumSite\.isChallengeTitle\(currentPageTitle\)\) handleChallengeResponse/);
+  assert.ok(!factorySource.includes('"cf-mitigated"') && !factorySource.includes('getHeaderMap'),
+    'no code path may depend on the response header');
 });
 
 test('the challenge path leaves verification running until its deadline', () => {
@@ -179,9 +192,21 @@ test('the challenge path leaves verification running until its deadline', () => 
     !handler.includes('showLoadFailure'),
     'a challenge response must not go straight to the error card'
   );
-  // 遮罩必须撤掉，否则验证界面会被糊成纯白，用户看不见也点不了。
-  assert.match(handler, /clearLoadingPrivacyStyle/, 'challenge page must be unmasked so it is visible');
   assert.match(handler, /handleChallengeTimeout\(\)/, 'challenge must check and schedule the remaining timeout');
+});
+
+// 验证页只属于 Cloudflare。16.2 每轮验证都往验证页里注入探针和撤遮罩脚本；
+// 现在每个注入点都先经过 mayInjectPageScript，验证页里一律跳过。
+test('no plugin script runs inside a Cloudflare challenge document', () => {
+  assert.ok(!factorySource.includes('clearLoadingPrivacyStyle'), 'unmasking was itself a script injection');
+  const methods = factorySource.split(/\n        (?=private |public |@Override)/);
+  const injecting = methods.filter(method => method.includes('executeJavaScript('));
+  assert.ok(injecting.length >= 5, 'expected the injection sites to be found');
+  for (const method of injecting) {
+    assert.match(method, /mayInjectPageScript\(/, `guard missing in: ${method.slice(0, 80)}`);
+  }
+  const guard = factorySource.slice(factorySource.indexOf('private boolean mayInjectPageScript'));
+  assert.match(guard.slice(0, 600), /challengeDocument[\s\S]*isChallengeActive\(\)[\s\S]*hasChallengeParameters[\s\S]*isChallengeTitle/);
 });
 
 test('a load that stops without settling never silently disarms both timers', () => {

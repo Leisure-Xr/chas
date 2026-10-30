@@ -22,7 +22,7 @@ export const pycharmCases = [
       { action: '从“⋯ > 切换论坛”依次切到 NodeSeek、V2EX、IDC Flare 和 LINUX DO，再重启隔离 IDE。', expected: '进入对应首页；当前论坛打勾，导航行、搜索框和标题栏同步切换；重启后回到上次的论坛。' },
       { action: '在 LINUX DO 帖子中点击指向 NodeSeek 或 V2EX 主题的链接。', expected: '在插件内打开并自动切换到对应论坛。' },
       { action: '在四个论坛各收藏一个主题，再打开浏览历史和收藏夹。', expected: '历史与收藏混合显示；收藏行显示站点名，按站点名搜索可以过滤。' },
-      { action: '在非 LINUX DO 的主题上打开“⋯”菜单。', expected: '“分享当前主题（暂仅支持 LINUX DO）”置灰；LINUX DO 主题仍可分享。' }
+      { action: '在四个论坛的主题上分别选择“⋯ > 分享当前主题”，再用“打开加密分享”导入。', expected: '四个论坛均可生成分享；导入后打开同一论坛的同一主题；非主题页面的分享菜单置灰。' }
     ], expected: '四个论坛可在同一工具窗口切换，历史和收藏跨站点共用。'
   }),
   defineCase({
@@ -38,8 +38,8 @@ export const pycharmCases = [
     id: 'PYC-016', title: '人机验证、登录墙与受限内容', product: 'pycharm', priority: 'P0', type: 'guided',
     capabilities: ['live-network', 'jcef'],
     steps: [
-      { action: '用全新隔离配置依次打开四个论坛首页，等待或点击真实验证框。', expected: '验证页可见；NodeSeek 自动等待 45 秒，其余站点 20 秒，自动刷新不重置期限。成功后提示栏隐藏，正文恢复隐私布局；无法通过时记录阻塞，不记为成功。' },
-      { action: '等待超过自动验证期限，再测试重新验证、停止验证、重试及切换论坛。', expected: '期限结束后显示手动验证提示，页面和脚本继续运行；停止后显示错误页，重试开始新等待；切换论坛后旧提示和计时不会干扰新页面。' },
+      { action: '用全新隔离配置依次打开四个论坛首页，等待或点击真实验证框。', expected: '首次启动不报加载超时；验证页可见；NodeSeek 自动等待 45 秒，其余站点 20 秒，自动刷新不重置期限，提示栏显示验证轮次。验证页内日志只有 page script skipped，没有探针输出。成功后提示栏隐藏，正文恢复隐私布局；无法通过时记录阻塞，不记为成功。' },
+      { action: '等待超过自动验证期限，再测试重新验证、停止验证、重试及切换论坛。', expected: '期限结束后显示手动验证提示，页面和脚本继续运行；重新验证与重试都发起新的页面请求（日志有 reload requested 与新的 main frame loaded）；停止后显示错误页；切换论坛后旧提示和计时不会干扰新页面。' },
       { action: '打开 V2EX 需要登录的节点（如 /go/chamber）。', expected: '显示“站点将游客请求重定向到登录页面”，不绕过登录墙。' },
       { action: '打开 NodeSeek 内版（/categories/inside）或设有阅读等级的帖子。', expected: '立即显示可重试错误页，不空等验证超时。' }
     ], expected: '真正的验证得到等待，登录墙和受限内容如实报告。'
